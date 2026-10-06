@@ -1,0 +1,39 @@
+target/
+.mvn/wrapper/maven-wrapper.jar
+.env
+.env.*
+!.env.example
+*.log
+logs/
+application-*.local.yml
+application-*.local.yaml
+*.secret.yml
+*.secret.yaml
+.DS_Store
+Thumbs.db
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+
+### VS Code ###
+.vscode/

@@ -1,0 +1,6 @@
+# Activate explicitly with SPRING_PROFILES_ACTIVE=local.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/voicelink}
+    username: ${DB_USERNAME:voicelink_dev}
+    password: ${POSTGRES_PASSWORD}
