@@ -2,7 +2,7 @@
 
 **VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
 
-Status: **Foundation / active development (Gate 1)**.
+Status: **Foundation / active development**. Gate 1 passed, including owner-performed local PostgreSQL and runtime verification. Gate 1.5 is documenting that evidence and preparing the public GitHub checkpoint.
 
 VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application is a foundation only; it does not yet process speech, translate, synthesize audio, create rooms, or authenticate users.
 
@@ -34,7 +34,7 @@ Java 21, Spring Boot 4.1.1, Maven Wrapper, Spring Web MVC, Security, Data JPA, V
 From the repository root:
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad .env
 ```
 
@@ -77,4 +77,4 @@ With the application running, request `http://localhost:8080/` and `http://local
 
 The root page and health endpoint are public for foundation verification. Every other route is denied. HTTP Basic and form login are disabled, and the security configuration supplies no accounts, so there is no intended generated login password. CSRF protection remains at its framework default. Authentication, authorization policy, domain APIs, room membership, real-time media, AI integrations, and the final UI are outside Gate 1.
 
-See [architecture](docs/ARCHITECTURE.md) and [development plan](docs/DEVELOPMENT_PLAN.md).
+See [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [project log](docs/PROJECT_LOG.md), and [testing evidence](docs/TESTING.md).

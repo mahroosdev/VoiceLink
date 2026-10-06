@@ -4,12 +4,15 @@ Each gate requires its own scope and review before implementation. This document
 
 | Gate | Scope | Status |
 | --- | --- | --- |
-| 0 | Verify workspace and local toolchain | Completed |
-| 1 | Application foundation, configuration, local database definition, minimal security/page, tests, docs | In progress; acceptance depends on Gate 1 verification |
-| 2 | Domain and database design with reviewed Flyway migrations | Planned |
-| 3 | Authentication, user preferences, and authorization policy | Planned |
-| 4 | Two-participant rooms, conversation state, and transport protocol | Planned |
-| 5 | Provider abstractions and selected speech/translation integrations | Planned |
-| 6 | Complete user experience, operational hardening, and release checks | Planned |
+| 0 | Verify workspace and local toolchain | PASS |
+| 1 | Application foundation, configuration, local database definition, minimal security/page, tests, docs | PASS; includes owner-performed PostgreSQL/runtime verification |
+| 1.5 | Record evidence and publish a public GitHub foundation checkpoint | IN PROGRESS until GitHub push and remote verification succeed |
+| 2 | Domain and database design with reviewed Flyway migrations | NOT STARTED |
+| 3 | Authentication, user preferences, and authorization policy | NOT STARTED |
+| 4 | Two-participant rooms, conversation state, and transport protocol | NOT STARTED |
+| 5 | Provider abstractions and selected speech/translation integrations | NOT STARTED |
+| 6 | Complete user experience, operational hardening, and release checks | NOT STARTED |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
+
+Evidence is recorded in [the project log](PROJECT_LOG.md) and [testing record](TESTING.md). Gate 2 requires its own accepted plan before implementation.
