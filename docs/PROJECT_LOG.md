@@ -88,3 +88,9 @@ This record is chronological and append-only. Later corrections belong in new en
 - **Skipped and remaining risk:** No WebSocket, AI provider, microphone/audio, conversation message, glossary persistence, final UI, software installation, or paid API call. No owner-performed browser room smoke test is claimed. The approved demo defers join-attempt rate limiting; public deployment still needs abuse controls and the existing account-system hardening. H2/Flyway and Mockito dynamic-agent warnings were non-failing; PostgreSQL integration passed.
 - **Security audit:** `git diff --check`, authored-file pattern review, ignore checks, and staged-file review found no real secret, credential, password/session/invite-code logging, disabled CSRF, anonymous room route, or client-controlled authoritative user ID. `.env`, logs, and `target/` stayed outside version control. The implementation checkpoint commit and push result are recorded in a later append-only entry after publication.
 - **Gate result and next gate:** Gate 3B is PASS by current automated evidence. Gate 4A is the next architecture review; Gate 4B, WebSocket, and AI remain NOT STARTED.
+
+## 2026-10-07 — Gate 3B Publication Evidence
+
+- **Implementation checkpoint:** `9d1769bbcc7094857bfbc56f4ef64c517934d3b4` (`feat: add two-person conversation rooms`) contains the verified Gate 3B implementation, tests, and documentation described above.
+- **Push and remote verification:** `git push origin main` succeeded without force or history rewrite. The immediate post-push check found local `main`, local `origin/main`, and remote `refs/heads/main` all at `9d1769bbcc7094857bfbc56f4ef64c517934d3b4`, with a clean worktree.
+- **Record update:** This append-only entry records the published feature commit and push result. It changes documentation only; the earlier 25 fast tests, clean package, and 3 PostgreSQL integration tests remain the verification evidence for the unchanged code.
