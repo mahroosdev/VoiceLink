@@ -26,7 +26,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/", "/login", "/register", "/actuator/health").permitAll()
                 .requestMatchers(HttpMethod.POST, "/login", "/register").permitAll()
                 .requestMatchers("/error").permitAll()
-                .requestMatchers("/app", "/app/**", "/rooms/**", "/api/**").authenticated()
+                .requestMatchers("/app", "/app/**", "/rooms", "/rooms/**", "/api/**").authenticated()
                 .requestMatchers("/ws/**").denyAll()
                 .anyRequest().denyAll())
             .httpBasic(AbstractHttpConfigurer::disable)

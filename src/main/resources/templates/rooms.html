@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rooms | VoiceLink</title>
+</head>
+<body>
+  <main>
+    <h1>Your rooms</h1>
+    <p><a th:href="@{/app}">Back to app</a></p>
+
+    <section aria-labelledby="create-heading">
+      <h2 id="create-heading">Create a room</h2>
+      <p>Choose the languages for this conversation. The other participant will use the reverse direction.</p>
+      <p th:if="${roomError}" th:text="${roomError}" role="alert"></p>
+      <form th:action="@{/rooms}" th:object="${createRoomForm}" method="post">
+        <div>
+          <label for="speaking">I speak</label>
+          <select id="speaking" th:field="*{speaking}" th:attr="aria-invalid=${#fields.hasErrors('speaking')}">
+            <option value="">Choose a language</option>
+            <option value="en">English</option>
+            <option value="ta">Tamil</option>
+          </select>
+          <p th:if="${#fields.hasErrors('speaking')}" th:errors="*{speaking}" role="alert"></p>
+        </div>
+        <div>
+          <label for="listening">I receive translation in</label>
+          <select id="listening" th:field="*{listening}" th:attr="aria-invalid=${#fields.hasErrors('listening')}">
+            <option value="">Choose a language</option>
+            <option value="en">English</option>
+            <option value="ta">Tamil</option>
+          </select>
+          <p th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
+        </div>
+        <button type="submit">Create room</button>
+      </form>
+    </section>
+
+    <section aria-labelledby="join-heading">
+      <h2 id="join-heading">Join a room</h2>
+      <p>Enter the private code shared with you. Your language direction will be the reverse of the creator's:
+         if they speak English and receive Tamil, you speak Tamil and receive English;
+         if they speak Tamil and receive English, you speak English and receive Tamil.</p>
+      <p th:if="${joinError}" th:text="${joinError}" role="alert"></p>
+      <form th:action="@{/rooms/join}" method="post">
+        <label for="joinCode">Invite code</label>
+        <input id="joinCode" name="joinCode" type="text" required maxlength="19"
+               autocomplete="off" autocapitalize="characters" spellcheck="false"
+               aria-describedby="code-help">
+        <p id="code-help">Use the 16-character code, with or without hyphens.</p>
+        <button type="submit">Join room</button>
+      </form>
+    </section>
+
+    <section aria-labelledby="list-heading">
+      <h2 id="list-heading">Room list</h2>
+      <p th:if="${#lists.isEmpty(rooms)}">You have no rooms yet.</p>
+      <ul th:unless="${#lists.isEmpty(rooms)}">
+        <li th:each="item : ${rooms}">
+          <a th:href="@{/rooms/{id}(id=${item.id})}">Open room</a>
+          — <span th:text="${item.status}"></span>
+          <span th:if="${item.inviteExpired}">(invite expired)</span>
+        </li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

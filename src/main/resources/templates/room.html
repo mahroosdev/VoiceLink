@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Room | VoiceLink</title>
+</head>
+<body>
+  <main>
+    <h1>Conversation room</h1>
+    <p><a th:href="@{/rooms}">Back to your rooms</a></p>
+    <p role="status">Status: <strong th:text="${room.status}"></strong></p>
+
+    <section aria-labelledby="members-heading">
+      <h2 id="members-heading">Participants and languages</h2>
+      <ul>
+        <li th:each="person : ${room.participants}">
+          <span th:text="${person.displayName}"></span>
+          — speaks <span th:text="${person.speaking}"></span>, receives
+          <span th:text="${person.listening}"></span>
+        </li>
+      </ul>
+    </section>
+
+    <section th:if="${room.status.name() == 'WAITING'}" aria-labelledby="waiting-heading">
+      <h2 id="waiting-heading">Waiting for the second participant</h2>
+      <p>The person joining will speak <span th:text="${room.participants[0].listening}"></span>
+         and receive <span th:text="${room.participants[0].speaking}"></span>.</p>
+      <p th:if="${room.inviteExpired}">The invite has expired. Close this room and create a new one to invite someone.</p>
+      <div th:if="${room.inviteCode != null}">
+        <p>Share this private code directly with one person:</p>
+        <p><code th:text="${room.inviteCode}"></code></p>
+        <p>Invite expires at <time th:text="${room.inviteExpiresAt}"></time>.</p>
+      </div>
+    </section>
+
+    <section th:if="${room.status.name() == 'ACTIVE'}" aria-labelledby="active-heading">
+      <h2 id="active-heading">Room ready</h2>
+      <p>Both participants may return to this room while it is active.</p>
+      <p>Conversation features will arrive in a later gate.</p>
+    </section>
+
+    <p th:if="${room.status.name() == 'CLOSED'}">This room is closed. It cannot be reopened or joined.</p>
+    <form th:if="${room.status.name() != 'CLOSED'}" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
+      <button type="submit" th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
+    </form>
+  </main>
+</body>
+</html>

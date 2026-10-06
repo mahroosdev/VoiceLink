@@ -3,10 +3,23 @@ package com.mahroosdev.voicelink;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import com.mahroosdev.voicelink.auth.RegistrationForm;
 import com.mahroosdev.voicelink.auth.RegistrationService;
+import com.mahroosdev.voicelink.room.ConversationRoomRepository;
+import com.mahroosdev.voicelink.room.RoomInviteUnavailableException;
+import com.mahroosdev.voicelink.room.RoomParticipantRepository;
+import com.mahroosdev.voicelink.room.RoomService;
+import com.mahroosdev.voicelink.room.RoomStatus;
+import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import com.mahroosdev.voicelink.user.UserPreferencesRepository;
 import org.junit.jupiter.api.Test;
@@ -37,12 +50,15 @@ class PostgresIntegrationIT {
     @Autowired UserAccountRepository accounts;
     @Autowired UserPreferencesRepository preferences;
     @Autowired JdbcTemplate jdbc;
+    @Autowired RoomService rooms;
+    @Autowired ConversationRoomRepository roomRepository;
+    @Autowired RoomParticipantRepository participants;
 
     @Test
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(1);
+        assertThat(version).isEqualTo(2);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -64,5 +80,88 @@ class PostgresIntegrationIT {
 
         jdbc.update("DELETE FROM users WHERE id = ?", id);
         assertThat(preferences.findById(id)).isEmpty();
+    }
+
+    private UserAccount account(String name) {
+        return accounts.save(new UserAccount(name, UUID.randomUUID() + "@example.test", "test-only-hash"));
+    }
+
+    private void insertParticipant(UUID roomId, UUID userId, int slot, String speaking, String listening) {
+        jdbc.update("INSERT INTO room_participants "
+                + "(id, room_id, user_id, participant_slot, speaking_language_tag, listening_language_tag, joined_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, now())",
+                UUID.randomUUID(), roomId, userId, slot, speaking, listening);
+    }
+
+    @Test
+    void roomMigrationAndPostgresConstraintsEnforceTwoSlotsAndHistory() {
+        UserAccount creator = account("Creator");
+        UserAccount joiner = account("Joiner");
+        UserAccount third = account("Third");
+        UUID id = rooms.createRoom(creator.getId(), "en", "ta");
+        String code = roomRepository.findById(id).orElseThrow().getJoinCode();
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(1);
+
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO conversation_rooms "
+                + "(id, join_code, status, created_by_user_id, created_at, updated_at, invite_expires_at) "
+                + "VALUES (?, ?, 'WAITING', ?, now(), now(), now() + interval '1 day')",
+                UUID.randomUUID(), code, creator.getId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO conversation_rooms "
+                + "(id, join_code, status, created_by_user_id, created_at, updated_at, invite_expires_at) "
+                + "VALUES (?, ?, 'WAITING', ?, now(), now(), now() + interval '1 day')",
+                UUID.randomUUID(), UUID.randomUUID().toString().substring(0, 16), UUID.randomUUID()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertParticipant(id, UUID.randomUUID(), 2, "ta", "en"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertParticipant(id, creator.getId(), 2, "ta", "en"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertParticipant(id, joiner.getId(), 3, "ta", "en"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertParticipant(id, joiner.getId(), 2, "en", "en"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        rooms.joinRoom(joiner.getId(), code);
+        assertThatThrownBy(() -> insertParticipant(id, third.getId(), 2, "ta", "en"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("UPDATE conversation_rooms SET status = 'CLOSED' WHERE id = ?", id))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        rooms.closeRoom(joiner.getId(), id);
+        assertThat(roomRepository.findById(id).orElseThrow().getStatus()).isEqualTo(RoomStatus.CLOSED);
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(2);
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM users WHERE id = ?", creator.getId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void concurrentFinalSlotJoinHasOneWinnerAndOneSafeLoser() throws Exception {
+        UserAccount creator = account("Creator");
+        UserAccount first = account("First");
+        UserAccount second = account("Second");
+        UUID id = rooms.createRoom(creator.getId(), "en", "ta");
+        String code = roomRepository.findById(id).orElseThrow().getJoinCode();
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            List<Callable<String>> attempts = List.of(
+                    () -> tryJoin(start, first.getId(), code),
+                    () -> tryJoin(start, second.getId(), code));
+            List<Future<String>> results = new ArrayList<>();
+            for (var attempt : attempts) results.add(pool.submit(attempt));
+            start.countDown();
+            List<String> outcomes = List.of(results.get(0).get(60, TimeUnit.SECONDS),
+                    results.get(1).get(60, TimeUnit.SECONDS));
+            assertThat(outcomes).containsExactlyInAnyOrder("joined", "unavailable");
+        }
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(2);
+        assertThat(roomRepository.findById(id).orElseThrow().getStatus()).isEqualTo(RoomStatus.ACTIVE);
+    }
+
+    private String tryJoin(CountDownLatch start, UUID userId, String code) throws InterruptedException {
+        start.await();
+        try {
+            rooms.joinRoom(userId, code);
+            return "joined";
+        } catch (RoomInviteUnavailableException ex) {
+            return "unavailable";
+        }
     }
 }
