@@ -2,7 +2,7 @@
 
 **VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
 
-Status: **Foundation / active development**. Gate 1 passed, including owner-performed local PostgreSQL and runtime verification. Gate 1.5 is documenting that evidence and preparing the public GitHub checkpoint.
+Status: **Foundation / active development**. Gate 1 passed, including owner-performed local PostgreSQL and runtime verification. Gate 1.5 published the [public foundation checkpoint](https://github.com/mahroosdev/voicelink).
 
 VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application is a foundation only; it does not yet process speech, translate, synthesize audio, create rooms, or authenticate users.
 

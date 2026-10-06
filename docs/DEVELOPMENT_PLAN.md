@@ -6,7 +6,7 @@ Each gate requires its own scope and review before implementation. This document
 | --- | --- | --- |
 | 0 | Verify workspace and local toolchain | PASS |
 | 1 | Application foundation, configuration, local database definition, minimal security/page, tests, docs | PASS; includes owner-performed PostgreSQL/runtime verification |
-| 1.5 | Record evidence and publish a public GitHub foundation checkpoint | IN PROGRESS until GitHub push and remote verification succeed |
+| 1.5 | Record evidence and publish a public GitHub foundation checkpoint | PASS; public `main` push and remote verification completed |
 | 2 | Domain and database design with reviewed Flyway migrations | NOT STARTED |
 | 3 | Authentication, user preferences, and authorization policy | NOT STARTED |
 | 4 | Two-participant rooms, conversation state, and transport protocol | NOT STARTED |
