@@ -78,3 +78,4 @@ With the application running, request `http://localhost:8080/` and `http://local
 The root page and health endpoint are public for foundation verification. Every other route is denied. HTTP Basic and form login are disabled, and the security configuration supplies no accounts, so there is no intended generated login password. CSRF protection remains at its framework default. Authentication, authorization policy, domain APIs, room membership, real-time media, AI integrations, and the final UI are outside Gate 1.
 
 See [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [project log](docs/PROJECT_LOG.md), and [testing evidence](docs/TESTING.md).
+# VoiceLink
