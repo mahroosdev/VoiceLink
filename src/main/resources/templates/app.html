@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>App | VoiceLink</title>
+</head>
+<body>
+  <main>
+    <h1>VoiceLink</h1>
+    <p>Signed in as <span th:text="${email}"></span>.</p>
+    <p>Account foundation is ready. Conversation features are planned for later gates.</p>
+    <form th:action="@{/logout}" method="post"><button type="submit">Sign out</button></form>
+  </main>
+</body>
+</html>

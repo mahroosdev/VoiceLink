@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in | VoiceLink</title>
+</head>
+<body>
+  <main>
+    <h1>Sign in to VoiceLink</h1>
+    <p th:if="${param.error}" role="alert">Email or password is incorrect.</p>
+    <p th:if="${param.logout}" role="status">You have signed out.</p>
+    <p th:if="${registrationSuccess}" th:text="${registrationSuccess}" role="status" aria-live="polite"></p>
+    <form th:action="@{/login}" method="post">
+      <div><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required maxlength="254"></div>
+      <div><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      <button type="submit">Sign in</button>
+    </form>
+    <p><a th:href="@{/register}">Create an account</a></p>
+  </main>
+</body>
+</html>

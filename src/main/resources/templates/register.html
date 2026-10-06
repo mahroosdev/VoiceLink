@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create account | VoiceLink</title>
+</head>
+<body>
+  <main>
+    <h1>Create a VoiceLink account</h1>
+    <p th:if="${registrationError}" th:text="${registrationError}" role="alert"></p>
+    <form th:action="@{/register}" th:object="${registrationForm}" method="post">
+      <div>
+        <label for="displayName">Display name</label>
+        <input id="displayName" th:field="*{displayName}" autocomplete="name" required minlength="2" maxlength="60" th:attr="aria-invalid=${#fields.hasErrors('displayName')}">
+        <p th:if="${#fields.hasErrors('displayName')}" th:errors="*{displayName}" role="alert"></p>
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" th:field="*{email}" type="email" autocomplete="email" required maxlength="254" th:attr="aria-invalid=${#fields.hasErrors('email')}">
+        <p th:if="${#fields.hasErrors('email')}" th:errors="*{email}" role="alert"></p>
+      </div>
+      <div>
+        <label for="password">Password (15 to 128 characters)</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="15" maxlength="128" th:attr="aria-invalid=${#fields.hasErrors('password')}">
+        <p th:if="${#fields.hasErrors('password')}" th:errors="*{password}" role="alert"></p>
+      </div>
+      <button type="submit">Create account</button>
+    </form>
+    <p><a th:href="@{/login}">Already have an account? Sign in</a></p>
+  </main>
+</body>
+</html>
