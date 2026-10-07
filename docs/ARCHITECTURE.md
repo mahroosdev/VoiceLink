@@ -2,7 +2,7 @@
 
 ## Approved direction
 
-The browser will capture microphone input and display captions and playback in later gates. Java/Spring Boot owns application logic, validation, authorization, room membership, and future conversation and glossary behavior. Future provider abstractions will separate speech-to-text, translation, and text-to-speech services from the core application. PostgreSQL persists accounts and rooms. WebSocket support is included for later real-time communication; no message protocol is defined yet.
+The browser captures short microphone turns and displays captions and playback. Java/Spring Boot owns application logic, validation, authorization, room membership, and future conversation and glossary behavior. Provider interfaces separate speech-to-text, translation, and text-to-speech services from orchestration. PostgreSQL persists accounts and rooms. WebSocket version 1 carries room and speech-turn events.
 
 Planned path: browser microphone → Java/Spring Boot → speech-to-text → conversation context and glossary → translation → captions → text-to-speech → recipient.
 
@@ -26,7 +26,7 @@ This is a controlled development/demo identity boundary. Email verification, pas
 
 ## Planned, not implemented
 
-Persisted messages and history, glossary behavior, speech/translation providers, captions, audio delivery, and the final user interface.
+Persisted messages and history, full conversational context, persistent glossary behavior, Premium providers, and the final user interface.
 
 ## Gate 3B two-person room foundation
 
@@ -46,4 +46,14 @@ Each live room has an in-memory stream UUID and increasing sequence. Version 1 s
 
 Room activation and closure notifications are delivered only after their database transactions commit. Room publication is serialized so a concurrently accepted text event may precede `ROOM_CLOSED`, but no text event is published afterward. Logout and reported servlet session destruction close associated sockets; live sends also check the existing HTTP session. Exact timeout notification timing depends on the servlet container.
 
-Events and temporary text are transient. Reconnect performs a fresh authenticated handshake and receives current `ROOM_STATE`; it does not replay missed text or automatically resend uncertain text. A restart resets in-memory streams and sequence values, distinguished by a new stream UUID. There is no message, event, presence, or WebSocket-session table and no Flyway V3. Later audio design provisionally favors bounded authenticated HTTP upload for push-to-talk turns with WebSocket result/progress events; that choice requires Gate 5A validation.
+Events and temporary text are transient. Reconnect performs a fresh authenticated handshake and receives current `ROOM_STATE`; it does not replay missed text or automatically resend uncertain text. A restart resets in-memory streams and sequence values, distinguished by a new stream UUID. There is no message, event, presence, or WebSocket-session table and no Flyway V3. Gate 5A approved bounded authenticated HTTP upload for push-to-talk turns with WebSocket result events.
+
+## Gate 5A approval and Gate 5B Standard speech foundation
+
+The owner approved the 2026-10-08 provider research in [AI_PROVIDER_EVALUATION.md](AI_PROVIDER_EVALUATION.md). Gate 5B implements only `STANDARD`: Groq Free `whisper-large-v3` STT, Azure Translator F0, and Azure Speech F0 neural TTS. The profile is a fixed server-side mapping. It has no paid fallback, no Premium runtime path, and no provider credentials in the database or browser. The operator must explicitly confirm the actual provider resources are Free/F0 before enabling calls.
+
+An ACTIVE member sends a maximum 1 MiB WebM/Opus turn through CSRF-protected `POST /api/rooms/{roomId}/turns`. The server derives identity and English/Tamil direction from the authenticated principal and stored room participant. It ignores browser-supplied identity and language fields. A single-instance bounded worker processes turns serially per room: STT, source caption, translation, target caption, TTS, authenticated audio reference. Provider calls occur outside database transactions and WebSocket publication locks. `turnIndex` is acceptance/playback order; WebSocket `sequence` remains publication order. New version 1 event types are `TURN_ACCEPTED`, `TRANSCRIPT_READY`, `TRANSLATION_READY`, `AUDIO_READY`, and `TURN_FAILED`.
+
+Raw uploaded bytes are dropped after STT. Audio is available to ACTIVE room members from a no-store endpoint for five minutes, with a 16 MiB global audio cap; recent in-memory turn state expires after ten minutes. One runtime keeps at most 32 room states, four pending turns per room, 16 recent turns per room, and 128 bounded idempotency IDs per room. Closed rooms discard state. The idempotency window and temporary state do not survive restart. A recent-turn endpoint helps a reconnecting browser recover current captions, but this is not durable conversation history.
+
+Browser capture has a 15-second stop timer and checks `MediaRecorder.isTypeSupported` before recording. The server checks size, declared duration, WebM signature, and WebM/Opus markers, and rejects excessive embedded duration when present. Full media decoding is outside this gate, so malicious low-bitrate overlong input remains a residual risk. The Standard pipeline uses no context or glossary yet; the translation input boundary reserves empty fields for later approved work. The owner has not yet reported live English/Tamil provider or integrated microphone quality evidence.

@@ -4,3 +4,8 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+
+voicelink:
+  standard:
+    # Ordinary tests stay offline even when the developer shell has live keys.
+    free-tier-confirmed: false

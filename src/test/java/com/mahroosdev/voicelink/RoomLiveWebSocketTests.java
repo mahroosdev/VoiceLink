@@ -41,7 +41,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "voicelink.standard.free-tier-confirmed=false")
 @ActiveProfiles("test")
 class RoomLiveWebSocketTests {
     private static final String PASSWORD = "test-password-123";
@@ -66,6 +67,40 @@ class RoomLiveWebSocketTests {
         Browser browser = new Browser(port, json);
         browser.login(account.getEmail());
         return browser;
+    }
+
+    @Test
+    void speechUploadPublishesSafeTurnEventsOverRealSocketWithoutProviderCredentials() throws Exception {
+        var a = account("Speech A");
+        var b = account("Speech B");
+        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        Browser first = browser(a);
+        Browser second = browser(b);
+        LiveSocket aSocket = first.connect(roomId, first.base);
+        LiveSocket bSocket = second.connect(roomId, second.base);
+        aSocket.await("ROOM_STATE");
+        bSocket.await("ROOM_STATE");
+        UUID requestId = UUID.randomUUID();
+        assertThat(first.upload(roomId, requestId, smallWebm())).isEqualTo(202);
+        JsonNode acceptedA = aSocket.await("TURN_ACCEPTED");
+        JsonNode acceptedB = bSocket.await("TURN_ACCEPTED");
+        assertThat(acceptedA.path("eventId").asText()).isEqualTo(acceptedB.path("eventId").asText());
+        assertThat(acceptedA.path("payload").path("sourceLanguage").asText()).isEqualTo("en");
+        assertThat(acceptedA.path("payload").path("targetLanguage").asText()).isEqualTo("ta");
+        JsonNode failed = bSocket.await("TURN_FAILED");
+        assertThat(failed.path("payload").path("stage").asText()).isEqualTo("STT");
+        assertThat(failed.path("payload").path("code").asText()).isEqualTo("CONFIGURATION");
+        assertThat(failed.path("sequence").longValue()).isGreaterThan(acceptedB.path("sequence").longValue());
+        assertThat(failed.toString()).doesNotContain("replace-with", "Bearer", "api.groq.com");
+    }
+
+    private static byte[] smallWebm() {
+        byte[] bytes = new byte[64];
+        bytes[0] = 0x1a; bytes[1] = 0x45; bytes[2] = (byte) 0xdf; bytes[3] = (byte) 0xa3;
+        byte[] marker = "webmA_OPUSOpusHead".getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(marker, 0, bytes, 8, marker.length);
+        return bytes;
     }
 
     @Test
@@ -341,6 +376,29 @@ class RoomLiveWebSocketTests {
                     .buildAsync(URI.create("ws://localhost:" + port + "/ws/rooms/" + roomId), listener)
                     .get(10, TimeUnit.SECONDS);
             return listener;
+        }
+
+        int upload(UUID roomId, UUID requestId, byte[] audio) throws Exception {
+            String boundary = "test-" + UUID.randomUUID();
+            java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+            multipartField(body, boundary, "clientRequestId", requestId.toString());
+            multipartField(body, boundary, "durationMillis", "1000");
+            body.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"turn.webm\"\r\n"
+                    + "Content-Type: audio/webm;codecs=opus\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+            body.writeBytes(audio);
+            body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+            var response = http.send(HttpRequest.newBuilder(URI.create(base + "/api/rooms/" + roomId + "/turns"))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .header("X-CSRF-TOKEN", csrf("/rooms/" + roomId))
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            return response.statusCode();
+        }
+
+        private static void multipartField(java.io.ByteArrayOutputStream body, String boundary,
+                                           String name, String value) {
+            body.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name
+                    + "\"\r\n\r\n" + value + "\r\n").getBytes(StandardCharsets.UTF_8));
         }
 
         private static String encode(String value) {

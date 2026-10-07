@@ -122,6 +122,31 @@ public class RoomLiveHub {
         }
     }
 
+    public void publishTurn(UUID roomId, UUID userId, UUID participantId, UUID turnId,
+                            String type, Map<String, ?> payload) {
+        RoomLiveAuthorizer.Member member;
+        try {
+            member = authorizer.authorize(userId, roomId);
+        } catch (RuntimeException ex) {
+            return;
+        }
+        if (member.status() != RoomStatus.ACTIVE || !member.participantId().equals(participantId)) return;
+        Stream stream = streams.get(roomId);
+        if (stream == null) return;
+        synchronized (stream) {
+            if (stream.closed) return;
+            LiveRoomEvent event = event(stream, roomId, type, participantId, turnId, payload);
+            for (Connection receiver : List.copyOf(stream.members.values())) {
+                if (!receiver.valid()) {
+                    stream.members.remove(receiver.userId, receiver);
+                    close(receiver, CloseStatus.POLICY_VIOLATION);
+                } else {
+                    send(stream, receiver, event);
+                }
+            }
+        }
+    }
+
     private void errorLocked(Connection connection, String code, String message) {
         send(connection.stream, connection,
                 event(connection.stream, connection.roomId, "ERROR", null, null,

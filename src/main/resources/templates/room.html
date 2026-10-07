@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="_csrf" th:content="${_csrf.token}">
+  <meta name="_csrf_header" th:content="${_csrf.headerName}">
   <title>Room | VoiceLink</title>
 </head>
 <body>
@@ -39,7 +41,19 @@
     <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
       <h2 id="active-heading">Room ready</h2>
       <p>Both participants may return to this room while it is active.</p>
+      <p>Speech profile: <strong>Standard — free-tier quotas</strong>. Groq Whisper Large V3,
+         Azure Translator F0, Azure Speech F0. No paid fallback.</p>
       <p>Live text below is temporary transport verification, not saved conversation history.</p>
+    </section>
+
+    <section id="speech-section" th:hidden="${room.status.name() != 'ACTIVE'}"
+             aria-labelledby="speech-heading">
+      <h2 id="speech-heading">Short speech turns</h2>
+      <p>Speak for up to 15 seconds. Audio and captions are temporary; they may be unavailable after a restart.</p>
+      <button id="record-start" type="button" th:disabled="${room.status.name() != 'ACTIVE'}">Record</button>
+      <button id="record-stop" type="button" disabled>Stop</button>
+      <p id="recording-status" role="status" aria-live="polite">Checking microphone support</p>
+      <ol id="speech-events" aria-live="polite"></ol>
     </section>
 
     <section id="live-text-section" th:hidden="${room.status.name() != 'ACTIVE'}"
