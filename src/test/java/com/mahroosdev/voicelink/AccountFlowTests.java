@@ -90,8 +90,52 @@ class AccountFlowTests {
         RegistrationForm badEmail = form("not-an-email");
         assertThatThrownBy(() -> registration.register(badEmail)).isInstanceOf(ConstraintViolationException.class);
         RegistrationForm shortPassword = form(newEmail());
-        shortPassword.setPassword("too short");
-        assertThatThrownBy(() -> registration.register(shortPassword)).isInstanceOf(ConstraintViolationException.class);
+        shortPassword.setPassword("123456789");
+        assertThatThrownBy(() -> registration.register(shortPassword))
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasMessageContaining("Password must be 10 to 128 characters.");
+    }
+
+    @Test
+    void passwordLengthBoundariesAreEnforcedByRegistrationService() {
+        RegistrationForm minimum = form(newEmail());
+        minimum.setPassword("1234567890");
+        UUID minimumId = registration.register(minimum);
+        assertThat(encoder.matches(minimum.getPassword(), accounts.findById(minimumId).orElseThrow().getPasswordHash()))
+                .isTrue();
+
+        RegistrationForm maximum = form(newEmail());
+        maximum.setPassword("x".repeat(128));
+        UUID maximumId = registration.register(maximum);
+        assertThat(encoder.matches(maximum.getPassword(), accounts.findById(maximumId).orElseThrow().getPasswordHash()))
+                .isTrue();
+
+        RegistrationForm tooLong = form(newEmail());
+        tooLong.setPassword("x".repeat(129));
+        assertThatThrownBy(() -> registration.register(tooLong))
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasMessageContaining("Password must be 10 to 128 characters.");
+        assertThat(accounts.existsByEmail(tooLong.getEmail())).isFalse();
+    }
+
+    @Test
+    void shortPasswordShowsUpdatedAccessibleFeedbackWithoutSuccess() throws Exception {
+        String email = newEmail();
+        MvcResult invalid = mvc.perform(post("/register").with(csrf())
+                .param("displayName", "Test User")
+                .param("email", email)
+                .param("password", "123456789"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Password (10 to 128 characters)")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Password must be 10 to 128 characters.")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("role=\"alert\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("Account created successfully"))))
+                .andReturn();
+        assertThat(invalid.getFlashMap().isEmpty()).isTrue();
+        assertThat(accounts.existsByEmail(email)).isFalse();
     }
 
     @Test

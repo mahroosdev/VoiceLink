@@ -2,7 +2,7 @@
 
 **VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
 
-Status: **Gate 4B live room text transport / owner two-browser check pending**. Gate 1 passed, including owner-performed local PostgreSQL and runtime verification. Gate 1.5 published the [public foundation checkpoint](https://github.com/mahroosdev/voicelink).
+Status: **Gate 4B automated verification passed; owner integrated browser verification pending**. Gate 1 passed, including owner-performed local PostgreSQL and runtime verification. Gate 1.5 published the [public foundation checkpoint](https://github.com/mahroosdev/voicelink).
 
 VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, and temporary live text exchange. It does not yet process speech, translate, synthesize audio, or persist conversation messages.
 
@@ -74,7 +74,7 @@ If you change `POSTGRES_USER`, use that name in the last two commands. The datab
 .\mvnw.cmd spring-boot:run
 ```
 
-With the application running, request `http://localhost:8080/`, `http://localhost:8080/actuator/health`, and `http://localhost:8080/register`. Register with a display name, email, and a 15–128 character password, then sign in and visit `/app`. Open **Your rooms** to create a room, share its displayed code directly with another signed-in user, and have that user enter it at `/rooms`. The waiting creator should see the room turn active when the second user joins. Active members can exchange temporary live text; disconnected text is not restored. Either member can explicitly leave and close an active room. A database outage should make Actuator report unhealthy. The fast test profile uses H2 so `.\mvnw.cmd test` runs without Docker. PostgreSQL integration tests run separately with `.\mvnw.cmd -ntp -Ppostgres-it verify` when Docker is available.
+With the application running, request `http://localhost:8080/`, `http://localhost:8080/actuator/health`, and `http://localhost:8080/register`. Register with a display name, email, and a 10–128 character password, then sign in and visit `/app`. Open **Your rooms** to create a room, share its displayed code directly with another signed-in user, and have that user enter it at `/rooms`. The waiting creator should see the room turn active when the second user joins. Active members can exchange temporary live text; disconnected text is not restored. Either member can explicitly leave and close an active room. A database outage should make Actuator report unhealthy. The fast test profile uses H2 so `.\mvnw.cmd test` runs without Docker. PostgreSQL integration tests run separately with `.\mvnw.cmd -ntp -Ppostgres-it verify` when Docker is available.
 
 ## Security and scope
 

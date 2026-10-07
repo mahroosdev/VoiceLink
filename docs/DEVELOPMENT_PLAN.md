@@ -12,7 +12,7 @@ Each gate requires its own scope and review before implementation. This document
 | 3A | Two-person room and membership architecture review | PASS / APPROVED by owner |
 | 3B | Implement two-person rooms, membership, and minimal browser flow | PASS; 25 fast tests, clean package, and 3 PostgreSQL integration tests passed |
 | 4A | Live communication and WebSocket architecture review | PASS / APPROVED by owner |
-| 4B | Live WebSocket text/event transport and verification | PASS by automated Linux verification; owner two-browser check pending |
+| 4B | Live WebSocket text/event transport and verification | Automated verification passed; owner integrated browser verification pending, intentionally deferred to a later end-to-end application test |
 | 5A | Speech/AI provider validation and architecture | NOT STARTED |
 | 5B | First end-to-end STT, translation, and TTS pipeline | NOT STARTED |
 | 6 | Complete user experience, operational hardening, and release checks | NOT STARTED |

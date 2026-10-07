@@ -21,8 +21,8 @@
         <p th:if="${#fields.hasErrors('email')}" th:errors="*{email}" role="alert"></p>
       </div>
       <div>
-        <label for="password">Password (15 to 128 characters)</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="15" maxlength="128" th:attr="aria-invalid=${#fields.hasErrors('password')}">
+        <label for="password">Password (10 to 128 characters)</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" th:attr="aria-invalid=${#fields.hasErrors('password')}">
         <p th:if="${#fields.hasErrors('password')}" th:errors="*{password}" role="alert"></p>
       </div>
       <button type="submit">Create account</button>

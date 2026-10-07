@@ -54,9 +54,9 @@ The separate PostgreSQL profile passed **30 fast tests plus 3 PostgreSQL 17.11 T
 
 The literal Windows Codex-shell commands `.\mvnw.cmd -ntp test`, `.\mvnw.cmd -ntp clean package`, and `.\mvnw.cmd -ntp -Ppostgres-it verify` were attempted. In each, the 25 non-server tests passed but the five real-server tests could not start Tomcat: Java `Selector.open()` failed in this execution environment with `Unable to establish loopback connection` / `Invalid argument: connect`. The same failure was reproduced directly in JShell outside the application. These Windows-shell command runs therefore failed; the successful Linux runs above are the automated application evidence. Normal Windows PowerShell runtime behavior remains for the owner browser check.
 
-## Gate 4B owner two-browser check — pending
+## Gate 4B owner integrated browser verification — pending
 
-Use two separate browser profiles with different signed-in accounts against the running local application:
+The owner intentionally deferred Gate 4B browser verification to a later integrated end-to-end application test. The following two-profile checks are planned for that test, not reported as performed:
 
 1. In profile A, create an `en` → `ta` room and remain on its WAITING page. Confirm its local connection shows Connected.
 2. In profile B, join with the displayed invite code. Confirm A changes to ACTIVE without refreshing and B shows ACTIVE and Connected.
@@ -65,4 +65,12 @@ Use two separate browser profiles with different signed-in accounts against the 
 5. Explicitly close the room. Confirm both pages show CLOSED and further sending is unavailable.
 6. In an unsigned browser and then a third non-member account, try the room URL/socket. Neither may gain live access.
 
-This owner check has **not** been reported as performed. Session-expiry notification timing and Windows browser/runtime behavior remain to be verified. No audio, AI, or conversation persistence is part of Gate 4B.
+Gate 4B automated verification passed; owner integrated browser verification is pending. Session-expiry notification timing and Windows browser/runtime behavior remain to be verified. No audio, AI, or conversation persistence is part of Gate 4B.
+
+## 2026-10-08 password minimum maintenance checkpoint
+
+Password length: 10–128 characters. The owner intentionally approved lowering the registration minimum from 15 to 10 before Gate 5A. Automated account tests reject 9 and 129 characters, accept 10 and 128, and verify that a 9-character browser submission stays on registration with accessible field feedback and no success message. Existing registration, login, session, and Argon2id checks remained in the suite.
+
+The requested `.\mvnw.cmd -ntp test` and `.\mvnw.cmd -ntp clean package` commands were run from the Windows Codex shell. Each ran 32 tests: 27 passed and the five actual WebSocket tests errored when Tomcat startup reached the previously documented Java loopback selector failure. The equivalent full Maven 3.9.16 `test` and `clean package` runs in an isolated Linux Java 21 container each passed **32 tests, zero failures, zero errors, zero skips**. Clean package built `voicelink-0.0.1-SNAPSHOT.jar`.
+
+The PostgreSQL integration profile was not rerun for this validation-only edit because persistence code and schema were unchanged. Gate 4B automated verification passed; owner integrated browser verification remains pending for the later end-to-end application test.
