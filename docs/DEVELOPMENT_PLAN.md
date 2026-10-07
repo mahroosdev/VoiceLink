@@ -11,11 +11,12 @@ Each gate requires its own scope and review before implementation. This document
 | 2B | Implement accounts, preferences, registration, session login/logout, and verification | PASS; fast tests, clean package, and PostgreSQL 17.11 Testcontainers integration verified by Codex |
 | 3A | Two-person room and membership architecture review | PASS / APPROVED by owner |
 | 3B | Implement two-person rooms, membership, and minimal browser flow | PASS; 25 fast tests, clean package, and 3 PostgreSQL integration tests passed |
-| 4A | Live communication and WebSocket architecture review | NOT STARTED |
-| 4B | WebSocket implementation | NOT STARTED |
-| 5 | Provider abstractions and selected speech/translation integrations | NOT STARTED |
+| 4A | Live communication and WebSocket architecture review | PASS / APPROVED by owner |
+| 4B | Live WebSocket text/event transport and verification | PASS by automated Linux verification; owner two-browser check pending |
+| 5A | Speech/AI provider validation and architecture | NOT STARTED |
+| 5B | First end-to-end STT, translation, and TTS pipeline | NOT STARTED |
 | 6 | Complete user experience, operational hardening, and release checks | NOT STARTED |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
 
-Evidence is recorded in [the project log](PROJECT_LOG.md) and [testing record](TESTING.md). Gate 3A was accepted before Gate 3B implementation. WebSocket and AI work require later gates.
+Evidence is recorded in [the project log](PROJECT_LOG.md) and [testing record](TESTING.md). Gate 3A was accepted before Gate 3B implementation, and Gate 4A was accepted before Gate 4B implementation. Speech and AI work require later gates.

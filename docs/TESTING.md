@@ -43,3 +43,26 @@ The concurrency integration test used two worker threads calling separate transa
 Fast tests cover waiting-room creation, 24-hour invite expiry, random-code format and normalization, reverse `en`/`ta` language direction, duplicate and third joins, member-only views and lists, explicit close, active-room persistence beyond invite age and logout, principal-derived identity, route authentication, and CSRF on create/join/close. The browser-facing create/join/close flow was exercised with MockMvc. No owner-performed browser room smoke test has been reported yet.
 
 Non-failing warnings remained: managed H2 2.4.240 is newer than Flyway's stated verified H2 range, and Mockito warns about future JDK dynamic-agent behavior. PostgreSQL 17.11 verification passed. Join-attempt rate limiting is intentionally deferred for this controlled authenticated demo; public deployment abuse controls, WebSocket, AI, audio, and message/history behavior are unverified later-gate work.
+
+## Gate 4B live transport — automated evidence
+
+Gate 4A was approved before implementation. The final Docker-independent H2 suite has **30 tests: 9 account, 4 foundation, 12 room, and 5 real HTTP/WebSocket tests**, with zero failures, errors, or skips. The five real-socket tests run the application on a random port, sign in through the actual HTTP form/session, and upgrade with that cookie. They cover WAITING and ACTIVE access, anonymous/non-member/CLOSED/wrong-Origin rejection, automatic after-commit activation, two-way delivery and trusted participant identity, cross-room isolation, room sequence under concurrent sends, bounded duplicate suppression, malformed/blank/overlong/spoofed requests, socket replacement, logout revocation, reconnect with a new login, binary-frame rejection, and after-commit closure with no later text event. Existing CSRF tests remain in the suite.
+
+The full suite passed using Maven 3.9.16 in a disposable Linux Java 21 container. A final `clean package` using the same Maven version passed all **30 tests** and built `voicelink-0.0.1-SNAPSHOT.jar`. The suite itself does not require Docker; Docker was used as an alternate execution environment for Codex verification.
+
+The separate PostgreSQL profile passed **30 fast tests plus 3 PostgreSQL 17.11 Testcontainers integration tests**, with zero failures, errors, or skips. Flyway applied only V1/V2 and Hibernate validated the schema. The existing transactional final-slot and database constraint checks remained green. No Gate 4B migration was added.
+
+The literal Windows Codex-shell commands `.\mvnw.cmd -ntp test`, `.\mvnw.cmd -ntp clean package`, and `.\mvnw.cmd -ntp -Ppostgres-it verify` were attempted. In each, the 25 non-server tests passed but the five real-server tests could not start Tomcat: Java `Selector.open()` failed in this execution environment with `Unable to establish loopback connection` / `Invalid argument: connect`. The same failure was reproduced directly in JShell outside the application. These Windows-shell command runs therefore failed; the successful Linux runs above are the automated application evidence. Normal Windows PowerShell runtime behavior remains for the owner browser check.
+
+## Gate 4B owner two-browser check — pending
+
+Use two separate browser profiles with different signed-in accounts against the running local application:
+
+1. In profile A, create an `en` → `ta` room and remain on its WAITING page. Confirm its local connection shows Connected.
+2. In profile B, join with the displayed invite code. Confirm A changes to ACTIVE without refreshing and B shows ACTIVE and Connected.
+3. Send temporary text A → B and B → A; confirm each recipient sees the exact text and that labels/identity are correct. Text is temporary, not saved history.
+4. Refresh A. Confirm it reconnects, the room remains ACTIVE, and the page does not claim missed text was replayed.
+5. Explicitly close the room. Confirm both pages show CLOSED and further sending is unavailable.
+6. In an unsigned browser and then a third non-member account, try the room URL/socket. Neither may gain live access.
+
+This owner check has **not** been reported as performed. Session-expiry notification timing and Windows browser/runtime behavior remain to be verified. No audio, AI, or conversation persistence is part of Gate 4B.

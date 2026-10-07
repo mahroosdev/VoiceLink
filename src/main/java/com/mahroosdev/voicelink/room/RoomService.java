@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,15 +19,17 @@ public class RoomService {
     private final UserAccountRepository accounts;
     private final RoomAccessService access;
     private final SupportedRoomLanguages languages;
+    private final ApplicationEventPublisher events;
 
     public RoomService(ConversationRoomRepository rooms, RoomParticipantRepository participants,
                        UserAccountRepository accounts, RoomAccessService access,
-                       SupportedRoomLanguages languages) {
+                       SupportedRoomLanguages languages, ApplicationEventPublisher events) {
         this.rooms = rooms;
         this.participants = participants;
         this.accounts = accounts;
         this.access = access;
         this.languages = languages;
+        this.events = events;
     }
 
     @Transactional
@@ -64,6 +67,7 @@ public class RoomService {
         participants.saveAndFlush(new RoomParticipant(room, joiner, (short) 2,
                 direction.speaking(), direction.listening(), now));
         room.activate(now);
+        events.publishEvent(new RoomActivatedEvent(room.getId()));
         return room.getId();
     }
 
@@ -103,6 +107,7 @@ public class RoomService {
             throw notFound();
         }
         room.close(Instant.now());
+        events.publishEvent(new RoomClosedEvent(roomId));
     }
 
     private ResponseStatusException notFound() {

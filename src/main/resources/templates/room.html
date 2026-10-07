@@ -6,14 +6,16 @@
   <title>Room | VoiceLink</title>
 </head>
 <body>
-  <main>
+  <main id="room-page" th:attr="data-room-id=${room.id}">
     <h1>Conversation room</h1>
     <p><a th:href="@{/rooms}">Back to your rooms</a></p>
-    <p role="status">Status: <strong th:text="${room.status}"></strong></p>
+    <p role="status">Status: <strong id="room-status" th:text="${room.status}"></strong></p>
+    <p id="connection-state" role="status" aria-live="polite"
+       th:text="${room.status.name() == 'CLOSED' ? 'Live connection unavailable' : 'Connecting'}"></p>
 
     <section aria-labelledby="members-heading">
       <h2 id="members-heading">Participants and languages</h2>
-      <ul>
+      <ul id="participants-list">
         <li th:each="person : ${room.participants}">
           <span th:text="${person.displayName}"></span>
           — speaks <span th:text="${person.speaking}"></span>, receives
@@ -22,7 +24,7 @@
       </ul>
     </section>
 
-    <section th:if="${room.status.name() == 'WAITING'}" aria-labelledby="waiting-heading">
+    <section id="waiting-section" th:hidden="${room.status.name() != 'WAITING'}" aria-labelledby="waiting-heading">
       <h2 id="waiting-heading">Waiting for the second participant</h2>
       <p>The person joining will speak <span th:text="${room.participants[0].listening}"></span>
          and receive <span th:text="${room.participants[0].speaking}"></span>.</p>
@@ -34,16 +36,30 @@
       </div>
     </section>
 
-    <section th:if="${room.status.name() == 'ACTIVE'}" aria-labelledby="active-heading">
+    <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
       <h2 id="active-heading">Room ready</h2>
       <p>Both participants may return to this room while it is active.</p>
-      <p>Conversation features will arrive in a later gate.</p>
+      <p>Live text below is temporary transport verification, not saved conversation history.</p>
     </section>
 
-    <p th:if="${room.status.name() == 'CLOSED'}">This room is closed. It cannot be reopened or joined.</p>
-    <form th:if="${room.status.name() != 'CLOSED'}" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
+    <section id="live-text-section" th:hidden="${room.status.name() != 'ACTIVE'}"
+             aria-labelledby="live-text-heading">
+      <h2 id="live-text-heading">Temporary live text</h2>
+      <p>Messages are transient. Text sent while you are disconnected cannot be restored.</p>
+      <form id="live-text-form">
+        <label for="live-text-input">Text to send</label>
+        <input id="live-text-input" type="text" maxlength="1000" autocomplete="off" required
+               th:disabled="${room.status.name() != 'ACTIVE'}">
+        <button id="live-send" type="submit" th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
+      </form>
+      <ul id="live-events" aria-live="polite"></ul>
+    </section>
+
+    <p id="closed-notice" th:hidden="${room.status.name() != 'CLOSED'}">This room is closed. It cannot be reopened or joined.</p>
+    <form id="close-room-form" th:if="${room.status.name() != 'CLOSED'}" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
       <button type="submit" th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
     </form>
   </main>
+  <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
 </body>
 </html>
