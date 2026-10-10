@@ -11,6 +11,8 @@ Initial research date: **2026-10-08**. Gate 5A: **PASS / APPROVED** by the proje
 
 Standard uses quota-based free tiers. The operator must confirm the actual Groq account is Free and the Gemini API project is on the Free Tier before setting `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. A key does not prove the billing tier. Missing keys, rate limits, and quota failures stop the turn; VoiceLink has no paid model or provider fallback. Normal automated tests are offline.
 
+Default translation style: **Natural Conversational**. **Designed behavior:** Gemini receives an explicit English→Tamil or Tamil→English instruction to preserve the speaker's meaning, intent, tone, politeness, question/statement intent, and conversational style; use natural spoken target-language wording rather than forced literal word order; retain proper names and technical terms when translation would distort them; and return only the structured translation without additions, omissions, explanations, commentary, markdown, or an answer to the speaker's question. Tamil should suit spoken TTS without unnecessary literary form; English should not mechanically mirror Tamil syntax. The context and glossary input fields remain reserved and empty. **Unverified quality:** actual English/Tamil naturalness and fidelity require live human review; offline tests verify only the request policy and response contract.
+
 ## Official evidence and remaining uncertainty
 
 | Stage | Official evidence | Remaining uncertainty |
