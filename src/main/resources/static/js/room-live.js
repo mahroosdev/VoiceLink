@@ -16,6 +16,7 @@
   const send = document.getElementById("live-send");
   const events = document.getElementById("live-events");
   const speechSection = document.getElementById("speech-section");
+  const glossarySection = document.getElementById("glossary-section");
   const recordStart = document.getElementById("record-start");
   const recordStop = document.getElementById("record-stop");
   const recordingStatus = document.getElementById("recording-status");
@@ -43,6 +44,7 @@
     active.hidden = value !== "ACTIVE";
     live.hidden = value !== "ACTIVE";
     speechSection.hidden = value !== "ACTIVE";
+    if (glossarySection) glossarySection.hidden = value === "CLOSED";
     notice.hidden = value !== "CLOSED";
     if (closeForm) closeForm.hidden = value === "CLOSED";
     if (closeButton) closeButton.textContent =
@@ -152,10 +154,12 @@
     if (event.type === "ROOM_STATE") {
       setStatus(event.payload.status);
       showParticipants(event.payload.participants);
+      window.dispatchEvent(new Event("voicelink-room-state"));
     } else if (event.type === "TEXT_MESSAGE") {
       addText(event.payload);
     } else if (event.type === "ROOM_CLOSED") {
       setStatus("CLOSED");
+      window.dispatchEvent(new Event("voicelink-room-state"));
       connection.textContent = "Live connection closed";
       socket.close();
     } else if (event.type === "ERROR") {
@@ -193,6 +197,7 @@
       connection.textContent = "Connected";
       setStatus(status.textContent);
       refreshTurns();
+      window.dispatchEvent(new Event("voicelink-room-state"));
     };
     socket.onmessage = message => receive(message.data);
     socket.onclose = async event => {

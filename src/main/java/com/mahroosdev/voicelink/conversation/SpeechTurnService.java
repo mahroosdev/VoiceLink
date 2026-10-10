@@ -18,6 +18,7 @@ import com.mahroosdev.voicelink.ai.StandardProfile;
 import com.mahroosdev.voicelink.ai.stt.SpeechToTextProvider;
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.RoomClosedEvent;
 import com.mahroosdev.voicelink.room.RoomLiveAuthorizer;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
@@ -49,17 +50,20 @@ public class SpeechTurnService {
     private final TranslationProvider translation;
     private final TextToSpeechProvider tts;
     private final AudioTurnValidator validator;
+    private final RoomGlossaryService glossary;
     private long storedAudioBytes;
 
     public SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                              SpeechToTextProvider stt, TranslationProvider translation,
-                             TextToSpeechProvider tts, AudioTurnValidator validator) {
+                             TextToSpeechProvider tts, AudioTurnValidator validator,
+                             RoomGlossaryService glossary) {
         this.authorizer = authorizer;
         this.hub = hub;
         this.stt = stt;
         this.translation = translation;
         this.tts = tts;
         this.validator = validator;
+        this.glossary = glossary;
     }
 
     public Accepted accept(UUID userId, UUID roomId, UUID clientRequestId, byte[] bytes,
@@ -151,12 +155,20 @@ public class SpeechTurnService {
                             "sourceLanguage", turn.source));
             requireTime(deadline);
             stage = "TRANSLATION";
-            TranslationProvider.Result translated = translation.translate(new TranslationProvider.Input(
-                    turn.transcript, turn.source, turn.target, List.of(), Map.of()));
-            synchronized (this) { turn.translation = translated.translatedText(); turn.status = "TRANSLATED"; }
-            if (turn.translation == null || turn.translation.isBlank()
-                    || turn.translation.codePointCount(0, turn.translation.length()) > 6000) {
+            List<TranslationProvider.ContextTurn> context = contextFor(turn);
+            List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
+                    turn.roomId, turn.source, turn.target, turn.transcript);
+            if (!stillActive(turn)) return;
+            TranslationProvider.Result translated = translation.translate(new TranslationProvider.TranslationRequest(
+                    turn.transcript, turn.source, turn.target, context, terms));
+            if (translated.translatedText() == null || translated.translatedText().isBlank()
+                    || translated.translatedText().codePointCount(0, translated.translatedText().length()) > 6000) {
                 throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+            }
+            synchronized (this) {
+                turn.translation = translated.translatedText();
+                turn.translationSucceeded = true;
+                turn.status = "TRANSLATED";
             }
             if (!stillActive(turn)) return;
             hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
@@ -209,6 +221,17 @@ public class SpeechTurnService {
     private static Map<String, ?> failurePayload(Turn turn, String message) {
         return Map.of("turnIndex", turn.index, "stage", turn.failedStage,
                 "code", turn.errorCode, "message", message);
+    }
+
+    private List<TranslationProvider.ContextTurn> contextFor(Turn current) {
+        synchronized (this) {
+            RoomQueue room = states.get(current.roomId);
+            if (room == null || room.closed) return List.of();
+            List<RecentContext.Candidate> prior = room.recent.stream().map(turn ->
+                    new RecentContext.Candidate(turn.index, turn.acceptedAt, turn.source,
+                            turn.target, turn.transcript, turn.translationSucceeded)).toList();
+            return RecentContext.select(prior, current.index, Instant.now());
+        }
     }
 
     private boolean stillActive(Turn turn) {
@@ -353,6 +376,7 @@ public class SpeechTurnService {
         String mediaType;
         String transcript;
         String translation;
+        boolean translationSucceeded;
         String status = "PENDING";
         String failedStage;
         String errorCode;

@@ -56,6 +56,34 @@
       <ol id="speech-events" aria-live="polite"></ol>
     </section>
 
+    <section id="glossary-section" th:if="${room.status.name() != 'CLOSED'}"
+             aria-labelledby="glossary-heading">
+      <h2 id="glossary-heading">Room terminology</h2>
+      <p>Terms are shared with this room's members and may be sent to Gemini when relevant.
+         Use only non-sensitive demo terms. Closing the room deletes its saved glossary.</p>
+      <p id="glossary-capacity" role="status"></p>
+      <button id="glossary-refresh" type="button">Refresh terms</button>
+      <ul id="glossary-list"></ul>
+      <form id="glossary-form" th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
+        <h3 id="glossary-form-heading">Add term</h3>
+        <label for="glossary-source-language">Source language</label>
+        <select id="glossary-source-language" required>
+          <option value="en">English</option><option value="ta">Tamil</option>
+        </select>
+        <label for="glossary-target-language">Target language</label>
+        <select id="glossary-target-language" required>
+          <option value="ta">Tamil</option><option value="en">English</option>
+        </select>
+        <label for="glossary-source-term">Source term</label>
+        <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off">
+        <label for="glossary-preferred-term">Preferred term (blank preserves source)</label>
+        <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off">
+        <button id="glossary-save" type="submit">Add term</button>
+        <button id="glossary-cancel" type="button" hidden>Cancel edit</button>
+      </form>
+      <p id="glossary-status" role="status" aria-live="polite"></p>
+    </section>
+
     <section id="live-text-section" th:hidden="${room.status.name() != 'ACTIVE'}"
              aria-labelledby="live-text-heading">
       <h2 id="live-text-heading">Temporary live text</h2>
@@ -75,5 +103,6 @@
     </form>
   </main>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
+  <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 package com.mahroosdev.voicelink;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -26,6 +27,7 @@ import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.conversation.SpeechTurnService;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomService;
@@ -54,6 +56,7 @@ class SpeechTurnFlowTests {
     @Autowired UserAccountRepository accounts;
     @Autowired SpeechTurnService turns;
     @Autowired ObjectMapper json;
+    @Autowired RoomGlossaryService glossary;
     @MockitoBean SpeechToTextProvider stt;
     @MockitoBean TranslationProvider translation;
     @MockitoBean TextToSpeechProvider tts;
@@ -273,5 +276,60 @@ class SpeechTurnFlowTests {
                 eq("TURN_FAILED"), any());
         order.verify(hub).publishTurn(eq(roomId), eq(a.getId()), any(), eq(second.turnId()),
                 eq("AUDIO_READY"), any());
+    }
+
+    @Test void serialTurnsSendOnlyPriorTranslatedSourcesAndApplicableGlossary() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        glossary.create(a.getId(), room, new RoomGlossaryService.Change("en", "ta", "REST API", "ரெஸ்ட் API"));
+        glossary.create(b.getId(), room, new RoomGlossaryService.Change("ta", "en", "Java", "Java"));
+        when(stt.transcribe(any())).thenReturn(
+                new SpeechToTextProvider.Result("The REST API works", "GROQ", "whisper-large-v3", 1),
+                new SpeechToTextProvider.Result("Java நல்லது", "GROQ", "whisper-large-v3", 1));
+        when(translation.translate(any())).thenReturn(
+                new TranslationProvider.Result("REST API வேலை செய்கிறது", "GEMINI", "gemini-3.1-flash-lite", 1),
+                new TranslationProvider.Result("Java is good", "GEMINI", "gemini-3.1-flash-lite", 1));
+        when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
+        turns.accept(a.getId(), room, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        await(a.getId(), room, "READY");
+        turns.accept(b.getId(), room, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        await(b.getId(), room, "READY");
+        var captor = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, org.mockito.Mockito.times(2)).translate(captor.capture());
+        var requests = captor.getAllValues();
+        assertThat(requests.get(0).recentContext()).isEmpty();
+        assertThat(requests.get(0).glossary()).extracting(item -> item.sourceTerm())
+                .containsExactly("REST API");
+        assertThat(requests.get(1).recentContext()).hasSize(1);
+        assertThat(requests.get(1).recentContext().getFirst().sourceTranscript())
+                .isEqualTo("The REST API works");
+        assertThat(requests.get(1).recentContext().getFirst().turnIndex()).isEqualTo(1);
+        assertThat(requests.get(1).glossary()).extracting(item -> item.sourceTerm()).containsExactly("Java");
+        rooms.closeRoom(a.getId(), room);
+        assertThatThrownBy(() -> turns.recent(a.getId(), room))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test void failedStagesDoNotContaminateLaterContextButTtsFailureRemainsEligible() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        when(stt.transcribe(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE))
+                .thenReturn(new SpeechToTextProvider.Result("translation fails", "GROQ", "whisper-large-v3", 1),
+                        new SpeechToTextProvider.Result("translated before TTS", "GROQ", "whisper-large-v3", 1),
+                        new SpeechToTextProvider.Result("fourth", "GROQ", "whisper-large-v3", 1));
+        when(translation.translate(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.QUOTA))
+                .thenReturn(new TranslationProvider.Result("மூன்றாவது", "GEMINI", "gemini-3.1-flash-lite", 1),
+                        new TranslationProvider.Result("நான்காவது", "GEMINI", "gemini-3.1-flash-lite", 1));
+        when(tts.synthesize(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.TIMEOUT))
+                .thenReturn(new TextToSpeechProvider.Result(new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
+        for (int i = 0; i < 4; i++) {
+            turns.accept(a.getId(), room, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+            await(a.getId(), room, i == 3 ? "READY" : "FAILED");
+        }
+        var captor = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, org.mockito.Mockito.times(3)).translate(captor.capture());
+        assertThat(captor.getAllValues().get(2).recentContext())
+                .extracting(item -> item.sourceTranscript()).containsExactly("translated before TTS");
     }
 }

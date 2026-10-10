@@ -49,8 +49,8 @@ class ProviderLiveIT {
             assertThat(recognized.providerId()).isEqualTo(StandardProfile.STT_PROVIDER);
             assertThat(recognized.modelId()).isEqualTo(StandardProfile.STT_MODEL);
             var translated = callStage("TRANSLATION", StandardProfile.TRANSLATION_PROVIDER,
-                    StandardProfile.TRANSLATION_SERVICE, () -> translation.translate(new TranslationProvider.Input(
-                            recognized.transcript(), language, target, List.of(), Map.of())));
+                    StandardProfile.TRANSLATION_SERVICE, () -> translation.translate(new TranslationProvider.TranslationRequest(
+                            recognized.transcript(), language, target, List.of(), List.of())));
             assertThat(translated.translatedText()).isNotBlank();
             assertThat(translated.providerId()).isEqualTo(StandardProfile.TRANSLATION_PROVIDER);
             assertThat(translated.serviceId()).isEqualTo(StandardProfile.TRANSLATION_SERVICE);

@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 
 import com.mahroosdev.voicelink.auth.RegistrationForm;
 import com.mahroosdev.voicelink.auth.RegistrationService;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomInviteUnavailableException;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
@@ -53,12 +55,14 @@ class PostgresIntegrationIT {
     @Autowired RoomService rooms;
     @Autowired ConversationRoomRepository roomRepository;
     @Autowired RoomParticipantRepository participants;
+    @Autowired RoomGlossaryService glossary;
+    @Autowired RoomGlossaryRepository glossaryEntries;
 
     @Test
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(2);
+        assertThat(version).isEqualTo(3);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -84,6 +88,42 @@ class PostgresIntegrationIT {
 
     private UserAccount account(String name) {
         return accounts.save(new UserAccount(name, UUID.randomUUID() + "@example.test", "test-only-hash"));
+    }
+
+    @Test
+    void v3GlossaryConstraintsVersionsAndRoomCloseCleanup() {
+        UserAccount creator = account("Glossary creator");
+        UUID roomId = rooms.createRoom(creator.getId(), "en", "ta");
+        var first = glossary.create(creator.getId(), roomId,
+                new RoomGlossaryService.Change("en", "ta", "REST API", "REST API"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM room_glossary_entries WHERE room_id = ?",
+                Long.class, roomId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT row_version FROM room_glossary_entries WHERE id = ?",
+                Long.class, first.id())).isZero();
+        var updated = glossary.update(creator.getId(), roomId, first.id(),
+                new RoomGlossaryService.Change("en", "ta", "REST API", "ரெஸ்ட் API"), first.rowVersion());
+        assertThat(updated.rowVersion()).isEqualTo(1);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO room_glossary_entries "
+                + "(id, room_id, source_language_tag, target_language_tag, source_term, "
+                + "normalized_source_term, preferred_term, created_by_user_id, created_at, updated_at, row_version) "
+                + "VALUES (?, ?, 'en', 'ta', 'REST API', 'rest api', 'duplicate', ?, now(), now(), 0)",
+                UUID.randomUUID(), roomId, creator.getId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO room_glossary_entries "
+                + "(id, room_id, source_language_tag, target_language_tag, source_term, "
+                + "normalized_source_term, preferred_term, created_by_user_id, created_at, updated_at, row_version) "
+                + "VALUES (?, ?, 'en', 'ta', 'other', 'other', 'other', ?, now(), now(), 0)",
+                UUID.randomUUID(), roomId, UUID.randomUUID()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(glossaryEntries.findByRoom_IdOrderByCreatedAtAsc(roomId)).hasSize(1);
+        rooms.closeRoom(creator.getId(), roomId);
+        assertThat(glossaryEntries.countByRoom_Id(roomId)).isZero();
+        UUID secondRoom = rooms.createRoom(creator.getId(), "en", "ta");
+        glossary.create(creator.getId(), secondRoom,
+                new RoomGlossaryService.Change("en", "ta", "API", "API"));
+        jdbc.update("DELETE FROM room_participants WHERE room_id = ?", secondRoom);
+        jdbc.update("DELETE FROM conversation_rooms WHERE id = ?", secondRoom);
+        assertThat(glossaryEntries.countByRoom_Id(secondRoom)).isZero();
     }
 
     private void insertParticipant(UUID roomId, UUID userId, int slot, String speaking, String listening) {

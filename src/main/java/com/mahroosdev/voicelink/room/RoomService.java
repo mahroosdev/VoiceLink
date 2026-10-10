@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,16 +21,19 @@ public class RoomService {
     private final RoomAccessService access;
     private final SupportedRoomLanguages languages;
     private final ApplicationEventPublisher events;
+    private final RoomGlossaryRepository glossary;
 
     public RoomService(ConversationRoomRepository rooms, RoomParticipantRepository participants,
                        UserAccountRepository accounts, RoomAccessService access,
-                       SupportedRoomLanguages languages, ApplicationEventPublisher events) {
+                       SupportedRoomLanguages languages, ApplicationEventPublisher events,
+                       RoomGlossaryRepository glossary) {
         this.rooms = rooms;
         this.participants = participants;
         this.accounts = accounts;
         this.access = access;
         this.languages = languages;
         this.events = events;
+        this.glossary = glossary;
     }
 
     @Transactional
@@ -107,6 +111,7 @@ public class RoomService {
             throw notFound();
         }
         room.close(Instant.now());
+        glossary.deleteByRoom_Id(roomId);
         events.publishEvent(new RoomClosedEvent(roomId));
     }
 
