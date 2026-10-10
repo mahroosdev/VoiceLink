@@ -15,8 +15,18 @@ Each gate requires its own scope and review before implementation. This document
 | 4B | Live WebSocket text/event transport and verification | Automated verification passed; owner integrated browser verification pending, intentionally deferred to a later end-to-end application test |
 | 5A | Speech/AI provider validation and architecture | PASS / APPROVED by owner; provisional stacks recorded in AI_PROVIDER_EVALUATION.md |
 | 5B | Standard/free-tier STT, translation, and TTS foundation | Initial Azure-backed checkpoint passed 49 fast tests and 3 PostgreSQL integrations. Standard translation/TTS then revised to Gemini Free before live validation; 53 fast tests, clean package, and 3 PostgreSQL integrations passed. Owner live English/Tamil and integrated browser checks remain pending. |
-| 6 | Complete user experience, operational hardening, and release checks | NOT STARTED |
+| 6A | Bounded context and room glossary architecture | PASS / APPROVED by owner |
+| 6B | Implement bounded in-memory context and room-scoped PostgreSQL glossary | NOT STARTED; dedicated implementation authorization pending |
+| 6C | Remaining UX, operational hardening, and release checks | NOT STARTED |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
 
-Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, and Gate 5A before Gate 5B. The Standard provider substitution does not authorize a new gate. Premium, full context-aware translation, and persistent glossary work require later approval. The Gate 4B owner integrated browser check and Gate 5B live-provider/Tamil quality check remain pending. The next step is owner validation and later-gate planning.
+Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, and Gate 5A before Gate 5B. Gate 6A architecture is approved, but Gate 6B implementation requires separate authorization. Premium work remains outside these gates. The Gate 4B owner integrated browser check and Gate 5B live-provider/Tamil quality check remain pending.
+
+## Gate 6A approved boundaries
+
+Conversation context stays in memory and is never stored as transcript/history in PostgreSQL. A translation may reference at most the newest three eligible prior turns, each no older than five minutes and no longer than 400 Unicode code points, with a combined maximum of 1,200 Unicode code points. Context is reference-only; Gemini translates only the current utterance. Context is lost on application restart and cleared when the room closes.
+
+The technical glossary is specific to a room and persisted in PostgreSQL through the approved V3 `room_glossary_entries` migration. A room may have at most 12 entries. Entries survive browser refresh, reconnect, and application restart while the room is open; explicit room closure deletes them. Only authenticated room members may access them. Source terms are 1–48 Unicode code points and preferred terms are 1–64; a blank preferred term in the UI explicitly means preserve the source term. Normalize terms with NFC, trim and collapse whitespace, and use locale-independent lowercase lookup for uniqueness. Match Latin terms case-insensitively as whole phrases, with longer terms taking precedence when matches overlap. Edits use optimistic `row_version` handling.
+
+Context and glossary data may be sent to Gemini Free Tier. Standard/free development remains limited to non-sensitive, non-confidential conversations. Do not log context, glossary contents, raw Gemini prompts, provider bodies, transcripts, translations, or audio. These are approved design boundaries, not evidence that Gate 6B is implemented or that live translation quality has been verified.
