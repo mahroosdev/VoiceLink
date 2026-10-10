@@ -8,7 +8,7 @@ VoiceLink aims to help two people communicate across languages while preserving 
 
 ## Planned flow
 
-Browser microphone → bounded authenticated upload → Java/Spring Boot → Groq STT → Azure translation → captions → Azure TTS → authenticated audio playback. Context and glossary are later work.
+Browser microphone → bounded authenticated upload → Java/Spring Boot → Groq STT → Gemini translation → captions → Gemini TTS → authenticated audio playback. Context and glossary are later work.
 
 Java and Spring Boot own the application, authorization, and pipeline orchestration. Gate 5B includes Standard adapters only; Premium is a later provisional target.
 
@@ -23,7 +23,7 @@ Java 21, Spring Boot 4.1.1, Maven Wrapper, Spring Web MVC, Security, Data JPA, V
 - Registration at `/register`, sign-in at `/login`, and a protected placeholder at `/app`.
 - Create, join, list, view, and explicitly close two-person rooms at `/rooms`. The creator chooses English ↔ Tamil direction; the second participant receives the reverse direction. A private manual invite code expires after 24 hours while the room is waiting. Active rooms persist across refresh and logout.
 - An authenticated, same-origin raw WebSocket for room-state updates and temporary text. A waiting creator sees activation without refreshing; active members exchange text. Live text is not saved or replayed.
-- ACTIVE members can record up to 15 seconds of WebM/Opus speech and upload at most 1 MiB through a CSRF-protected HTTP endpoint. Standard uses Groq Free `whisper-large-v3`, Azure Translator F0, and Azure Speech F0 neural voices. The source transcript and translated caption arrive as WebSocket events; generated MP3 is served only to ACTIVE room members from temporary memory. These providers have free quotas, not unlimited use. No paid fallback exists.
+- ACTIVE members can record up to 15 seconds of WebM/Opus speech and upload at most 1 MiB through a CSRF-protected HTTP endpoint. Standard uses Groq Free `whisper-large-v3`, Gemini API Free Tier `gemini-3.1-flash-lite` translation, and `gemini-3.8-flash-lite-tts`. The source transcript and translated caption arrive as WebSocket events; generated WAV is served only to ACTIVE room members from temporary memory. These providers have free quotas, not unlimited use. No paid fallback exists.
 - Server-side sessions with CSRF protection, member-only room views, and deny-by-default authorization.
 - Local PostgreSQL Compose definition and Flyway V1/V2 for accounts and rooms.
 
@@ -55,7 +55,7 @@ $env:SPRING_PROFILES_ACTIVE = 'local'
 
 The local profile connects to `jdbc:postgresql://localhost:5432/voicelink`. `SERVER_PORT` can override port 8080; `DB_URL` and `DB_USERNAME` can override local connection defaults. The default profile requires explicit `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` environment variables. Never commit production secrets.
 
-Speech remains disabled until you replace the Standard placeholders with your own Groq and Azure keys, verify in the provider consoles that Groq is **Free** and both Azure resources are **F0**, then set `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. Keep the flag false otherwise. Verify the Azure region and Tamil voice availability. Provider keys stay in the server process; never enter them in the browser. A key or quota failure produces a safe turn failure, with no switch to a paid service. No live provider or Tamil quality test is claimed yet.
+Speech remains disabled until you configure `VOICELINK_GROQ_API_KEY` and `VOICELINK_GEMINI_API_KEY`, verify in the provider consoles that Groq is **Free** and the Gemini API project is on the **Free Tier**, then set `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. Keep the flag false otherwise; the application cannot infer billing status from a key. Provider keys stay in the server process; never enter them in the browser. A key or quota failure produces a safe turn failure, with no switch to a paid service. [Gemini Free Tier pricing disclosures](https://ai.google.dev/gemini-api/docs/pricing) say content may be used to improve Google's products. Use only non-sensitive demo speech and non-confidential conversations during development. No live provider or Tamil quality test is claimed yet.
 
 ## PostgreSQL with Docker Compose
 
@@ -79,7 +79,7 @@ If you change `POSTGRES_USER`, use that name in the last two commands. The datab
 
 With the application running, request `http://localhost:8080/`, `http://localhost:8080/actuator/health`, and `http://localhost:8080/register`. Register with a display name, email, and a 10–128 character password, then sign in and visit `/app`. Open **Your rooms** to create a room, share its displayed code directly with another signed-in user, and have that user enter it at `/rooms`. The waiting creator should see the room turn active when the second user joins. Active members can exchange temporary live text. With validated Standard credentials, they can Record/Stop short turns and see source/translated captions and audio playback. Speech results are temporary, and reconnect only restores recent in-memory turn state. Either member can explicitly close an active room. A database outage should make Actuator report unhealthy. Fast tests use H2 and fake providers; they need no Docker or provider key. PostgreSQL integration runs separately with `.\mvnw.cmd -ntp -Ppostgres-it verify` when Docker is available.
 
-The explicit `-Pprovider-live` profile (`.\mvnw.cmd -ntp -Pprovider-live verify`) is the only provided automated path that calls real speech providers. It needs Standard Free/F0 credentials, `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`, and non-sensitive WebM/Opus clip paths in `VOICELINK_LIVE_AUDIO_EN` and `VOICELINK_LIVE_AUDIO_TA`. It makes two calls to each provider and consumes free-tier quota. It is not part of normal `test`, `clean package`, or CI. See [provider evaluation](docs/AI_PROVIDER_EVALUATION.md) and [testing evidence](docs/TESTING.md) before invoking it.
+The explicit `-Pprovider-live` profile (`.\mvnw.cmd -ntp -Pprovider-live verify`) is the only provided automated path that calls real speech providers. It needs Groq Free and Gemini API Free Tier credentials, `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`, and non-sensitive WebM/Opus clip paths in `VOICELINK_LIVE_AUDIO_EN` and `VOICELINK_LIVE_AUDIO_TA`. It makes two calls to each provider and consumes free-tier quota. It is not part of normal `test`, `clean package`, or CI. See [provider evaluation](docs/AI_PROVIDER_EVALUATION.md) and [testing evidence](docs/TESTING.md) before invoking it.
 
 ## Security and scope
 

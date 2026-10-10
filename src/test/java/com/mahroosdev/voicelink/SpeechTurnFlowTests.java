@@ -89,12 +89,14 @@ class SpeechTurnFlowTests {
     }
 
     private void successProviders(String source, String target) {
-        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result("Hello Java", "GROQ",
+        String transcript = "en".equals(source) ? "Hello Java" : "வணக்கம் Java";
+        String translated = "ta".equals(target) ? "வணக்கம் Java" : "Hello Java";
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result(transcript, "GROQ",
                 "whisper-large-v3", 10));
-        when(translation.translate(any())).thenReturn(new TranslationProvider.Result("வணக்கம் Java",
-                "AZURE_TRANSLATOR", "F0", 10));
+        when(translation.translate(any())).thenReturn(new TranslationProvider.Result(translated,
+                "GEMINI", "gemini-3.1-flash-lite", 10));
         when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
-                new byte[]{1, 2, 3}, "audio/mpeg", "AZURE_SPEECH", "ta-LK-SaranyaNeural", 10));
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 10));
     }
 
     private SpeechTurnService.Snapshot await(UUID userId, UUID roomId, String status) throws Exception {
@@ -141,11 +143,15 @@ class SpeechTurnFlowTests {
                 .andExpect(status().isAccepted()).andReturn();
         assertThat(json.readTree(accepted.getResponse().getContentAsString()).path("profile").asText())
                 .isEqualTo("STANDARD");
-        await(a.getId(), roomId, "READY");
+        var translated = await(a.getId(), roomId, "READY");
+        assertThat(translated.transcript()).isEqualTo("வணக்கம் Java");
+        assertThat(translated.translatedText()).isEqualTo("Hello Java");
         verify(stt).transcribe(org.mockito.ArgumentMatchers.argThat(input ->
                 input.sourceLanguage().equals("ta")));
         verify(translation).translate(org.mockito.ArgumentMatchers.argThat(input ->
                 input.sourceLanguage().equals("ta") && input.targetLanguage().equals("en")));
+        verify(tts).synthesize(org.mockito.ArgumentMatchers.argThat(input ->
+                input.targetLanguage().equals("en")));
     }
 
     @Test void successIsIdempotentAndAudioIsMemberOnly() throws Exception {
@@ -179,7 +185,9 @@ class SpeechTurnFlowTests {
         eventOrder.verify(hub).publishTurn(eq(roomId), eq(a.getId()), any(), eq(snapshot.turnId()),
                 eq("AUDIO_READY"), any());
         String path = "/api/rooms/" + roomId + "/turns/" + snapshot.turnId() + "/audio";
-        mvc.perform(get(path).with(user(principal(b)))).andExpect(status().isOk());
+        mvc.perform(get(path).with(user(principal(b)))).andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .content().contentType("audio/wav"));
         mvc.perform(get(path).with(user(principal(outsider)))).andExpect(status().isNotFound());
         mvc.perform(get("/api/rooms/{roomId}/turns/{turnId}/audio", UUID.randomUUID(), snapshot.turnId())
                 .with(user(principal(b)))).andExpect(status().isNotFound());
@@ -197,7 +205,7 @@ class SpeechTurnFlowTests {
         assertThat(failedTranslation.transcript()).isEqualTo("Hello");
         assertThat(failedTranslation.translatedText()).isNull();
         assertThat(failedTranslation.failedStage()).isEqualTo("TRANSLATION");
-        org.mockito.Mockito.doReturn(new TranslationProvider.Result("வணக்கம்", "AZURE_TRANSLATOR", "F0", 1))
+        org.mockito.Mockito.doReturn(new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1))
                 .when(translation).translate(any());
         when(tts.synthesize(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.TIMEOUT));
         turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
@@ -250,9 +258,9 @@ class SpeechTurnFlowTests {
                 .thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE))
                 .thenReturn(new SpeechToTextProvider.Result("second", "GROQ", "whisper-large-v3", 1));
         when(translation.translate(any())).thenReturn(new TranslationProvider.Result(
-                "இரண்டாவது", "AZURE_TRANSLATOR", "F0", 1));
+                "இரண்டாவது", "GEMINI", "gemini-3.1-flash-lite", 1));
         when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
-                new byte[]{1, 2, 3}, "audio/mpeg", "AZURE_SPEECH", "ta-LK-SaranyaNeural", 1));
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
         var first = turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
         var second = turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
         assertThat(first.turnIndex()).isEqualTo(1);

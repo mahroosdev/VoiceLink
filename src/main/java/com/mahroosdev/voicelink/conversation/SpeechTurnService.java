@@ -171,7 +171,7 @@ public class SpeechTurnService {
             synchronized (this) {
                 if (spoken.audio() == null || spoken.audio().length == 0
                         || spoken.audio().length > 2 * 1024 * 1024
-                        || !"audio/mpeg".equals(spoken.mediaType())
+                        || !"audio/wav".equals(spoken.mediaType())
                         || storedAudioBytes + spoken.audio().length > MAX_AUDIO_BYTES) {
                     throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
                 }

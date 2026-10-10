@@ -36,8 +36,4 @@ voicelink:
   standard:
     free-tier-confirmed: ${VOICELINK_STANDARD_FREE_TIER_CONFIRMED:false}
     groq-key: ${VOICELINK_GROQ_API_KEY:}
-    translator-key: ${VOICELINK_AZURE_TRANSLATOR_KEY:}
-    translator-region: ${VOICELINK_AZURE_TRANSLATOR_REGION:}
-    translator-endpoint: ${VOICELINK_AZURE_TRANSLATOR_ENDPOINT:https://api.cognitive.microsofttranslator.com}
-    speech-key: ${VOICELINK_AZURE_SPEECH_KEY:}
-    speech-region: ${VOICELINK_AZURE_SPEECH_REGION:}
+    gemini-key: ${VOICELINK_GEMINI_API_KEY:}

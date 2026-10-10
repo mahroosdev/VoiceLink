@@ -14,13 +14,10 @@ class ProviderHttpTests {
     }
 
     @Test void missingFreeTierConfirmationBlocksAllStandardKeys() {
-        var settings = new StandardProviderSettings(false, "groq", "translator", "eastus",
-                "https://api.cognitive.microsofttranslator.com", "speech", "eastus");
+        var settings = new StandardProviderSettings(false, "groq", "gemini");
         org.assertj.core.api.Assertions.assertThatThrownBy(settings::groqKey)
                 .isInstanceOf(ProviderFailure.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(settings::translatorKey)
-                .isInstanceOf(ProviderFailure.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(settings::speechKey)
+        org.assertj.core.api.Assertions.assertThatThrownBy(settings::geminiKey)
                 .isInstanceOf(ProviderFailure.class);
     }
 }
