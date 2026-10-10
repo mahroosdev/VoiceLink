@@ -180,6 +180,7 @@
       const state = await response.json();
       if (state.status === "CLOSED") {
         setStatus("CLOSED");
+        window.dispatchEvent(new Event("voicelink-room-state"));
         connection.textContent = "Live connection closed";
         return false;
       }

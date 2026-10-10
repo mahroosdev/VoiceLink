@@ -2,7 +2,7 @@
 
 **VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
 
-Status: **Gate 6B bounded context and room glossary passed automated verification; live-provider/Tamil validation pending**. Gate 4B automated verification passed; owner integrated browser verification remains pending. Gate 1 included owner-performed local PostgreSQL and runtime verification.
+Status: **Gate 6C context/glossary hardening passed automated verification; live-provider/Tamil validation pending**. Gate 4B automated verification passed; owner integrated browser verification remains pending. Gate 1 included owner-performed local PostgreSQL and runtime verification.
 
 VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, temporary live text, and a Standard short-turn speech pipeline. Live English/Tamil provider quality is pending owner validation. It does not persist conversation messages.
 

@@ -16,6 +16,7 @@
   const preferredTerm = document.getElementById("glossary-preferred-term");
   const editable = form.dataset.canEdit === "true";
   let editing = null;
+  const roomClosed = () => document.getElementById("room-status").textContent === "CLOSED";
 
   function clearEdit() {
     editing = null;
@@ -37,7 +38,7 @@
       const description = document.createElement("span");
       description.textContent = `${entry.sourceLanguage} → ${entry.targetLanguage}: ${entry.sourceTerm} → ${entry.preferredTerm} `;
       row.append(description);
-      if (editable && document.getElementById("room-status").textContent !== "CLOSED") {
+      if (editable && !roomClosed()) {
         const edit = document.createElement("button");
         edit.type = "button";
         edit.textContent = "Edit";
@@ -73,7 +74,7 @@
       }
       list.append(row);
     }
-    setEditable(editable && document.getElementById("room-status").textContent !== "CLOSED"
+    setEditable(editable && !roomClosed()
       && (editing !== null || entries.length < 12));
   }
 
@@ -86,16 +87,19 @@
   }
 
   async function refresh() {
+    if (roomClosed()) return;
     try {
       const response = await fetch(endpoint, { credentials: "same-origin", headers: { Accept: "application/json" } });
+      if (roomClosed()) return;
       if (!response.ok) throw new Error(`Terms unavailable (${response.status}).`);
-      render(await response.json());
-    } catch (error) { status.textContent = error.message; }
+      const entries = await response.json();
+      if (!roomClosed()) render(entries);
+    } catch (error) { if (!roomClosed()) status.textContent = error.message; }
   }
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
-    if (!editable || document.getElementById("room-status").textContent === "CLOSED") return;
+    if (!editable || roomClosed()) return;
     const body = { sourceLanguage: sourceLanguage.value, targetLanguage: targetLanguage.value,
       sourceTerm: sourceTerm.value, preferredTerm: preferredTerm.value };
     if (editing) body.expectedVersion = editing.rowVersion;
@@ -104,7 +108,10 @@
         editing ? `${endpoint}/${editing.id}` : endpoint, body);
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || `Term could not be saved (${response.status}).`);
+        const message = error.error === "Invalid glossary term"
+          ? "Check the term lengths and remove newlines or control characters."
+          : error.error || `Term could not be saved (${response.status}).`;
+        throw new Error(message);
       }
       status.textContent = editing ? "Term updated" : "Term added";
       clearEdit();
@@ -117,9 +124,10 @@
   });
   document.getElementById("glossary-refresh").addEventListener("click", refresh);
   window.addEventListener("voicelink-room-state", () => {
-    if (document.getElementById("room-status").textContent === "CLOSED") {
+    if (roomClosed()) {
       list.replaceChildren();
       capacity.textContent = "";
+      clearEdit();
       form.hidden = true;
       setEditable(false);
       status.textContent = "Room closed; saved terms were deleted.";

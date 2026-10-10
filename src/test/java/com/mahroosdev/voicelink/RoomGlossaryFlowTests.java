@@ -215,4 +215,23 @@ class RoomGlossaryFlowTests {
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         ex -> assertThat(ex.getStatusCode().value()).isEqualTo(400));
     }
+
+    @Test void malformedJsonAndDeletedEntryUpdateFailSafely() throws Exception {
+        var creator = account();
+        UUID room = rooms.createRoom(creator.getId(), "en", "ta");
+        String path = "/api/rooms/" + room + "/glossary";
+        var malformed = mvc.perform(post(path).with(user(principal(creator))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sourceTerm\":\"PRIVATE_TERM\","))
+                .andExpect(status().isBadRequest()).andReturn();
+        assertThat(malformed.getResponse().getContentAsString()).doesNotContain("PRIVATE_TERM");
+
+        var entry = glossary.create(creator.getId(), room, term("API", "API"));
+        glossary.delete(creator.getId(), room, entry.id(), entry.rowVersion());
+        mvc.perform(put(path + "/" + entry.id()).with(user(principal(creator))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("sourceLanguage", "en", "targetLanguage", "ta",
+                        "sourceTerm", "API", "preferredTerm", "API", "expectedVersion", entry.rowVersion()))))
+                .andExpect(status().isNotFound());
+    }
 }

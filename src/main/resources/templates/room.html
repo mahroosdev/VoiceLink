@@ -75,9 +75,13 @@
           <option value="ta">Tamil</option><option value="en">English</option>
         </select>
         <label for="glossary-source-term">Source term</label>
-        <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off">
+        <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
+               aria-describedby="glossary-term-limits">
         <label for="glossary-preferred-term">Preferred term (blank preserves source)</label>
-        <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off">
+        <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
+               aria-describedby="glossary-term-limits">
+        <p id="glossary-term-limits">Source: 1–48 Unicode characters. Preferred: up to 64.
+          Newlines and control characters are not allowed.</p>
         <button id="glossary-save" type="submit">Add term</button>
         <button id="glossary-cancel" type="button" hidden>Cancel edit</button>
       </form>

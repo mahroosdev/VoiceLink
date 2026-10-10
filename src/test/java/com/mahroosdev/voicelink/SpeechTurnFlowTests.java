@@ -28,6 +28,7 @@ import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.conversation.SpeechTurnService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
+import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomService;
@@ -57,6 +58,7 @@ class SpeechTurnFlowTests {
     @Autowired SpeechTurnService turns;
     @Autowired ObjectMapper json;
     @Autowired RoomGlossaryService glossary;
+    @Autowired RoomGlossaryRepository glossaryEntries;
     @MockitoBean SpeechToTextProvider stt;
     @MockitoBean TranslationProvider translation;
     @MockitoBean TextToSpeechProvider tts;
@@ -252,6 +254,30 @@ class SpeechTurnFlowTests {
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
                         .isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @Test void closingRoomDuringTranslationDiscardsResultAndGlossary() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID roomId = activeRoom(a, b, "en");
+        glossary.create(a.getId(), roomId,
+                new RoomGlossaryService.Change("en", "ta", "API", "ஏபிஐ"));
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result(
+                "The API works", "GROQ", "whisper-large-v3", 1));
+        when(translation.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("ஏபிஐ வேலை செய்கிறது",
+                    "GEMINI", "gemini-3.1-flash-lite", 1);
+        });
+        turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        rooms.closeRoom(a.getId(), roomId);
+        assertThat(glossaryEntries.countByRoom_Id(roomId)).isZero();
+        release.countDown();
+        verify(tts, org.mockito.Mockito.after(300).never()).synthesize(any());
+        verify(hub, never()).publishTurn(eq(roomId), eq(a.getId()), any(), any(),
+                eq("TRANSLATION_READY"), any());
     }
 
     @Test void failedEarlierTurnReleasesLaterTurnInAcceptanceOrder() throws Exception {
