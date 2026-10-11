@@ -15,6 +15,9 @@ import java.util.concurrent.TimeUnit;
 
 import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.StandardProfile;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
+import com.mahroosdev.voicelink.ai.AiProviderBundle;
+import com.mahroosdev.voicelink.ai.AiProviderResolver;
 import com.mahroosdev.voicelink.ai.stt.SpeechToTextProvider;
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
@@ -46,22 +49,17 @@ public class SpeechTurnService {
             new ArrayBlockingQueue<>(16), new ThreadPoolExecutor.AbortPolicy());
     private final RoomLiveAuthorizer authorizer;
     private final RoomLiveHub hub;
-    private final SpeechToTextProvider stt;
-    private final TranslationProvider translation;
-    private final TextToSpeechProvider tts;
+    private final AiProviderResolver providers;
     private final AudioTurnValidator validator;
     private final RoomGlossaryService glossary;
     private long storedAudioBytes;
 
     public SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
-                             SpeechToTextProvider stt, TranslationProvider translation,
-                             TextToSpeechProvider tts, AudioTurnValidator validator,
+                             AiProviderResolver providers, AudioTurnValidator validator,
                              RoomGlossaryService glossary) {
         this.authorizer = authorizer;
         this.hub = hub;
-        this.stt = stt;
-        this.translation = translation;
-        this.tts = tts;
+        this.providers = providers;
         this.validator = validator;
         this.glossary = glossary;
     }
@@ -75,7 +73,7 @@ public class SpeechTurnService {
             String key = member.participantId() + ":" + clientRequestId;
             if (room != null && room.byRequest.containsKey(key)) {
                 Turn existing = room.byRequest.get(key);
-                return new Accepted(existing.id, existing.index, true, StandardProfile.ID);
+                return new Accepted(existing.id, existing.index, true, existing.profile.name());
             }
             validator.validate(bytes, mediaType, durationMillis);
             if (room == null) {
@@ -85,7 +83,7 @@ public class SpeechTurnService {
             }
             if (room.closed || room.pending >= MAX_PENDING_PER_ROOM) throw unavailable();
             Turn turn = new Turn(roomId, userId, member.participantId(), clientRequestId,
-                    ++room.nextIndex, member.speaking(), member.listening(), bytes.clone());
+                    ++room.nextIndex, member.speaking(), member.listening(), member.profile(), bytes.clone());
             room.queue.add(turn);
             room.recent.add(turn);
             room.byRequest.put(key, turn);
@@ -115,7 +113,7 @@ public class SpeechTurnService {
                             failurePayload(turn, "The speech service is busy. Please try again later."));
                 }
             }
-            return new Accepted(turn.id, turn.index, false, StandardProfile.ID);
+            return new Accepted(turn.id, turn.index, false, turn.profile.name());
         }
     }
 
@@ -142,7 +140,8 @@ public class SpeechTurnService {
         String stage = "STT";
         try {
             if (!stillActive(turn)) return;
-            SpeechToTextProvider.Result transcript = stt.transcribe(
+            AiProviderBundle bundle = providers.resolve(turn.profile);
+            SpeechToTextProvider.Result transcript = bundle.stt().transcribe(
                     new SpeechToTextProvider.Input(turn.rawAudio, turn.source));
             synchronized (this) { turn.rawAudio = null; turn.transcript = transcript.transcript(); turn.status = "TRANSCRIBED"; }
             if (turn.transcript == null || turn.transcript.isBlank()
@@ -159,7 +158,8 @@ public class SpeechTurnService {
             List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
                     turn.roomId, turn.source, turn.target, turn.transcript);
             if (!stillActive(turn)) return;
-            TranslationProvider.Result translated = translation.translate(new TranslationProvider.TranslationRequest(
+            requirePaidStage(turn);
+            TranslationProvider.Result translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
                     turn.transcript, turn.source, turn.target, context, terms));
             if (translated.translatedText() == null || translated.translatedText().isBlank()
                     || translated.translatedText().codePointCount(0, translated.translatedText().length()) > 6000) {
@@ -176,7 +176,8 @@ public class SpeechTurnService {
                             "targetLanguage", turn.target));
             requireTime(deadline);
             stage = "TTS";
-            TextToSpeechProvider.Result spoken = tts.synthesize(
+            requirePaidStage(turn);
+            TextToSpeechProvider.Result spoken = bundle.tts().synthesize(
                     new TextToSpeechProvider.Input(turn.translation, turn.target));
             if (!stillActive(turn)) return;
             requireTime(deadline);
@@ -236,10 +237,19 @@ public class SpeechTurnService {
 
     private boolean stillActive(Turn turn) {
         try {
-            return authorizer.authorize(turn.userId, turn.roomId).status() == RoomStatus.ACTIVE;
+            RoomLiveAuthorizer.Member member = authorizer.authorize(turn.userId, turn.roomId);
+            return member.status() == RoomStatus.ACTIVE && member.profile() == turn.profile;
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    private void requirePaidStage(Turn turn) {
+        RoomLiveAuthorizer.Member member = authorizer.authorize(turn.userId, turn.roomId);
+        if (member.status() != RoomStatus.ACTIVE || member.profile() != turn.profile) {
+            throw new ProviderFailure(ProviderFailure.Code.CONFIGURATION);
+        }
+        providers.requirePaidStage(member.profile());
     }
 
     private RoomLiveAuthorizer.Member activeMember(UUID userId, UUID roomId) {
@@ -369,6 +379,7 @@ public class SpeechTurnService {
         final long index;
         final String source;
         final String target;
+        final AiServiceProfile profile;
         final Instant acceptedAt = Instant.now();
         byte[] rawAudio;
         byte[] generatedAudio;
@@ -382,7 +393,7 @@ public class SpeechTurnService {
         String errorCode;
 
         Turn(UUID roomId, UUID userId, UUID participantId, UUID clientRequestId,
-             long index, String source, String target, byte[] rawAudio) {
+             long index, String source, String target, AiServiceProfile profile, byte[] rawAudio) {
             this.roomId = roomId;
             this.userId = userId;
             this.participantId = participantId;
@@ -390,6 +401,7 @@ public class SpeechTurnService {
             this.index = index;
             this.source = source;
             this.target = target;
+            this.profile = profile;
             this.rawAudio = rawAudio;
         }
     }

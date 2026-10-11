@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
+import com.mahroosdev.voicelink.room.PremiumUnavailableException;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomInviteUnavailableException;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
@@ -56,6 +58,7 @@ class RoomFlowTests {
         UUID id = service.createRoom(creator.getId(), " EN ", "TA");
         var room = rooms.findById(id).orElseThrow();
         assertThat(room.getStatus()).isEqualTo(RoomStatus.WAITING);
+        assertThat(room.getServiceProfile()).isEqualTo(AiServiceProfile.STANDARD);
         assertThat(room.getCreatedBy().getId()).isEqualTo(creator.getId());
         assertThat(room.getJoinCode()).matches("[0-9A-HJKMNP-TV-Z]{16}");
         assertThat(room.getInviteExpiresAt()).isEqualTo(room.getCreatedAt().plusSeconds(24 * 60 * 60));
@@ -72,6 +75,30 @@ class RoomFlowTests {
         UserAccount creator = account("Creator");
         assertThatThrownBy(() -> service.createRoom(creator.getId(), "en", "en"))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.listRoomsForMember(creator.getId())).isEmpty();
+    }
+
+    @Test
+    void explicitStandardPersistsAndPremiumIsUnavailableInNormalTests() {
+        UserAccount creator = account("Creator");
+        UUID id = service.createRoom(creator.getId(), "en", "ta", AiServiceProfile.STANDARD);
+        assertThat(rooms.findById(id).orElseThrow().getServiceProfile()).isEqualTo(AiServiceProfile.STANDARD);
+        assertThatThrownBy(() -> service.createRoom(creator.getId(), "en", "ta", AiServiceProfile.PREMIUM))
+                .isInstanceOf(PremiumUnavailableException.class);
+        assertThat(service.listRoomsForMember(creator.getId())).hasSize(1);
+    }
+
+    @Test
+    void forgedPremiumAndInvalidProfilePostAreRejectedWithoutCreatingRoom() throws Exception {
+        UserAccount creator = account("Creator");
+        mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
+                .param("speaking", "en").param("listening", "ta").param("profile", "PREMIUM"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Premium profile is not currently available.")));
+        mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
+                .param("speaking", "en").param("listening", "ta").param("profile", "OTHER"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Choose a valid service profile.")));
         assertThat(service.listRoomsForMember(creator.getId())).isEmpty();
     }
 

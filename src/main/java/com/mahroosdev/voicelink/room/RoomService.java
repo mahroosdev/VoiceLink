@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.mahroosdev.voicelink.user.UserAccount;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
+import com.mahroosdev.voicelink.ai.PremiumProviderSettings;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import org.springframework.context.ApplicationEventPublisher;
@@ -22,11 +24,12 @@ public class RoomService {
     private final SupportedRoomLanguages languages;
     private final ApplicationEventPublisher events;
     private final RoomGlossaryRepository glossary;
+    private final PremiumProviderSettings premium;
 
     public RoomService(ConversationRoomRepository rooms, RoomParticipantRepository participants,
                        UserAccountRepository accounts, RoomAccessService access,
                        SupportedRoomLanguages languages, ApplicationEventPublisher events,
-                       RoomGlossaryRepository glossary) {
+                       RoomGlossaryRepository glossary, PremiumProviderSettings premium) {
         this.rooms = rooms;
         this.participants = participants;
         this.accounts = accounts;
@@ -34,14 +37,24 @@ public class RoomService {
         this.languages = languages;
         this.events = events;
         this.glossary = glossary;
+        this.premium = premium;
     }
 
     @Transactional
     public UUID createRoom(UUID userId, String speaking, String listening) {
+        return createRoom(userId, speaking, listening, AiServiceProfile.STANDARD);
+    }
+
+    @Transactional
+    public UUID createRoom(UUID userId, String speaking, String listening, AiServiceProfile profile) {
         var direction = languages.validate(speaking, listening);
+        if (profile == null) throw new IllegalArgumentException("Invalid profile");
+        if (profile == AiServiceProfile.PREMIUM && !premium.available()) {
+            throw new PremiumUnavailableException();
+        }
         UserAccount creator = accounts.findById(userId).orElseThrow(this::notFound);
         Instant now = Instant.now();
-        ConversationRoom room = rooms.saveAndFlush(new ConversationRoom(RoomCode.generate(), creator, now));
+        ConversationRoom room = rooms.saveAndFlush(new ConversationRoom(RoomCode.generate(), creator, now, profile));
         participants.saveAndFlush(new RoomParticipant(room, creator, (short) 1,
                 direction.speaking(), direction.listening(), now));
         return room.getId();
@@ -80,6 +93,7 @@ public class RoomService {
         Instant now = Instant.now();
         return participants.findByUser_IdOrderByJoinedAtDesc(userId).stream()
                 .map(p -> new RoomSummary(p.getRoom().getId(), p.getRoom().getStatus(),
+                        p.getRoom().getServiceProfile(),
                         p.getRoom().getCreatedAt(), p.getRoom().getStatus() == RoomStatus.WAITING
                                 && !now.isBefore(p.getRoom().getInviteExpiresAt())))
                 .toList();
@@ -98,7 +112,7 @@ public class RoomService {
                 && !Instant.now().isBefore(room.getInviteExpiresAt());
         String inviteCode = creator && room.getStatus() == RoomStatus.WAITING && !expired
                 ? RoomCode.display(room.getJoinCode()) : null;
-        return new RoomView(roomId, room.getStatus(), members, creator, expired,
+        return new RoomView(roomId, room.getStatus(), room.getServiceProfile(), members, creator, expired,
                 room.getInviteExpiresAt(), inviteCode);
     }
 
@@ -119,8 +133,10 @@ public class RoomService {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found");
     }
 
-    public record RoomSummary(UUID id, RoomStatus status, Instant createdAt, boolean inviteExpired) {}
+    public record RoomSummary(UUID id, RoomStatus status, AiServiceProfile profile,
+                              Instant createdAt, boolean inviteExpired) {}
     public record ParticipantView(String displayName, short slot, String speaking, String listening) {}
-    public record RoomView(UUID id, RoomStatus status, List<ParticipantView> participants,
+    public record RoomView(UUID id, RoomStatus status, AiServiceProfile profile,
+                           List<ParticipantView> participants,
                            boolean creator, boolean inviteExpired, Instant inviteExpiresAt, String inviteCode) {}
 }

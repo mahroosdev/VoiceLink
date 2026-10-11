@@ -14,8 +14,8 @@ public final class ProviderFailure extends RuntimeException {
 
     private static String message(Code code) {
         return switch (code) {
-            case CONFIGURATION -> "Standard speech service is not configured.";
-            case QUOTA -> "The Standard free-tier quota is unavailable or exhausted.";
+            case CONFIGURATION -> "The speech service is not configured.";
+            case QUOTA -> "The speech service quota is unavailable or exhausted.";
             case RATE_LIMIT -> "The speech service is busy. Please try again later.";
             case TIMEOUT -> "The speech service timed out.";
             case UNAVAILABLE -> "The speech service is temporarily unavailable.";

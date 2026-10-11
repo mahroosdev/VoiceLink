@@ -4,13 +4,13 @@
 
 Status: **Gate 6C context/glossary hardening passed automated verification; live-provider/Tamil validation pending**. Gate 4B automated verification passed; owner integrated browser verification remains pending. Gate 1 included owner-performed local PostgreSQL and runtime verification.
 
-VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, temporary live text, and a Standard short-turn speech pipeline. Live English/Tamil provider quality is pending owner validation. It does not persist conversation messages.
+VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, temporary live text, and Standard or Premium short-turn speech routing. Live English/Tamil provider quality is pending owner validation. It does not persist conversation messages.
 
 ## Planned flow
 
 Browser microphone → bounded authenticated upload → Java/Spring Boot → Groq STT → bounded in-memory context and room glossary → Gemini translation → captions → Gemini TTS → authenticated audio playback.
 
-Java and Spring Boot own the application, authorization, and pipeline orchestration. Gate 5B includes Standard adapters only; Premium is a later provisional target.
+Java and Spring Boot own the application, authorization, and pipeline orchestration. Gate 7B adds explicit immutable room service profiles through one shared speech pipeline.
 
 ## Technology
 
@@ -27,7 +27,9 @@ Java 21, Spring Boot 4.1.1, Maven Wrapper, Spring Web MVC, Security, Data JPA, V
 - Server-side sessions with CSRF protection, member-only room views, and deny-by-default authorization.
 - Recent translated source turns supply memory-only translation context: at most three prior turns, no older than five minutes, 400 Unicode code points each and 1,200 combined. Restart and room closure erase this context; no transcript history is stored in PostgreSQL.
 - Each open room has up to 12 saved terminology entries in PostgreSQL through Flyway V3. The waiting creator can prepare terms while the invite is valid; active members can view and edit them. Explicit room closure deletes entries. The room page has a small list and add/edit/delete form.
-- Local PostgreSQL Compose definition and Flyway V1/V2/V3 for accounts, rooms, and glossary entries.
+- Local PostgreSQL Compose definition and Flyway V1/V2/V3/V4 for accounts, rooms, glossary entries, and the service profile.
+
+The creator chooses Standard (default, free-tier quotas) or Premium when creating a room. Premium uses the same Groq `whisper-large-v3` recognition, paid Gemini `gemini-3.8-flash` translation, and paid Gemini `gemini-3.8-flash-tts` voice. The profile is stored per room, shown to both members, and cannot be changed. Premium is disabled by default; it requires `VOICELINK_PREMIUM_ENABLED=true` and a separate billed project key in `VOICELINK_PREMIUM_GEMINI_API_KEY`. Standard continues to use only `VOICELINK_GEMINI_API_KEY`. There is no automatic fallback or hidden paid request. Premium account, billing, live quality, and latency remain owner-controlled and unverified. The current `provider-live` Maven profile covers Standard only; paid Premium live validation is deferred.
 
 ## Prerequisites
 
@@ -85,6 +87,6 @@ The explicit `-Pprovider-live` profile (`.\mvnw.cmd -ntp -Pprovider-live verify`
 
 ## Security and scope
 
-The root page, health endpoint, login, and registration are public. `/app`, room routes, `/api/rooms/{roomId}/turns`, generated audio, `/api/rooms/{roomId}/glossary`, the room scripts, and `/ws/rooms/{roomId}` require an authenticated server-side session. Turn upload and audio retrieval also require ACTIVE room membership; glossary access requires membership in an open room. Other `/ws/**` paths and unlisted paths are denied by default. CSRF remains enabled for browser forms, audio upload, and glossary mutations. Passwords use Argon2id through Spring Security's PasswordEncoder abstraction. This is a controlled development/demo application: email verification, password recovery, request throttling, production deployment controls, strong media decoding, owner live Tamil verification, Premium, and the final UI remain future work. Do not expose account registration publicly as a production identity service.
+The root page, health endpoint, login, and registration are public. `/app`, room routes, `/api/rooms/{roomId}/turns`, generated audio, `/api/rooms/{roomId}/glossary`, the room scripts, and `/ws/rooms/{roomId}` require an authenticated server-side session. Turn upload and audio retrieval also require ACTIVE room membership; glossary access requires membership in an open room. Other `/ws/**` paths and unlisted paths are denied by default. CSRF remains enabled for browser forms, audio upload, and glossary mutations. Passwords use Argon2id through Spring Security's PasswordEncoder abstraction. This is a controlled development/demo application: email verification, password recovery, request throttling, production deployment controls, strong media decoding, owner live Tamil verification, Premium live validation, and the final UI remain future work. Do not expose account registration publicly as a production identity service.
 
 See [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [provider evaluation](docs/AI_PROVIDER_EVALUATION.md), [project log](docs/PROJECT_LOG.md), and [testing evidence](docs/TESTING.md).

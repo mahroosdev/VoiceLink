@@ -9,3 +9,6 @@ voicelink:
   standard:
     # Ordinary tests stay offline even when the developer shell has live keys.
     free-tier-confirmed: false
+  premium:
+    enabled: false
+    gemini-key: ""

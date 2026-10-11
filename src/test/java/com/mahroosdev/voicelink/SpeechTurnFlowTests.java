@@ -39,6 +39,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.context.ActiveProfiles;
@@ -59,9 +60,12 @@ class SpeechTurnFlowTests {
     @Autowired ObjectMapper json;
     @Autowired RoomGlossaryService glossary;
     @Autowired RoomGlossaryRepository glossaryEntries;
+    @Autowired JdbcTemplate jdbc;
     @MockitoBean SpeechToTextProvider stt;
-    @MockitoBean TranslationProvider translation;
-    @MockitoBean TextToSpeechProvider tts;
+    @MockitoBean(name = "geminiTranslationProvider") TranslationProvider translation;
+    @MockitoBean(name = "geminiTextToSpeechProvider") TextToSpeechProvider tts;
+    @MockitoBean(name = "premiumTranslationProvider") TranslationProvider premiumTranslation;
+    @MockitoBean(name = "premiumTextToSpeechProvider") TextToSpeechProvider premiumTts;
     @MockitoBean RoomLiveHub hub;
 
     private UserAccount account(String label) {
@@ -144,7 +148,9 @@ class SpeechTurnFlowTests {
         successProviders("ta", "en");
         var accepted = mvc.perform(request(roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus")
                 .param("userId", b.getId().toString()).param("sourceLanguage", "en")
-                .param("targetLanguage", "ta").with(user(principal(a))).with(csrf()))
+                .param("targetLanguage", "ta").param("profile", "PREMIUM")
+                .param("translationModel", "gemini-3.8-flash")
+                .with(user(principal(a))).with(csrf()))
                 .andExpect(status().isAccepted()).andReturn();
         assertThat(json.readTree(accepted.getResponse().getContentAsString()).path("profile").asText())
                 .isEqualTo("STANDARD");
@@ -157,6 +163,8 @@ class SpeechTurnFlowTests {
                 input.sourceLanguage().equals("ta") && input.targetLanguage().equals("en")));
         verify(tts).synthesize(org.mockito.ArgumentMatchers.argThat(input ->
                 input.targetLanguage().equals("en")));
+        verify(premiumTranslation, never()).translate(any());
+        verify(premiumTts, never()).synthesize(any());
     }
 
     @Test void successIsIdempotentAndAudioIsMemberOnly() throws Exception {
@@ -229,6 +237,25 @@ class SpeechTurnFlowTests {
         var failed = await(a.getId(), roomId, "FAILED");
         assertThat(failed.failedStage()).isEqualTo("STT");
         assertThat(failed.transcript()).isNull();
+        verify(translation, never()).translate(any());
+        verify(tts, never()).synthesize(any());
+    }
+
+    @Test void preexistingPremiumRoomWithServerNowDisabledKeepsTranscriptAndMakesNoPaidCall() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID roomId = activeRoom(a, b, "en");
+        // Simulate a Premium room persisted before an operator disabled Premium for this deployment.
+        jdbc.update("UPDATE conversation_rooms SET service_profile = 'PREMIUM' WHERE id = ?", roomId);
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result("Hello", "GROQ", "whisper-large-v3", 1));
+        var accepted = turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        assertThat(accepted.profile()).isEqualTo("PREMIUM");
+        var failed = await(a.getId(), roomId, "FAILED");
+        assertThat(failed.transcript()).isEqualTo("Hello");
+        assertThat(failed.failedStage()).isEqualTo("TRANSLATION");
+        assertThat(failed.errorCode()).isEqualTo("CONFIGURATION");
+        verify(stt).transcribe(any());
+        verify(premiumTranslation, never()).translate(any());
+        verify(premiumTts, never()).synthesize(any());
         verify(translation, never()).translate(any());
         verify(tts, never()).synthesize(any());
     }

@@ -16,11 +16,46 @@ import java.util.Map;
 import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.StandardProfile;
 import com.mahroosdev.voicelink.ai.StandardProviderSettings;
+import com.mahroosdev.voicelink.ai.PremiumProfile;
+import com.mahroosdev.voicelink.ai.PremiumProviderSettings;
+import org.mockito.ArgumentCaptor;
+import static org.mockito.Mockito.verify;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 class GeminiTextToSpeechProviderTests {
     private final ObjectMapper json = new ObjectMapper();
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void premiumModelVoiceAndCredentialStaySeparateForEnglishAndTamil() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        when(response.statusCode()).thenReturn(401);
+        var standard = new GeminiTextToSpeechProvider(
+                new StandardProviderSettings(true, "unused", "standard-sentinel"), json, http);
+        var settings = new PremiumProviderSettings("true", "premium-sentinel");
+        var premium = new GeminiTextToSpeechProvider(settings::geminiKey, PremiumProfile.TTS_SERVICE, json, http);
+        assertThatThrownBy(() -> standard.synthesize(new TextToSpeechProvider.Input("Hello", "en")))
+                .isInstanceOf(ProviderFailure.class);
+        assertThatThrownBy(() -> premium.synthesize(new TextToSpeechProvider.Input("வணக்கம்", "ta")))
+                .isInstanceOf(ProviderFailure.class);
+        ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, org.mockito.Mockito.times(2)).send(requests.capture(), any(HttpResponse.BodyHandler.class));
+        assertThat(requests.getAllValues().get(0).headers().firstValue("x-goog-api-key"))
+                .contains("standard-sentinel");
+        assertThat(requests.getAllValues().get(1).headers().firstValue("x-goog-api-key"))
+                .contains("premium-sentinel");
+        for (String language : List.of("en", "ta")) {
+            var body = json.readTree(GeminiTextToSpeechProvider.requestBody(json,
+                    new TextToSpeechProvider.Input("Sample", language), PremiumProfile.TTS_SERVICE));
+            assertThat(body.path("model").asText()).isEqualTo("gemini-3.8-flash-tts");
+            assertThat(body.path("generation_config").path("speech_config").get(0).path("voice").asText())
+                    .isEqualTo("Kore");
+            assertThat(body.path("response_format").path("mime_type").asText()).isEqualTo("audio/wav");
+        }
+    }
 
     @Test void constructsEnglishAndTamilVerbatimAudioRequestsWithDocumentedVoice() {
         for (String language : List.of("en", "ta")) {

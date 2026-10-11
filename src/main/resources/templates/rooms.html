@@ -33,6 +33,15 @@
           </select>
           <p th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
         </div>
+        <fieldset>
+          <legend>Service profile</legend>
+          <label><input type="radio" th:field="*{profile}" value="STANDARD"> Standard — free-tier quotas</label>
+          <label><input type="radio" th:field="*{profile}" value="PREMIUM"
+                        th:disabled="${!premiumAvailable}">
+            Premium — paid Gemini translation and voice; Groq recognition is shared</label>
+          <p th:if="${!premiumAvailable}">Premium profile is not currently available.</p>
+          <p th:if="${#fields.hasErrors('profile')}" th:errors="*{profile}" role="alert"></p>
+        </fieldset>
         <button type="submit">Create room</button>
       </form>
     </section>
@@ -60,6 +69,7 @@
         <li th:each="item : ${rooms}">
           <a th:href="@{/rooms/{id}(id=${item.id})}">Open room</a>
           — <span th:text="${item.status}"></span>
+          — <span th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
           <span th:if="${item.inviteExpired}">(invite expired)</span>
         </li>
       </ul>

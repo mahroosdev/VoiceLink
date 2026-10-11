@@ -12,6 +12,9 @@
     <h1>Conversation room</h1>
     <p><a th:href="@{/rooms}">Back to your rooms</a></p>
     <p role="status">Status: <strong id="room-status" th:text="${room.status}"></strong></p>
+    <p>Service profile: <strong th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></strong>
+       <span th:if="${room.profile.name() == 'PREMIUM'}">— Paid Gemini translation and voice; Groq recognition is shared.</span>
+       <span th:if="${room.profile.name() == 'STANDARD'}">— Free-tier quotas.</span></p>
     <p id="connection-state" role="status" aria-live="polite"
        th:text="${room.status.name() == 'CLOSED' ? 'Live connection unavailable' : 'Connecting'}"></p>
 
@@ -41,8 +44,7 @@
     <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
       <h2 id="active-heading">Room ready</h2>
       <p>Both participants may return to this room while it is active.</p>
-      <p>Speech profile: <strong>Standard — free-tier quotas</strong>. Groq Whisper Large V3,
-         Gemini 3.1 Flash-Lite translation, Gemini 3.8 Flash-Lite TTS. No paid fallback.</p>
+      <p>No automatic fallback between service profiles.</p>
       <p>Live text below is temporary transport verification, not saved conversation history.</p>
     </section>
 

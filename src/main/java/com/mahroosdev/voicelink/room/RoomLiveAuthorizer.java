@@ -2,6 +2,7 @@ package com.mahroosdev.voicelink.room;
 
 import java.util.List;
 import java.util.UUID;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,14 +25,14 @@ public class RoomLiveAuthorizer {
     @Transactional(readOnly = true)
     public Member authorize(UUID userId, UUID roomId) {
         access.requireMember(userId, roomId);
-        RoomStatus status = rooms.findById(roomId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found")).getStatus();
+        ConversationRoom room = rooms.findById(roomId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         RoomParticipant participant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).stream()
                 .filter(p -> p.getUser().getId().equals(userId))
                 .findFirst().orElseThrow(() ->
                         new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
-        return new Member(participant.getId(), status, participant.getSpeakingLanguageTag(),
-                participant.getListeningLanguageTag());
+        return new Member(participant.getId(), room.getStatus(), participant.getSpeakingLanguageTag(),
+                participant.getListeningLanguageTag(), room.getServiceProfile());
     }
 
     @Transactional(readOnly = true)
@@ -45,7 +46,8 @@ public class RoomLiveAuthorizer {
         return new Snapshot(member.status(), people);
     }
 
-    public record Member(UUID participantId, RoomStatus status, String speaking, String listening) {}
+    public record Member(UUID participantId, RoomStatus status, String speaking, String listening,
+                         AiServiceProfile profile) {}
     public record Participant(UUID participantId, String displayName, short slot,
                               String speaking, String listening) {}
     public record Snapshot(RoomStatus status, List<Participant> participants) {}

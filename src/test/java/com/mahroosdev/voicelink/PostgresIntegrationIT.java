@@ -13,6 +13,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import com.mahroosdev.voicelink.auth.RegistrationForm;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import com.mahroosdev.voicelink.auth.RegistrationService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
@@ -62,7 +63,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(3);
+        assertThat(version).isEqualTo(4);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -88,6 +89,30 @@ class PostgresIntegrationIT {
 
     private UserAccount account(String name) {
         return accounts.save(new UserAccount(name, UUID.randomUUID() + "@example.test", "test-only-hash"));
+    }
+
+    @Test
+    void v4DefaultsExistingShapeToStandardAndConstrainsProfiles() {
+        UserAccount creator = account("Profile creator");
+        UUID standard = rooms.createRoom(creator.getId(), "en", "ta");
+        assertThat(jdbc.queryForObject("SELECT service_profile FROM conversation_rooms WHERE id = ?",
+                String.class, standard)).isEqualTo("STANDARD");
+        UUID legacyShape = UUID.randomUUID();
+        jdbc.update("INSERT INTO conversation_rooms "
+                + "(id, join_code, status, created_by_user_id, created_at, updated_at, invite_expires_at) "
+                + "VALUES (?, ?, 'WAITING', ?, now(), now(), now() + interval '1 day')",
+                legacyShape, "ABCDEFGHJKMNPQRS", creator.getId());
+        assertThat(jdbc.queryForObject("SELECT service_profile FROM conversation_rooms WHERE id = ?",
+                String.class, legacyShape)).isEqualTo("STANDARD");
+        assertThatThrownBy(() -> jdbc.update("UPDATE conversation_rooms SET service_profile = 'INVALID' WHERE id = ?",
+                standard)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        jdbc.update("UPDATE conversation_rooms SET service_profile = 'PREMIUM' WHERE id = ?", legacyShape);
+        assertThat(jdbc.queryForObject("SELECT service_profile FROM conversation_rooms WHERE id = ?",
+                String.class, legacyShape)).isEqualTo("PREMIUM");
+        assertThat(roomRepository.findById(legacyShape).orElseThrow().getServiceProfile())
+                .isEqualTo(AiServiceProfile.PREMIUM);
+        assertThat(roomRepository.findById(standard).orElseThrow().getServiceProfile())
+                .isEqualTo(AiServiceProfile.STANDARD);
     }
 
     @Test

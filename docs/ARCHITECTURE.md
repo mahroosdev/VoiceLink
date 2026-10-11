@@ -26,7 +26,13 @@ This is a controlled development/demo identity boundary. Email verification, pas
 
 ## Planned, not implemented
 
-Persisted messages and history, broader conversational context, Premium providers, and the final user interface.
+Persisted messages and history, broader conversational context, and the final user interface.
+
+## Gate 7B room service profiles
+
+Flyway V4 adds `conversation_rooms.service_profile` with a `STANDARD` default and a database check for `STANDARD` or `PREMIUM`. The creator selects the immutable room profile; both members see the stored choice. Speech requests, WebSocket frames, join, and glossary operations cannot select a provider. The room authorizer reads the stored profile, and `AiProviderResolver` chooses a bundle for the existing serial `SpeechTurnService`. Both bundles share one Groq `whisper-large-v3` STT adapter and the same bounded context, glossary, turn ordering, events, temporary WAV, and partial-result pipeline.
+
+Standard keeps Gemini `gemini-3.1-flash-lite` translation and `gemini-3.8-flash-lite-tts` voice with the Standard key. Premium uses a separate billed-project key for Gemini `gemini-3.8-flash` translation with low thinking and `gemini-3.8-flash-tts` with Kore voice. Premium is disabled by default and requires server enablement plus a nonblank separate key. The server checks the stored profile and availability before each paid translation and TTS stage; adapters check the Premium key again before sending. No automatic cross-profile fallback exists. A disabled Premium translation leaves the transcript; a failed TTS leaves transcript and translation. An external request already sent cannot be retracted. No real Premium call, billing setup, or English/Tamil quality and latency validation is claimed; Google Cloud STT and Chirp remain researched alternatives.
 
 ## Gate 3B two-person room foundation
 

@@ -8,22 +8,28 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.ProviderHttp;
 import com.mahroosdev.voicelink.ai.StandardProfile;
 import com.mahroosdev.voicelink.ai.StandardProviderSettings;
+import com.mahroosdev.voicelink.ai.PremiumProfile;
+import com.mahroosdev.voicelink.ai.PremiumProviderSettings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Primary;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
+@Primary
 public class GeminiTextToSpeechProvider implements TextToSpeechProvider {
     private static final URI ENDPOINT = URI.create("https://generativelanguage.googleapis.com/v1beta/interactions");
     private static final String VOICE = "Kore";
     private static final int MAX_AUDIO_BYTES = 2 * 1024 * 1024;
-    private final StandardProviderSettings settings;
+    private final Supplier<String> keySource;
+    private final String model;
     private final ObjectMapper json;
     private final HttpClient client;
 
@@ -33,7 +39,16 @@ public class GeminiTextToSpeechProvider implements TextToSpeechProvider {
     }
 
     GeminiTextToSpeechProvider(StandardProviderSettings settings, ObjectMapper json, HttpClient client) {
-        this.settings = settings;
+        this(settings::geminiKey, StandardProfile.TTS_SERVICE, json, client);
+    }
+
+    public static GeminiTextToSpeechProvider premium(PremiumProviderSettings settings, ObjectMapper json) {
+        return new GeminiTextToSpeechProvider(settings::geminiKey, PremiumProfile.TTS_SERVICE, json, null);
+    }
+
+    GeminiTextToSpeechProvider(Supplier<String> keySource, String model, ObjectMapper json, HttpClient client) {
+        this.keySource = keySource;
+        this.model = model;
         this.json = json;
         this.client = client;
     }
@@ -47,14 +62,14 @@ public class GeminiTextToSpeechProvider implements TextToSpeechProvider {
                 || input.translatedText().codePointCount(0, input.translatedText().length()) > 6000) {
             throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
         }
-        String key = settings.geminiKey();
+        String key = keySource.get();
         long start = System.nanoTime();
         try {
             HttpRequest request = HttpRequest.newBuilder(ENDPOINT)
                     .timeout(Duration.ofSeconds(15))
                     .header("x-goog-api-key", key)
                     .header("Content-Type", "application/json; charset=UTF-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(json, input))).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(json, input, model))).build();
             String response = ProviderHttp.send(client == null ? ProviderHttp.client() : client,
                     request, HttpResponse.BodyHandlers.ofString()).body();
             byte[] audio = parseAudio(json, response);
@@ -68,8 +83,12 @@ public class GeminiTextToSpeechProvider implements TextToSpeechProvider {
     }
 
     static String requestBody(ObjectMapper json, Input input) {
+        return requestBody(json, input, StandardProfile.TTS_SERVICE);
+    }
+
+    static String requestBody(ObjectMapper json, Input input, String model) {
         return json.writeValueAsString(Map.of(
-                "model", StandardProfile.TTS_SERVICE,
+                "model", model,
                 "input", List.of(Map.of("type", "user_input", "content",
                         List.of(Map.of("type", "text", "text", input.translatedText())))),
                 "response_format", Map.of("type", "audio", "mime_type", "audio/wav"),

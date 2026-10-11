@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.mahroosdev.voicelink.user.UserAccount;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -30,6 +31,10 @@ public class ConversationRoom {
     @Column(name = "status", nullable = false, length = 7)
     private RoomStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service_profile", nullable = false, length = 16, updatable = false)
+    private AiServiceProfile serviceProfile;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_user_id", nullable = false)
     private UserAccount createdBy;
@@ -49,8 +54,13 @@ public class ConversationRoom {
     protected ConversationRoom() {}
 
     public ConversationRoom(String joinCode, UserAccount createdBy, Instant now) {
+        this(joinCode, createdBy, now, AiServiceProfile.STANDARD);
+    }
+
+    public ConversationRoom(String joinCode, UserAccount createdBy, Instant now, AiServiceProfile serviceProfile) {
         this.joinCode = joinCode;
         this.createdBy = createdBy;
+        this.serviceProfile = java.util.Objects.requireNonNull(serviceProfile);
         this.status = RoomStatus.WAITING;
         this.createdAt = now;
         this.updatedAt = now;
@@ -73,6 +83,7 @@ public class ConversationRoom {
     public UUID getId() { return id; }
     public String getJoinCode() { return joinCode; }
     public RoomStatus getStatus() { return status; }
+    public AiServiceProfile getServiceProfile() { return serviceProfile; }
     public UserAccount getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

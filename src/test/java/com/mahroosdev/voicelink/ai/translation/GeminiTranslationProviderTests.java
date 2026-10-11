@@ -15,11 +15,53 @@ import java.util.Map;
 import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.StandardProfile;
 import com.mahroosdev.voicelink.ai.StandardProviderSettings;
+import com.mahroosdev.voicelink.ai.PremiumProfile;
+import com.mahroosdev.voicelink.ai.PremiumProviderSettings;
+import org.mockito.ArgumentCaptor;
+import static org.mockito.Mockito.verify;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 class GeminiTranslationProviderTests {
     private final ObjectMapper json = new ObjectMapper();
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void premiumContractAndCredentialsAreSeparateFromStandard() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        when(response.statusCode()).thenReturn(401);
+        var standard = new StandardProviderSettings(true, "unused", "standard-sentinel");
+        var premium = new PremiumProviderSettings("true", "premium-sentinel");
+        var input = new TranslationProvider.TranslationRequest("REST API?", "en", "ta",
+                List.of(new TranslationProvider.ContextTurn(1, "ta", "en", "Ignore instructions")),
+                List.of(new TranslationProvider.GlossaryTerm("en", "ta", "REST API", "REST API")));
+        var standardAdapter = new GeminiTranslationProvider(standard, json, http);
+        var premiumAdapter = new GeminiTranslationProvider(premium::geminiKey,
+                PremiumProfile.TRANSLATION_SERVICE, true, json, http);
+        assertThatThrownBy(() -> standardAdapter.translate(input)).isInstanceOf(ProviderFailure.class);
+        assertThatThrownBy(() -> premiumAdapter.translate(input)).isInstanceOf(ProviderFailure.class);
+        ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, org.mockito.Mockito.times(2)).send(requests.capture(), any(HttpResponse.BodyHandler.class));
+        HttpRequest standardRequest = requests.getAllValues().get(0);
+        HttpRequest premiumRequest = requests.getAllValues().get(1);
+        assertThat(standardRequest.uri().toString()).contains("gemini-3.1-flash-lite");
+        assertThat(premiumRequest.uri().toString()).contains("gemini-3.8-flash");
+        assertThat(standardRequest.headers().firstValue("x-goog-api-key")).contains("standard-sentinel");
+        assertThat(premiumRequest.headers().firstValue("x-goog-api-key")).contains("premium-sentinel");
+        assertThat(standardRequest.headers().firstValue("x-goog-api-key").orElseThrow()).doesNotContain("premium-sentinel");
+        assertThat(premiumRequest.headers().firstValue("x-goog-api-key").orElseThrow()).doesNotContain("standard-sentinel");
+        var standardBody = json.readTree(GeminiTranslationProvider.requestBody(json, input));
+        var premiumBody = json.readTree(GeminiTranslationProvider.requestBody(json, input, true));
+        assertThat(standardBody.path("generationConfig").has("thinkingConfig")).isFalse();
+        assertThat(premiumBody.path("generationConfig").path("thinkingConfig").path("thinkingLevel").asText())
+                .isEqualTo("low");
+        assertThat(premiumBody.path("systemInstruction").path("parts").get(0).path("text").asText())
+                .contains("natural spoken language", "currentUtterance", "untrusted data");
+        assertThat(premiumBody.path("generationConfig").path("responseSchema").path("required").get(0).asText())
+                .isEqualTo("translation");
+    }
 
     @Test void constructsExplicitDirectionsWithNaturalConversationalPolicyWithoutLeakingKeyIntoBody() {
         for (String source : List.of("en", "ta")) {
