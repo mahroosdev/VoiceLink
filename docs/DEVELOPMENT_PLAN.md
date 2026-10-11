@@ -20,11 +20,12 @@ Each gate requires its own scope and review before implementation. This document
 | 6C | Context/glossary UX, operational hardening, and release checks | PASS; 71 offline tests, clean package, and 4 PostgreSQL 17.11 integration tests passed in isolated Linux verification; live/manual quality pending |
 | 7A | Premium profile architecture and current provider review | PASS / APPROVED by owner; architecture recorded below |
 | 7B | Implement explicit room-scoped Premium selection and paid Gemini translation/TTS with shared Groq STT | PASS by current offline evidence: 86 fast tests, clean package, and 5 PostgreSQL 17.11 integrations; live/manual quality pending |
-| 8 | Professional UI/UX | NOT STARTED; requires separate scope and authorization |
+| 8A | Professional UI/UX architecture | PASS / APPROVED by owner; architecture recorded below |
+| 8B | Professional UI implementation and verification | NOT STARTED; requires separate implementation authorization |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
 
-Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, Gate 5A before Gate 5B, and Gate 6A before Gate 6B. Gate 6B and Gate 6C received separate implementation authorization and passed automated verification. Gate 7A was approved; the separately authorized Gate 7B implementation passed offline verification. The Gate 4B owner integrated browser check and live-provider/Tamil quality checks remain pending.
+Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, Gate 5A before Gate 5B, and Gate 6A before Gate 6B. Gate 6B and Gate 6C received separate implementation authorization and passed automated verification. Gate 7A was approved; the separately authorized Gate 7B implementation passed offline verification. Gate 8A is approved, while Gate 8B has not started. The Gate 4B owner integrated browser check and live-provider/Tamil quality checks remain pending.
 
 ## Gate 6A approved boundaries
 
@@ -40,4 +41,10 @@ STANDARD remains Groq `whisper-large-v3` speech recognition → Gemini `gemini-3
 
 Premium uses a separate billed Gemini project and API key from Standard and is disabled by default with `VOICELINK_PREMIUM_ENABLED=false`. A paid call requires a stored PREMIUM room profile, server-side enablement, and configured Premium credentials. There is no automatic fallback between profiles. The creator selects STANDARD or PREMIUM when creating a room; the choice is immutable and visible to both members. Gate 7B uses an `AiServiceProfile`/provider-bundle resolver with one shared speech, context, and glossary pipeline rather than duplicating `SpeechTurnService`.
 
-Flyway V4 adds `service_profile` to `conversation_rooms`, defaults existing rooms to STANDARD, and constrains values to STANDARD or PREMIUM. The dedicated Gate 7B authorization was granted and its offline implementation passed. Paid project creation and live/paid Premium validation remain deferred until later integrated testing. The next major planned stage is Gate 8 professional UI/UX; it has not started.
+Flyway V4 adds `service_profile` to `conversation_rooms`, defaults existing rooms to STANDARD, and constrains values to STANDARD or PREMIUM. The dedicated Gate 7B authorization was granted and its offline implementation passed. Paid project creation and live/paid Premium validation remain deferred until later integrated testing.
+
+## Gate 8A approved Professional UI/UX architecture
+
+The submission release uses a light-only warm-white, deep-ink, and teal visual system with a restrained violet Premium accent, system/local fonts, and a minimal custom VoiceLink brand treatment. The frontend remains Thymeleaf, HTML, CSS, and vanilla JavaScript, with no frontend framework, build tooling, or external icon/font dependency. The active conversation prioritizes connection state, recording and processing, temporary live captions, and translated audio. The room glossary is a collapsible secondary side panel on desktop and an in-flow disclosure on mobile. Standard/Premium descriptions and concise privacy wording must remain technically accurate; recent captions must not imply persistent chat history.
+
+Gate 8B must support desktop, tablet, and mobile down to 320px, keyboard access, visible focus, sufficient contrast, clear status and error feedback, touch-friendly controls, and reduced motion. Gate 8B does not add transcript persistence or expand backend, schema, or provider behavior for visual polish. The only approved small presentation-support backend change is allowing the new stylesheet through `SecurityConfig`. Final manual visual/browser QA remains deferred until after implementation. Gate 8B has not started and requires dedicated authorization.
