@@ -1,15 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>VoiceLink | Development Foundation</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoiceLink | Speak across languages</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
-<body>
-    <main>
-        <h1>VoiceLink</h1>
-        <p>Development Foundation</p>
-        <p>Application running</p>
-    </main>
+<body class="public-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" th:href="@{/}" aria-label="VoiceLink home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <nav class="header-actions" aria-label="Account">
+        <a th:href="@{/login}">Sign in</a>
+        <a class="button button--primary" th:href="@{/register}">Create account</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="container">
+    <section class="public-hero" aria-labelledby="hero-heading">
+      <span class="eyebrow">English ↔ Tamil conversations</span>
+      <h1 id="hero-heading">A clearer way to speak across languages.</h1>
+      <p>VoiceLink helps two people speak in their own languages, follow live captions, and hear translated voice.</p>
+      <div class="row">
+        <a class="button button--primary" th:href="@{/register}">Get started</a>
+        <a class="button button--secondary" th:href="@{/login}">Sign in</a>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="container">VoiceLink · English and Tamil conversation</div></footer>
 </body>
 </html>

@@ -34,10 +34,11 @@ class VoiceLinkFoundationTests {
     }
 
     @Test
-    void foundationPageIsPublic() throws Exception {
+    void landingPageIsPublic() throws Exception {
         mvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Development Foundation")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "A clearer way to speak across languages.")));
     }
 
     @Test

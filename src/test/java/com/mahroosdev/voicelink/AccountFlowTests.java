@@ -127,7 +127,7 @@ class AccountFlowTests {
                 .param("password", "123456789"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "Password (10 to 128 characters)")))
+                        "10–128 characters.")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
                         "Password must be 10 to 128 characters.")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("role=\"alert\"")))
@@ -141,7 +141,7 @@ class AccountFlowTests {
     @Test
     void pagesArePublicAndApplicationIsProtected() throws Exception {
         mvc.perform(get("/register")).andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Create a VoiceLink account")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Create your account")));
         mvc.perform(get("/login")).andExpect(status().isOk());
         mvc.perform(get("/app")).andExpect(status().isFound())
                 .andExpect(redirectedUrl("/login"));

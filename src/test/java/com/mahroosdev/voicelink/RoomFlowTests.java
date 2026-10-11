@@ -284,7 +284,7 @@ class RoomFlowTests {
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Room ready")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Recent live turns")));
         mvc.perform(post(redirect + "/close").with(user(principal(outsider))).with(csrf()))
                 .andExpect(status().isNotFound());
         mvc.perform(post(redirect + "/close").with(user(principal(joiner))).with(csrf()))

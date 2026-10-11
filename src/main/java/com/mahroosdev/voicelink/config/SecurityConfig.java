@@ -26,6 +26,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/", "/login", "/register", "/actuator/health").permitAll()
                 .requestMatchers(HttpMethod.POST, "/login", "/register").permitAll()
                 .requestMatchers("/error").permitAll()
+                .requestMatchers(HttpMethod.GET, "/css/voicelink.css").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/room-live.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-glossary.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/ws/rooms/*").authenticated()

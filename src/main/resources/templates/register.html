@@ -4,30 +4,48 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Create account | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
-<body>
-  <main>
-    <h1>Create a VoiceLink account</h1>
-    <p th:if="${registrationError}" th:text="${registrationError}" role="alert"></p>
-    <form th:action="@{/register}" th:object="${registrationForm}" method="post">
-      <div>
-        <label for="displayName">Display name</label>
-        <input id="displayName" th:field="*{displayName}" autocomplete="name" required minlength="2" maxlength="60" th:attr="aria-invalid=${#fields.hasErrors('displayName')}">
-        <p th:if="${#fields.hasErrors('displayName')}" th:errors="*{displayName}" role="alert"></p>
-      </div>
-      <div>
-        <label for="email">Email</label>
-        <input id="email" th:field="*{email}" type="email" autocomplete="email" required maxlength="254" th:attr="aria-invalid=${#fields.hasErrors('email')}">
-        <p th:if="${#fields.hasErrors('email')}" th:errors="*{email}" role="alert"></p>
-      </div>
-      <div>
-        <label for="password">Password (10 to 128 characters)</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" th:attr="aria-invalid=${#fields.hasErrors('password')}">
-        <p th:if="${#fields.hasErrors('password')}" th:errors="*{password}" role="alert"></p>
-      </div>
-      <button type="submit">Create account</button>
-    </form>
-    <p><a th:href="@{/login}">Already have an account? Sign in</a></p>
+<body class="public-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" th:href="@{/}" aria-label="VoiceLink home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+    </div>
+  </header>
+  <main id="main" class="container auth-wrap">
+    <section class="auth-card card" aria-labelledby="register-heading">
+      <span class="eyebrow">Start a conversation</span>
+      <h1 id="register-heading">Create your account</h1>
+      <p class="auth-card__intro">Make a private space for two-person translation.</p>
+      <p class="notice notice--error" th:if="${registrationError}" th:text="${registrationError}" role="alert"></p>
+      <form th:action="@{/register}" th:object="${registrationForm}" method="post">
+        <div class="field">
+          <label for="displayName">Display name</label>
+          <input id="displayName" th:field="*{displayName}" autocomplete="name" required minlength="2" maxlength="60"
+                 th:attr="aria-invalid=${#fields.hasErrors('displayName')},aria-describedby=${#fields.hasErrors('displayName') ? 'displayName-error' : ''}">
+          <p id="displayName-error" class="field-error" th:if="${#fields.hasErrors('displayName')}" th:errors="*{displayName}" role="alert"></p>
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" th:field="*{email}" type="email" autocomplete="email" required maxlength="254"
+                 th:attr="aria-invalid=${#fields.hasErrors('email')},aria-describedby=${#fields.hasErrors('email') ? 'email-error' : ''}">
+          <p id="email-error" class="field-error" th:if="${#fields.hasErrors('email')}" th:errors="*{email}" role="alert"></p>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"
+                 th:attr="aria-invalid=${#fields.hasErrors('password')},aria-describedby=${#fields.hasErrors('password') ? 'password-help password-error' : 'password-help'}">
+          <p id="password-help" class="field-help">10–128 characters. Your password is never shown again here.</p>
+          <p id="password-error" class="field-error" th:if="${#fields.hasErrors('password')}" th:errors="*{password}" role="alert"></p>
+        </div>
+        <div class="form-actions"><button class="button button--primary" type="submit">Create account</button></div>
+      </form>
+      <p class="auth-card__switch">Already have an account? <a th:href="@{/login}">Sign in</a></p>
+    </section>
   </main>
 </body>
 </html>

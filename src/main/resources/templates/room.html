@@ -5,108 +5,183 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="_csrf" th:content="${_csrf.token}">
   <meta name="_csrf_header" th:content="${_csrf.headerName}">
-  <title>Room | VoiceLink</title>
+  <title>Conversation | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
 <body>
-  <main id="room-page" th:attr="data-room-id=${room.id}">
-    <h1>Conversation room</h1>
-    <p><a th:href="@{/rooms}">Back to your rooms</a></p>
-    <p role="status">Status: <strong id="room-status" th:text="${room.status}"></strong></p>
-    <p>Service profile: <strong th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></strong>
-       <span th:if="${room.profile.name() == 'PREMIUM'}">— Paid Gemini translation and voice; Groq recognition is shared.</span>
-       <span th:if="${room.profile.name() == 'STANDARD'}">— Free-tier quotas.</span></p>
-    <p id="connection-state" role="status" aria-live="polite"
-       th:text="${room.status.name() == 'CLOSED' ? 'Live connection unavailable' : 'Connecting'}"></p>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" th:href="@{/app}" aria-label="VoiceLink home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <nav class="header-actions" aria-label="Account">
+        <a th:href="@{/rooms}" aria-current="page">Rooms</a>
+        <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="container room-page">
+    <div id="room-page" th:attr="data-room-id=${room.id}">
+      <a class="room-back" th:href="@{/rooms}">← Back to your rooms</a>
+      <section class="room-header card" aria-labelledby="room-heading">
+        <div class="room-header__top">
+          <div>
+            <span class="eyebrow">Live conversation</span>
+            <h1 id="room-heading">Conversation room</h1>
+            <p class="room-direction">English ↔ Tamil · Two people, one shared room</p>
+          </div>
+          <div class="row">
+            <span id="room-status" class="badge" th:classappend="${room.status.name() == 'ACTIVE' ? 'badge--active' : (room.status.name() == 'WAITING' ? 'badge--waiting' : 'badge--closed')}"
+                  th:text="${room.status}" role="status"></span>
+            <span class="badge" th:classappend="${room.profile.name() == 'PREMIUM' ? 'badge--premium' : 'badge--standard'}"
+                  th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
+          </div>
+        </div>
+        <div class="room-header__meta">
+          <span id="connection-state" class="connection" role="status" aria-live="polite"
+                th:text="${room.status.name() == 'CLOSED' ? 'Live connection unavailable' : 'Connecting'}"></span>
+        </div>
+        <section class="room-participants" aria-labelledby="members-heading">
+          <h2 id="members-heading" class="sr-only">Participants and languages</h2>
+          <ul id="participants-list" class="participant-grid">
+            <li class="participant" th:each="person : ${room.participants}">
+              <span class="participant__avatar" aria-hidden="true" th:text="${person.slot}"></span>
+              <span class="participant__details"><strong th:text="${person.displayName}"></strong>
+                <small>Speaks <span th:text="${person.speaking == 'en' ? 'English' : 'Tamil'}"></span> · Hears <span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
+              </span>
+            </li>
+          </ul>
+        </section>
+        <form id="close-room-form" class="room-close" th:if="${room.status.name() != 'CLOSED'}"
+              th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
+          <p>Closing ends this room for both people and deletes its saved glossary.</p>
+          <button class="button button--danger" type="submit"
+                  th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
+        </form>
+      </section>
 
-    <section aria-labelledby="members-heading">
-      <h2 id="members-heading">Participants and languages</h2>
-      <ul id="participants-list">
-        <li th:each="person : ${room.participants}">
-          <span th:text="${person.displayName}"></span>
-          — speaks <span th:text="${person.speaking}"></span>, receives
-          <span th:text="${person.listening}"></span>
-        </li>
-      </ul>
-    </section>
+      <div class="room-main-grid">
+        <div class="room-main">
+          <section id="waiting-section" class="waiting-card card" th:hidden="${room.status.name() != 'WAITING'}"
+                   aria-labelledby="waiting-heading">
+            <span class="eyebrow">Invite someone</span>
+            <h2 id="waiting-heading">Waiting for the second participant</h2>
+            <p class="waiting-card__intro">Share this private code directly with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+            <p class="notice notice--warning" th:if="${room.inviteExpired}">Invite expired. Close this room and create a new one.</p>
+            <div th:if="${room.inviteCode != null}">
+              <span class="field-label">Private invite code</span>
+              <code id="invite-code" class="invite-code" th:text="${room.inviteCode}"></code>
+              <div class="invite-actions">
+                <button id="invite-copy" class="button button--secondary" type="button">Copy code</button>
+                <span id="copy-status" class="small muted" role="status" aria-live="polite"></span>
+              </div>
+              <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
+                  th:text="${room.inviteExpiresAt}"></time>.</p>
+            </div>
+          </section>
 
-    <section id="waiting-section" th:hidden="${room.status.name() != 'WAITING'}" aria-labelledby="waiting-heading">
-      <h2 id="waiting-heading">Waiting for the second participant</h2>
-      <p>The person joining will speak <span th:text="${room.participants[0].listening}"></span>
-         and receive <span th:text="${room.participants[0].speaking}"></span>.</p>
-      <p th:if="${room.inviteExpired}">The invite has expired. Close this room and create a new one to invite someone.</p>
-      <div th:if="${room.inviteCode != null}">
-        <p>Share this private code directly with one person:</p>
-        <p><code th:text="${room.inviteCode}"></code></p>
-        <p>Invite expires at <time th:text="${room.inviteExpiresAt}"></time>.</p>
+          <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
+            <h2 id="active-heading" class="sr-only">Active conversation</h2>
+            <section id="speech-section" class="recording-card card" aria-labelledby="speech-heading">
+              <span class="eyebrow">Your turn to speak</span>
+              <h3 id="speech-heading">Speak naturally. VoiceLink will translate.</h3>
+              <p class="recording-card__intro">Short turns, up to 15 seconds. The other person can follow the caption and translated voice.</p>
+              <div class="recording-controls">
+                <button id="record-start" class="button button--primary recording-controls__main" type="button"
+                        th:disabled="${room.status.name() != 'ACTIVE'}">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  <span>Start speaking</span>
+                </button>
+                <button id="record-stop" class="button button--secondary" type="button" disabled><span class="recording-indicator" aria-hidden="true"></span> Stop recording</button>
+                <output id="recording-timer" class="recording-timer" aria-hidden="true" hidden></output>
+              </div>
+              <p id="recording-status" class="recording-status" role="status" aria-live="polite">Checking microphone support</p>
+            </section>
+            <section class="turns-card card" aria-labelledby="turns-heading">
+              <h3 id="turns-heading">Recent live turns</h3>
+              <p class="turns-card__intro">Captions and translated audio are temporary. They may disappear after a restart or short expiry.</p>
+              <p id="turn-empty" class="empty-state">No speech turns yet. Start speaking when you’re ready.</p>
+              <ol id="speech-events" class="turn-list"></ol>
+              <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
+            </section>
+            <details id="live-text-section" class="live-text disclosure" aria-labelledby="live-text-heading">
+              <summary id="live-text-heading">Temporary live text</summary>
+              <div class="live-text__body">
+                <p>Text is live only. Messages sent while you are disconnected cannot be restored.</p>
+                <form id="live-text-form" class="live-text__form">
+                  <div class="field">
+                    <label for="live-text-input">Text to send</label>
+                    <input id="live-text-input" type="text" maxlength="1000" autocomplete="off" required
+                           th:disabled="${room.status.name() != 'ACTIVE'}">
+                  </div>
+                  <button id="live-send" class="button button--secondary" type="submit"
+                          th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
+                </form>
+                <ul id="live-events" class="live-events" aria-live="polite"></ul>
+              </div>
+            </details>
+          </section>
+
+          <section id="closed-notice" class="room-closed card" th:hidden="${room.status.name() != 'CLOSED'}"
+                   aria-labelledby="closed-heading">
+            <h2 id="closed-heading">This room is closed</h2>
+            <p>It cannot be reopened or joined. The room glossary has been deleted.</p>
+          </section>
+        </div>
+
+        <aside class="room-sidebar" aria-label="Room tools">
+          <details id="glossary-section" class="glossary-panel card" th:if="${room.status.name() != 'CLOSED'}">
+            <summary>
+              <span class="glossary-panel__heading"><strong id="glossary-heading">Technical glossary</strong>
+                <small id="glossary-capacity">Loading terms…</small></span>
+            </summary>
+            <div class="glossary-panel__body">
+              <p class="small muted">Shared room terms can guide translation. Relevant terms may be sent to Gemini. Use non-sensitive demo terms.</p>
+              <button id="glossary-refresh" class="button button--secondary" type="button">Refresh terms</button>
+              <ul id="glossary-list" class="glossary-list"></ul>
+              <form id="glossary-form" class="glossary-form"
+                    th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
+                <h3 id="glossary-form-heading">Add term</h3>
+                <div class="field">
+                  <label for="glossary-source-language">Source language</label>
+                  <select id="glossary-source-language" required>
+                    <option value="en">English</option><option value="ta">Tamil</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="glossary-target-language">Target language</label>
+                  <select id="glossary-target-language" required>
+                    <option value="ta">Tamil</option><option value="en">English</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="glossary-source-term">Source term</label>
+                  <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
+                         aria-describedby="glossary-term-limits glossary-status">
+                </div>
+                <div class="field">
+                  <label for="glossary-preferred-term">Preferred term</label>
+                  <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
+                         aria-describedby="glossary-preferred-help glossary-term-limits glossary-status">
+                  <p id="glossary-preferred-help" class="field-help">Leave preferred term blank to keep the source wording.</p>
+                </div>
+                <p id="glossary-term-limits" class="field-help">Source: 1–48 Unicode characters. Preferred: up to 64. Newlines and control characters are not allowed.</p>
+                <button id="glossary-save" class="button button--primary" type="submit">Add term</button>
+                <button id="glossary-cancel" class="button button--secondary" type="button" hidden>Cancel edit</button>
+              </form>
+              <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
+            </div>
+          </details>
+          <section class="room-info card" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
+            <h2 id="room-info-heading">About this room</h2>
+            <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
+            <p class="room-privacy">During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
+          </section>
+        </aside>
       </div>
-    </section>
-
-    <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
-      <h2 id="active-heading">Room ready</h2>
-      <p>Both participants may return to this room while it is active.</p>
-      <p>No automatic fallback between service profiles.</p>
-      <p>Live text below is temporary transport verification, not saved conversation history.</p>
-    </section>
-
-    <section id="speech-section" th:hidden="${room.status.name() != 'ACTIVE'}"
-             aria-labelledby="speech-heading">
-      <h2 id="speech-heading">Short speech turns</h2>
-      <p>Speak for up to 15 seconds. Audio and captions are temporary; they may be unavailable after a restart.</p>
-      <button id="record-start" type="button" th:disabled="${room.status.name() != 'ACTIVE'}">Record</button>
-      <button id="record-stop" type="button" disabled>Stop</button>
-      <p id="recording-status" role="status" aria-live="polite">Checking microphone support</p>
-      <ol id="speech-events" aria-live="polite"></ol>
-    </section>
-
-    <section id="glossary-section" th:if="${room.status.name() != 'CLOSED'}"
-             aria-labelledby="glossary-heading">
-      <h2 id="glossary-heading">Room terminology</h2>
-      <p>Terms are shared with this room's members and may be sent to Gemini when relevant.
-         Use only non-sensitive demo terms. Closing the room deletes its saved glossary.</p>
-      <p id="glossary-capacity" role="status"></p>
-      <button id="glossary-refresh" type="button">Refresh terms</button>
-      <ul id="glossary-list"></ul>
-      <form id="glossary-form" th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
-        <h3 id="glossary-form-heading">Add term</h3>
-        <label for="glossary-source-language">Source language</label>
-        <select id="glossary-source-language" required>
-          <option value="en">English</option><option value="ta">Tamil</option>
-        </select>
-        <label for="glossary-target-language">Target language</label>
-        <select id="glossary-target-language" required>
-          <option value="ta">Tamil</option><option value="en">English</option>
-        </select>
-        <label for="glossary-source-term">Source term</label>
-        <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
-               aria-describedby="glossary-term-limits">
-        <label for="glossary-preferred-term">Preferred term (blank preserves source)</label>
-        <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
-               aria-describedby="glossary-term-limits">
-        <p id="glossary-term-limits">Source: 1–48 Unicode characters. Preferred: up to 64.
-          Newlines and control characters are not allowed.</p>
-        <button id="glossary-save" type="submit">Add term</button>
-        <button id="glossary-cancel" type="button" hidden>Cancel edit</button>
-      </form>
-      <p id="glossary-status" role="status" aria-live="polite"></p>
-    </section>
-
-    <section id="live-text-section" th:hidden="${room.status.name() != 'ACTIVE'}"
-             aria-labelledby="live-text-heading">
-      <h2 id="live-text-heading">Temporary live text</h2>
-      <p>Messages are transient. Text sent while you are disconnected cannot be restored.</p>
-      <form id="live-text-form">
-        <label for="live-text-input">Text to send</label>
-        <input id="live-text-input" type="text" maxlength="1000" autocomplete="off" required
-               th:disabled="${room.status.name() != 'ACTIVE'}">
-        <button id="live-send" type="submit" th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
-      </form>
-      <ul id="live-events" aria-live="polite"></ul>
-    </section>
-
-    <p id="closed-notice" th:hidden="${room.status.name() != 'CLOSED'}">This room is closed. It cannot be reopened or joined.</p>
-    <form id="close-room-form" th:if="${room.status.name() != 'CLOSED'}" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
-      <button type="submit" th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
-    </form>
+    </div>
   </main>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>

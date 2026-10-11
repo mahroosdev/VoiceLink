@@ -3,74 +3,126 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rooms | VoiceLink</title>
+  <title>Your rooms | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
 <body>
-  <main>
-    <h1>Your rooms</h1>
-    <p><a th:href="@{/app}">Back to app</a></p>
-
-    <section aria-labelledby="create-heading">
-      <h2 id="create-heading">Create a room</h2>
-      <p>Choose the languages for this conversation. The other participant will use the reverse direction.</p>
-      <p th:if="${roomError}" th:text="${roomError}" role="alert"></p>
-      <form th:action="@{/rooms}" th:object="${createRoomForm}" method="post">
-        <div>
-          <label for="speaking">I speak</label>
-          <select id="speaking" th:field="*{speaking}" th:attr="aria-invalid=${#fields.hasErrors('speaking')}">
-            <option value="">Choose a language</option>
-            <option value="en">English</option>
-            <option value="ta">Tamil</option>
-          </select>
-          <p th:if="${#fields.hasErrors('speaking')}" th:errors="*{speaking}" role="alert"></p>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" th:href="@{/app}" aria-label="VoiceLink home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <nav class="header-actions" aria-label="Account">
+        <a th:href="@{/rooms}" aria-current="page">Rooms</a>
+        <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="container page">
+    <div class="page-heading">
+      <span class="eyebrow">Your conversations</span>
+      <h1>Make space to understand each other.</h1>
+      <p>Create a private room or join someone who shared a code with you. One room connects two people.</p>
+    </div>
+    <div class="room-form-grid">
+      <section id="create" class="card card-pad" aria-labelledby="create-heading">
+        <div class="section-heading">
+          <h2 id="create-heading">Create a conversation</h2>
+          <p>Choose what you speak and what you want to hear. Your guest uses the reverse direction.</p>
         </div>
-        <div>
-          <label for="listening">I receive translation in</label>
-          <select id="listening" th:field="*{listening}" th:attr="aria-invalid=${#fields.hasErrors('listening')}">
-            <option value="">Choose a language</option>
-            <option value="en">English</option>
-            <option value="ta">Tamil</option>
-          </select>
-          <p th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
+        <p class="notice notice--error" th:if="${roomError}" th:text="${roomError}" role="alert"></p>
+        <form th:action="@{/rooms}" th:object="${createRoomForm}" method="post">
+          <div class="field">
+            <label for="speaking">Your spoken language</label>
+            <select id="speaking" th:field="*{speaking}"
+                    th:attr="aria-invalid=${#fields.hasErrors('speaking')},aria-describedby=${#fields.hasErrors('speaking') ? 'speaking-error' : ''}">
+              <option value="">Choose a language</option>
+              <option value="en">English</option>
+              <option value="ta">Tamil</option>
+            </select>
+            <p id="speaking-error" class="field-error" th:if="${#fields.hasErrors('speaking')}" th:errors="*{speaking}" role="alert"></p>
+          </div>
+          <div class="field">
+            <label for="listening">Language you receive</label>
+            <select id="listening" th:field="*{listening}"
+                    th:attr="aria-invalid=${#fields.hasErrors('listening')},aria-describedby=${#fields.hasErrors('listening') ? 'listening-error' : ''}">
+              <option value="">Choose a language</option>
+              <option value="en">English</option>
+              <option value="ta">Tamil</option>
+            </select>
+            <p id="listening-error" class="field-error" th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
+          </div>
+          <fieldset class="profile-fieldset"
+                    th:attr="aria-describedby=${#fields.hasErrors('profile') ? 'profile-help profile-error' : 'profile-help'}">
+            <legend>Service profile</legend>
+            <p id="profile-help" class="field-help">This choice stays with the room.</p>
+            <div class="profile-options">
+              <label class="profile-option">
+                <input type="radio" th:field="*{profile}" value="STANDARD"
+                       th:attr="aria-invalid=${#fields.hasErrors('profile')}">
+                <span class="profile-option__text">
+                  <span class="profile-option__title"><strong>Standard</strong><span class="badge badge--standard">Free tier</span></span>
+                  <small>Free-tier services with usage quotas. For non-sensitive demo conversations.</small>
+                </span>
+              </label>
+              <label class="profile-option profile-option--premium">
+                <input type="radio" th:field="*{profile}" value="PREMIUM" th:disabled="${!premiumAvailable}"
+                       th:attr="aria-invalid=${#fields.hasErrors('profile')}">
+                <span class="profile-option__text">
+                  <span class="profile-option__title"><strong>Premium</strong><span class="badge badge--premium">Paid Gemini</span></span>
+                  <small>Paid Gemini translation and voice; Groq speech recognition is shared.</small>
+                </span>
+              </label>
+            </div>
+            <p class="field-help" th:if="${!premiumAvailable}">Premium is not available on this server.</p>
+            <p id="profile-error" class="field-error" th:if="${#fields.hasErrors('profile')}" th:errors="*{profile}" role="alert"></p>
+          </fieldset>
+          <details class="disclosure data-disclosure">
+            <summary>How data is used</summary>
+            <div class="disclosure__body small muted">
+              <p>During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
+              <p>Standard uses Gemini Free Tier for translation and voice. Premium uses a separate paid Gemini project. Both use Groq for speech recognition.</p>
+            </div>
+          </details>
+          <div class="form-actions"><button class="button button--primary" type="submit">Create conversation</button></div>
+        </form>
+      </section>
+      <section id="join" class="card card-pad" aria-labelledby="join-heading">
+        <div class="section-heading">
+          <h2 id="join-heading">Join a conversation</h2>
+          <p>Enter the private code shared with you. Your language direction is set automatically to the reverse of your host’s.</p>
         </div>
-        <fieldset>
-          <legend>Service profile</legend>
-          <label><input type="radio" th:field="*{profile}" value="STANDARD"> Standard — free-tier quotas</label>
-          <label><input type="radio" th:field="*{profile}" value="PREMIUM"
-                        th:disabled="${!premiumAvailable}">
-            Premium — paid Gemini translation and voice; Groq recognition is shared</label>
-          <p th:if="${!premiumAvailable}">Premium profile is not currently available.</p>
-          <p th:if="${#fields.hasErrors('profile')}" th:errors="*{profile}" role="alert"></p>
-        </fieldset>
-        <button type="submit">Create room</button>
-      </form>
-    </section>
-
-    <section aria-labelledby="join-heading">
-      <h2 id="join-heading">Join a room</h2>
-      <p>Enter the private code shared with you. Your language direction will be the reverse of the creator's:
-         if they speak English and receive Tamil, you speak Tamil and receive English;
-         if they speak Tamil and receive English, you speak English and receive Tamil.</p>
-      <p th:if="${joinError}" th:text="${joinError}" role="alert"></p>
-      <form th:action="@{/rooms/join}" method="post">
-        <label for="joinCode">Invite code</label>
-        <input id="joinCode" name="joinCode" type="text" required maxlength="19"
-               autocomplete="off" autocapitalize="characters" spellcheck="false"
-               aria-describedby="code-help">
-        <p id="code-help">Use the 16-character code, with or without hyphens.</p>
-        <button type="submit">Join room</button>
-      </form>
-    </section>
-
-    <section aria-labelledby="list-heading">
-      <h2 id="list-heading">Room list</h2>
-      <p th:if="${#lists.isEmpty(rooms)}">You have no rooms yet.</p>
-      <ul th:unless="${#lists.isEmpty(rooms)}">
-        <li th:each="item : ${rooms}">
-          <a th:href="@{/rooms/{id}(id=${item.id})}">Open room</a>
-          — <span th:text="${item.status}"></span>
-          — <span th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
-          <span th:if="${item.inviteExpired}">(invite expired)</span>
+        <p class="notice notice--error" th:if="${joinError}" th:text="${joinError}" role="alert"></p>
+        <form th:action="@{/rooms/join}" method="post">
+          <div class="field">
+            <label for="joinCode">Invite code</label>
+            <input id="joinCode" name="joinCode" type="text" required maxlength="19"
+                   autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   aria-describedby="code-help" placeholder="Enter the shared code">
+            <p id="code-help" class="field-help">16 characters, with or without hyphens.</p>
+          </div>
+          <div class="form-actions"><button class="button button--secondary" type="submit">Join conversation</button></div>
+        </form>
+      </section>
+    </div>
+    <section class="room-list-section" aria-labelledby="list-heading">
+      <h2 id="list-heading">Your rooms</h2>
+      <div class="empty-state" th:if="${#lists.isEmpty(rooms)}">
+        <strong>No rooms yet</strong>
+        <p>Create a conversation or enter an invite code to get started.</p>
+      </div>
+      <ul class="room-list" th:unless="${#lists.isEmpty(rooms)}">
+        <li class="room-list__item" th:each="item : ${rooms}">
+          <div class="row">
+            <span class="badge" th:classappend="${item.status.name() == 'ACTIVE' ? 'badge--active' : (item.status.name() == 'WAITING' ? 'badge--waiting' : 'badge--closed')}"
+                  th:text="${item.status.name() == 'ACTIVE' ? 'Active' : (item.status.name() == 'WAITING' ? 'Waiting' : 'Closed')}"></span>
+            <span class="badge" th:classappend="${item.profile.name() == 'PREMIUM' ? 'badge--premium' : 'badge--standard'}"
+                  th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
+          </div>
+          <strong th:text="${item.inviteExpired ? 'Invite expired' : 'Two-person conversation'}"></strong>
+          <a th:href="@{/rooms/{id}(id=${item.id})}">Open room <span class="sr-only" th:text="${item.status}"></span></a>
         </li>
       </ul>
     </section>

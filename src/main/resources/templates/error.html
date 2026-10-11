@@ -1,5 +1,26 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Request error | VoiceLink</title></head>
-<body><main><h1>We could not complete that request</h1><p>Please try again later.</p><a th:href="@{/}">Home</a></main></body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Request error | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
+</head>
+<body class="public-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><div class="container site-header__inner">
+    <a class="brand" th:href="@{/}" aria-label="VoiceLink home">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+      <span>VoiceLink</span>
+    </a>
+  </div></header>
+  <main id="main" class="container auth-wrap">
+    <section class="auth-card card" aria-labelledby="error-heading">
+      <span class="eyebrow">Request unavailable</span>
+      <h1 id="error-heading">We could not complete that request</h1>
+      <p class="auth-card__intro">Please try again. If the problem continues, return to your rooms.</p>
+      <a class="button button--primary" th:href="@{/}">Go to VoiceLink home</a>
+    </section>
+  </main>
+</body>
 </html>

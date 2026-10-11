@@ -26,7 +26,7 @@ This is a controlled development/demo identity boundary. Email verification, pas
 
 ## Planned, not implemented
 
-Persisted messages and history, broader conversational context, and the final user interface.
+Persisted conversation messages/history and broader context beyond the approved bounded memory window remain outside the implemented scope.
 
 ## Gate 7B room service profiles
 
@@ -79,3 +79,11 @@ Gate 6C closes a browser-state race: a room-close WebSocket event or reconnect s
 The immutable translation request carries the current utterance, explicit language direction, bounded context, and applicable glossary terms, never persistence entities or user identity. Gemini receives these as separate structured data fields. The system instruction treats all speech and glossary text as untrusted reference data, translates only the current utterance, and retains Natural Conversational style and structured output. This reduces prompt-injection risk but does not guarantee immunity. The worker holds no database transaction or broad state lock during provider calls. A provider request already in flight at closure may complete; its result is not published to the closed room. Closing a room cannot retract data already sent to providers.
 
 Gemini Free Tier may receive more user data than before: up to three prior source transcripts and applicable room glossary terms as well as the current utterance. Standard/free development remains limited to non-sensitive, non-confidential conversations. Do not log context, glossary contents, raw prompts, provider bodies, transcripts, translations, audio, or keys. Actual English/Tamil quality and provider behavior remain unverified by live human review.
+
+## Gate 8B professional interface
+
+Gate 8A approved a light-only warm-white/deep-ink/teal system with restrained violet Premium accents. Gate 8B follows the owner-selected Claude prototype concept as the primary visual direction with Gemini-style restraint, implemented against real VoiceLink behavior rather than prototype controls. Gate 8B uses one local stylesheet at `/css/voicelink.css`, the existing Thymeleaf templates, and vanilla JavaScript. There is no frontend framework, asset build pipeline, remote font, or external icon dependency. A minimal original inline SVG mark accompanies readable VoiceLink text. The responsive layout keeps the active two-person conversation foremost: room and connection state, participant language directions, push-to-talk recording, live original and translated captions, and authenticated temporary audio playback. The room glossary is a native collapsible secondary panel, beside the conversation from 960px upward and in flow on smaller screens. Mobile layout supports 320px widths; focus states, touch targets, field feedback, language-tagged captions, status announcements, and reduced-motion handling are included.
+
+Existing server routes, form fields, CSRF tokens, room membership checks, immutable profile routing, bounded context, glossary API, WebSocket events, and temporary audio are unchanged. The only backend presentation change allows public GET access to the exact stylesheet path so public sign-in and registration pages can load it; the deny-by-default security boundary otherwise remains. Browser scripts use DOM text nodes and safe attributes for participant names, captions, messages, glossary terms, and errors. Recording requires a live room connection and supported WebM/Opus capture; a connection loss discards an in-progress recording before upload. Closed-room events clear transient caption and live-text DOM content. The UI does not add persistent transcript or audio storage.
+
+The create-room disclosure names Standard free-tier quotas and Premium paid Gemini translation/voice with shared Groq recognition, without claiming measured quality or total privacy. Manual visual/browser review and real English/Tamil provider quality remain pending; static and offline tests do not establish how the interface looks or behaves in every browser.

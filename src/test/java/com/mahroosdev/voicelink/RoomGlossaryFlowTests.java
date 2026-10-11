@@ -151,7 +151,7 @@ class RoomGlossaryFlowTests {
         mvc.perform(get("/rooms/{id}", room).with(user(principal(member))))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
-                        .string(org.hamcrest.Matchers.containsString("Room terminology")));
+                        .string(org.hamcrest.Matchers.containsString("Technical glossary")));
     }
 
     @Test void normalizationValidationDirectionAndCapacityAreBounded() {

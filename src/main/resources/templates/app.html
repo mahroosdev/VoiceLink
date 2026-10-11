@@ -3,15 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>App | VoiceLink</title>
+  <title>Your space | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
 <body>
-  <main>
-    <h1>VoiceLink</h1>
-    <p>Signed in as <span th:text="${email}"></span>.</p>
-    <p><a th:href="@{/rooms}">Your rooms</a></p>
-    <p>Conversation features are planned for later gates.</p>
-    <form th:action="@{/logout}" method="post"><button type="submit">Sign out</button></form>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" th:href="@{/app}" aria-label="VoiceLink home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <nav class="header-actions" aria-label="Account">
+        <a th:href="@{/rooms}">Rooms</a>
+        <span class="header-account" th:text="${email}" title="Signed-in account"></span>
+        <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="container page">
+    <section class="dashboard-hero card">
+      <span class="eyebrow">Your conversation space</span>
+      <h1>Speak in English or Tamil and hear the conversation translated.</h1>
+      <p>Create a private room for two people. Each person speaks in one language and receives the other.</p>
+    </section>
+    <div class="action-grid" aria-label="Conversation actions">
+      <section class="action-card card">
+        <h2>Create conversation</h2>
+        <p>Choose your language direction and service profile, then share an invite code.</p>
+        <a class="button button--primary" th:href="@{/rooms#create}">Create conversation</a>
+      </section>
+      <section class="action-card card">
+        <h2>Join conversation</h2>
+        <p>Have a code from someone else? Enter it to join their room.</p>
+        <a class="button button--secondary" th:href="@{/rooms#join}">Join conversation</a>
+      </section>
+    </div>
   </main>
 </body>
 </html>
