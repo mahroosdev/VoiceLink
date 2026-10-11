@@ -18,10 +18,12 @@ Each gate requires its own scope and review before implementation. This document
 | 6A | Bounded context and room glossary architecture | PASS / APPROVED by owner |
 | 6B | Implement bounded in-memory context and room-scoped PostgreSQL glossary | PASS; 69 offline tests, clean package, and 4 PostgreSQL 17.11 integration tests passed in isolated Linux verification; live/manual quality pending |
 | 6C | Context/glossary UX, operational hardening, and release checks | PASS; 71 offline tests, clean package, and 4 PostgreSQL 17.11 integration tests passed in isolated Linux verification; live/manual quality pending |
+| 7A | Premium profile architecture and current provider review | PASS / APPROVED by owner; architecture recorded below |
+| 7B | Implement explicit room-scoped Premium selection and paid Gemini translation/TTS with shared Groq STT | NOT STARTED; requires dedicated implementation authorization |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
 
-Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, Gate 5A before Gate 5B, and Gate 6A before Gate 6B. Gate 6B and Gate 6C received separate implementation authorization and passed automated verification. Premium work remains outside these gates. The Gate 4B owner integrated browser check and live-provider/Tamil quality check remain pending.
+Evidence is recorded in [the project log](PROJECT_LOG.md), [testing record](TESTING.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md). Gate 3A was accepted before Gate 3B implementation, Gate 4A before Gate 4B, Gate 5A before Gate 5B, and Gate 6A before Gate 6B. Gate 6B and Gate 6C received separate implementation authorization and passed automated verification. Gate 7A planning is approved; Gate 7B implementation has not started. The Gate 4B owner integrated browser check and live-provider/Tamil quality check remain pending.
 
 ## Gate 6A approved boundaries
 
@@ -30,3 +32,11 @@ Conversation context stays in memory and is never stored as transcript/history i
 The technical glossary is specific to a room and persisted in PostgreSQL through the approved V3 `room_glossary_entries` migration. A room may have at most 12 entries. Entries survive browser refresh, reconnect, and application restart while the room is open; explicit room closure deletes them. Only authenticated room members may access them. Source terms are 1–48 Unicode code points and preferred terms are 1–64; a blank preferred term in the UI explicitly means preserve the source term. Normalize terms with NFC, trim and collapse whitespace, and use locale-independent lowercase lookup for uniqueness. Match Latin terms case-insensitively as whole phrases, with longer terms taking precedence when matches overlap. Edits use optimistic `row_version` handling.
 
 Context and glossary data may be sent to Gemini Free Tier. Standard/free development remains limited to non-sensitive, non-confidential conversations. Do not log context, glossary contents, raw Gemini prompts, provider bodies, transcripts, translations, or audio. Gate 6B implemented these approved boundaries; actual live translation quality remains unverified.
+
+## Gate 7A approved Premium architecture
+
+STANDARD remains Groq `whisper-large-v3` speech recognition → Gemini `gemini-3.1-flash-lite` translation → Gemini `gemini-3.8-flash-lite-tts` speech. PREMIUM uses the same Groq `whisper-large-v3` recognition → paid Gemini `gemini-3.8-flash` translation → paid Gemini `gemini-3.8-flash-tts` speech with the documented `Kore` voice, subject to checking the current official API during implementation. Google Cloud STT and Chirp remain deferred. Premium translation retains Natural Conversational behavior, explicit English↔Tamil direction, bounded context, room glossary, and a structured translation result. Actual Premium English↔Tamil quality and latency remain unverified until later human/live testing.
+
+Premium uses a separate billed Gemini project and API key from Standard and is disabled by default with `VOICELINK_PREMIUM_ENABLED=false`. A paid call requires a stored PREMIUM room profile, server-side enablement, and configured Premium credentials. There is no automatic fallback between profiles. The creator selects STANDARD or PREMIUM when creating a room; the choice is immutable and visible to both members. Gate 7B will use an `AiServiceProfile`/provider-bundle resolver with one shared speech, context, and glossary pipeline rather than duplicating `SpeechTurnService`.
+
+The approved Gate 7B design includes Flyway V4: add `service_profile` to `conversation_rooms`, default existing rooms to STANDARD, and constrain values to STANDARD or PREMIUM. Gate 7B implementation requires separate authorization; no migration has been created. Paid project creation and live/paid Premium validation remain deferred until later integrated testing.
