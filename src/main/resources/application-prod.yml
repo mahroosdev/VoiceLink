@@ -1,0 +1,12 @@
+# Activate only behind a trusted HTTPS reverse proxy.
+server:
+  forward-headers-strategy: native
+  tomcat:
+    redirect-context-root: false
+  servlet:
+    session:
+      tracking-modes: cookie
+      cookie:
+        secure: true
+        http-only: true
+        same-site: lax
