@@ -35,6 +35,22 @@ class UiRenderingTests {
     }
 
     @Test
+    void publicFaviconServesRealIconWithoutOpeningProtectedRoutes() throws Exception {
+        var favicon = mvc.perform(get("/favicon.ico"))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        byte[] content = favicon.getContentAsByteArray();
+        assertThat(content.length).isGreaterThan(100);
+        assertThat(content[0]).isZero();
+        assertThat(content[1]).isZero();
+        assertThat(content[2]).isEqualTo((byte) 1);
+        assertThat(content[3]).isZero();
+        assertThat(favicon.getContentType()).contains("icon");
+        mvc.perform(get("/css/voicelink.css")).andExpect(status().isOk());
+        mvc.perform(get("/app")).andExpect(status().isFound());
+        mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
+    }
+
+    @Test
     void publicStylesheetAndRealAuthenticationFormsRenderWithoutOpeningRoomScripts() throws Exception {
         String css = mvc.perform(get("/css/voicelink.css"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

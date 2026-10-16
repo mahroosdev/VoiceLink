@@ -1,6 +1,6 @@
 # Railway deployment readiness
 
-Gate 10A prepared the repository for a **single-instance, controlled campus demonstration**; the steps below record that gate's original deployment procedure. Do not treat the public URL as an unrestricted production identity service: registration and room joining still lack request throttling and email verification. Password recovery is implemented but disabled until its HTTPS email configuration is supplied and verified. Use only non-sensitive, non-confidential demo conversations.
+Gate 10A prepared the repository for a **single-instance, controlled campus demonstration**; the steps below record that gate's original deployment procedure. Do not treat the public URL as an unrestricted production identity service: registration and room joining still lack request throttling and email verification. Password recovery is disabled by default in code; the owner reports that the configured production recovery sequence passed browser QA on 2026-10-16. Use only non-sensitive, non-confidential demo conversations.
 
 ## Build and runtime
 
@@ -43,7 +43,7 @@ Railway supplies `PORT`; `application.yml` selects it before the existing `SERVE
 
 **Test/live-validation only:** `VOICELINK_LIVE_AUDIO_EN` and `VOICELINK_LIVE_AUDIO_TA`; neither belongs in the production app service.
 
-**Password recovery:** `VOICELINK_PASSWORD_RESET_ENABLED` defaults to false. Enabling it requires `VOICELINK_PUBLIC_BASE_URL`, `VOICELINK_RESET_MAIL_API_KEY`, and `VOICELINK_RESET_MAIL_FROM_ADDRESS`; the application rejects incomplete or non-HTTPS configuration. The sender uses Resend's HTTPS API, not SMTP. Configure secrets only in the application environment after provider and sender verification. Do not claim live email delivery until it has been tested separately. Recovery links expire after 30 minutes, are single-use, and invalidate existing authenticated access after a successful password change.
+**Password recovery:** `VOICELINK_PASSWORD_RESET_ENABLED` defaults to false. Enabling it requires `VOICELINK_PUBLIC_BASE_URL`, `VOICELINK_RESET_MAIL_API_KEY`, and `VOICELINK_RESET_MAIL_FROM_ADDRESS`; the application rejects incomplete or non-HTTPS configuration. The sender uses Resend's HTTPS API, not SMTP. Configure secrets only in the application environment after provider and sender verification. The owner reports successful live Resend delivery and browser recovery on 2026-10-16; this is owner evidence, not an automated provider test. Recovery links expire after 30 minutes, are single-use, and invalidate existing authenticated access after a successful password change.
 
 Only the production profile can use the real sender. The local profile rejects enabled recovery, and automated tests use an offline capturing sender.
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in | VoiceLink</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
+  <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}">
 </head>
 <body class="public-shell">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -29,7 +30,7 @@
       <form th:action="@{/login}" method="post">
         <div class="field">
           <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
+          <input id="email" name="email" type="email" autocomplete="email" required maxlength="254">
         </div>
         <div class="field">
           <label for="password">Password</label>

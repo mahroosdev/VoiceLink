@@ -2,7 +2,7 @@
 
 **VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
 
-Status: **VoiceLink is deployed for controlled QA; password recovery has been implemented and verified offline before QA resumes**. Recovery remains disabled by default. Real recovery email delivery and the remaining owner browser/live English–Tamil checks still require separate validation. Gate 1 included owner-performed local PostgreSQL and runtime verification.
+Status: **VoiceLink is deployed for controlled QA**. Recovery remains disabled by default in code; the owner reports that the configured production forgot-password, Resend email, reset, login, and dashboard sequence passed browser QA on 2026-10-16. Remaining integrated English–Tamil QA and the reported Chrome warning require separate review. Gate 1 included owner-performed local PostgreSQL and runtime verification.
 
 VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, temporary live text, and Standard or Premium short-turn speech routing. Live English/Tamil provider quality is pending owner validation. It does not persist conversation messages.
 
@@ -21,7 +21,7 @@ Java 21, Spring Boot 4.1.1, Maven Wrapper, Spring Web MVC, Security, Data JPA, V
 - Public VoiceLink landing page at `/`, using a light-only, responsive design.
 - Actuator health at `/actuator/health`, including database health when the application is connected to a database.
 - Registration at `/register`, sign-in at `/login`, and a protected conversation dashboard at `/app`.
-- A disabled-by-default forgot-password/reset flow using a 30-minute, single-use emailed link. Only the token hash is stored; successful reset invalidates existing authenticated access. Real Resend delivery is not yet validated.
+- A disabled-by-default forgot-password/reset flow using a 30-minute, single-use emailed link. Only the token hash is stored; successful reset invalidates existing authenticated access. The owner reports successful production Resend delivery and browser recovery QA.
 - Create, join, list, view, and explicitly close two-person rooms at `/rooms`. The creator chooses English ↔ Tamil direction; the second participant receives the reverse direction. A private manual invite code expires after 24 hours while the room is waiting. Active rooms persist across refresh and logout.
 - An authenticated, same-origin raw WebSocket for room-state updates and temporary text. A waiting creator sees activation without refreshing; active members exchange text. Live text is not saved or replayed.
 - ACTIVE members can record up to 15 seconds of WebM/Opus speech and upload at most 1 MiB through a CSRF-protected HTTP endpoint. Standard uses Groq Free `whisper-large-v3`, Gemini API Free Tier `gemini-3.1-flash-lite` translation, and `gemini-3.8-flash-lite-tts`. The source transcript and translated caption arrive as WebSocket events; generated WAV is served only to ACTIVE room members from temporary memory. These providers have free quotas, not unlimited use. No paid fallback exists.
@@ -90,6 +90,8 @@ The explicit `-Pprovider-live` profile (`.\mvnw.cmd -ntp -Pprovider-live verify`
 ## Security and scope
 
 The root page, health endpoint, login, registration, forgot/reset pages, reset-page script, and `/css/voicelink.css` stylesheet are public. The recovery pages return 404 while password reset is disabled. `/app`, room routes, `/api/rooms/{roomId}/turns`, generated audio, `/api/rooms/{roomId}/glossary`, the room scripts, and `/ws/rooms/{roomId}` require an authenticated server-side session. Turn upload and audio retrieval also require ACTIVE room membership; glossary access requires membership in an open room. Other `/ws/**` paths and unlisted paths are denied by default. CSRF remains enabled for browser forms, audio upload, and glossary mutations. Passwords use Argon2id through Spring Security's PasswordEncoder abstraction. This is a controlled development/demo application: email verification, request throttling, strong media decoding, owner live Tamil verification, Premium live validation, and remaining manual UI/browser QA are separate work. Do not expose account registration publicly as an unrestricted production identity service.
+
+The exact public GET `/favicon.ico` route serves the local VoiceLink icon; other application routes keep their existing access rules.
 
 Railway deployment preparation uses a small `prod` profile for trusted forwarded headers and secure session cookies, while the common configuration accepts Railway's `PORT` and explicit JDBC database credentials. Use the [deployment guide](docs/DEPLOYMENT.md) for the owner-controlled Gate 10B setup. Gate 10A does not create cloud resources or establish production readiness through live/browser evidence.
 

@@ -32,6 +32,7 @@ public class SecurityConfig {
                         "/reset-password").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/css/voicelink.css").permitAll()
+                .requestMatchers(HttpMethod.GET, "/favicon.ico").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/password-reset.js").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/room-live.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-glossary.js").authenticated()

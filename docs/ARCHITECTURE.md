@@ -30,7 +30,7 @@ Only the production profile may use the real Resend sender. Offline tests use a 
 
 Password recovery is disabled by default. When enabled with a configured HTTPS public origin and Resend HTTPS email credentials, the login page offers a forgot-password flow. Known and unknown account requests receive the same acknowledgement. A 32-byte random, unpadded Base64URL token is sent only in a reset email; Flyway V5 stores one SHA-256 token hash per account, with a 30-minute expiry. Issuing a new token replaces the old one. Successful use changes the Argon2id password hash and deletes the token. The link carries the token in a URL fragment, which local JavaScript removes from browser history and submits in a CSRF-protected form. No reset link is built from an incoming Host header.
 
-After reset, authenticated HTTP sessions holding the previous password hash lose access on their next request; active room WebSockets are closed after commit and also check current account credentials. This uses the existing single-instance session model. Real Resend delivery and browser recovery remain unverified until later owner validation.
+After reset, authenticated HTTP sessions holding the previous password hash lose access on their next request; active room WebSockets are closed after commit and also check current account credentials. This uses the existing single-instance session model. On 2026-10-16 the owner reported a successful production forgot-password, Resend email, reset-link, password-change, login, and dashboard browser sequence. Codex did not make a live email call; the reported Chrome warning remains a separate browser/security-review item.
 
 ## Planned, not implemented
 

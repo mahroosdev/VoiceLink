@@ -2,6 +2,7 @@ package com.mahroosdev.voicelink;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,7 +15,9 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
+import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.auth.PasswordResetService;
 import com.mahroosdev.voicelink.auth.PasswordResetSettings;
 import com.mahroosdev.voicelink.auth.PasswordResetTokenRepository;
@@ -83,6 +86,43 @@ class PasswordResetFlowTests {
                 .param("token", token).param("newPassword", password)
                 .param("confirmPassword", confirmation))
                 .andReturn().getResponse().getContentAsString();
+    }
+
+    @Test
+    void authPagesMatchDashboardBrandAndUseExpectedAutocomplete() throws Exception {
+        String email = account();
+        var account = accounts.findByEmail(email).orElseThrow();
+        var principal = new AccountPrincipal(account.getId(), account.getEmail(),
+                account.getPasswordHash(), true);
+        String dashboard = mvc.perform(get("/app").with(user(principal)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String brandPath = brandPath(dashboard);
+        String login = mvc.perform(get("/login")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String register = mvc.perform(get("/register")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String forgot = mvc.perform(get("/forgot-password")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String reset = mvc.perform(get("/reset-password")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (String html : new String[] { login, register, forgot, reset }) {
+            assertThat(brandPath(html)).isEqualTo(brandPath);
+            assertThat(html).contains("href=\"/favicon.ico\"", "href=\"/css/voicelink.css\"")
+                    .doesNotContain("<iframe");
+        }
+        assertThat(login).contains("action=\"/login\"", "autocomplete=\"email\"",
+                "autocomplete=\"current-password\"");
+        assertThat(register).contains("action=\"/register\"", "autocomplete=\"email\"",
+                "autocomplete=\"new-password\"");
+        assertThat(forgot).contains("action=\"/forgot-password\"", "autocomplete=\"email\"");
+        assertThat(reset).contains("action=\"/reset-password\"", "id=\"newPassword\"",
+                "id=\"confirmPassword\"", "autocomplete=\"new-password\"");
+    }
+
+    private String brandPath(String html) {
+        var matcher = Pattern.compile("<path d=\"([^\"]+)\"").matcher(html);
+        assertThat(matcher.find()).isTrue();
+        return matcher.group(1);
     }
 
     @Test
