@@ -6,6 +6,7 @@
   <title>Sign in | VoiceLink</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
   <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}">
+  <script th:src="@{/js/password-visibility.js}" defer></script>
 </head>
 <body class="public-shell">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -21,7 +22,7 @@
     <section class="auth-card card" aria-labelledby="sign-in-heading">
       <span class="eyebrow">Welcome back</span>
       <h1 id="sign-in-heading">Sign in</h1>
-      <p class="auth-card__intro">Continue your English ↔ Tamil conversations.</p>
+      <p class="auth-card__intro">Continue your translated conversations.</p>
       <p class="notice notice--error" th:if="${param.error}" role="alert">Email or password is incorrect.</p>
       <p class="notice notice--success" th:if="${param.logout}" role="status">You have signed out.</p>
       <p class="notice notice--success" th:if="${registrationSuccess}" th:text="${registrationSuccess}" role="status" aria-live="polite"></p>
@@ -34,7 +35,12 @@
         </div>
         <div class="field">
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <div class="password-control">
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button class="password-toggle" type="button" aria-label="Show password" aria-controls="password" data-password-toggle data-visible="false">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M2 12s3.6-5.5 10-5.5S22 12 22 12s-3.6 5.5-10 5.5S2 12 2 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8"/><path class="password-toggle__slash" d="M3 3 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
         </div>
         <p class="auth-card__switch" th:if="${@passwordResetSettings.enabled()}"><a th:href="@{/forgot-password}">Forgot password?</a></p>
         <div class="form-actions"><button class="button button--primary" type="submit">Sign in</button></div>

@@ -6,6 +6,7 @@
   <title>Create account | VoiceLink</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
   <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}">
+  <script th:src="@{/js/password-visibility.js}" defer></script>
 </head>
 <body class="public-shell">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -21,7 +22,7 @@
     <section class="auth-card card" aria-labelledby="register-heading">
       <span class="eyebrow">Start a conversation</span>
       <h1 id="register-heading">Create your account</h1>
-      <p class="auth-card__intro">Make a private space for two-person translation.</p>
+      <p class="auth-card__intro">Create your account for private translated conversations.</p>
       <p class="notice notice--error" th:if="${registrationError}" th:text="${registrationError}" role="alert"></p>
       <form th:action="@{/register}" th:object="${registrationForm}" method="post">
         <div class="field">
@@ -38,9 +39,14 @@
         </div>
         <div class="field">
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"
-                 th:attr="aria-invalid=${#fields.hasErrors('password')},aria-describedby=${#fields.hasErrors('password') ? 'password-help password-error' : 'password-help'}">
-          <p id="password-help" class="field-help">10–128 characters. Your password is never shown again here.</p>
+          <div class="password-control">
+            <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"
+                   th:attr="aria-invalid=${#fields.hasErrors('password')},aria-describedby=${#fields.hasErrors('password') ? 'password-help password-error' : 'password-help'}">
+            <button class="password-toggle" type="button" aria-label="Show password" aria-controls="password" data-password-toggle data-visible="false">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M2 12s3.6-5.5 10-5.5S22 12 22 12s-3.6 5.5-10 5.5S2 12 2 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8"/><path class="password-toggle__slash" d="M3 3 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <p id="password-help" class="field-help">10–128 characters.</p>
           <p id="password-error" class="field-error" th:if="${#fields.hasErrors('password')}" th:errors="*{password}" role="alert"></p>
         </div>
         <div class="form-actions"><button class="button button--primary" type="submit">Create account</button></div>

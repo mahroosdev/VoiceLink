@@ -116,7 +116,15 @@ class PasswordResetFlowTests {
                 "autocomplete=\"new-password\"");
         assertThat(forgot).contains("action=\"/forgot-password\"", "autocomplete=\"email\"");
         assertThat(reset).contains("action=\"/reset-password\"", "id=\"newPassword\"",
-                "id=\"confirmPassword\"", "autocomplete=\"new-password\"");
+                "id=\"confirmPassword\"", "autocomplete=\"new-password\"",
+                "src=\"/js/password-visibility.js\"");
+        for (String id : new String[] { "newPassword", "confirmPassword" }) {
+            var control = Pattern.compile("<div class=\"password-control\">\\s*<input id=\"" + id
+                    + "\"[^>]*type=\"password\"[^>]*autocomplete=\"new-password\"[^>]*>\\s*"
+                    + "<button[^>]*type=\"button\"[^>]*aria-label=\"Show password\""
+                    + "[^>]*aria-controls=\"" + id + "\"[^>]*data-password-toggle");
+            assertThat(control.matcher(reset).find()).as("masked password control for " + id).isTrue();
+        }
     }
 
     private String brandPath(String html) {

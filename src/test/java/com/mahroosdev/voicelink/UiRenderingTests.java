@@ -56,8 +56,15 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(css).contains("--vl-primary: #006F73", "prefers-reduced-motion",
                 "focus-visible", "@media (max-width: 639px)", "min-width: 960px",
-                "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }");
+                "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
+                ".password-control input { padding-right: 60px; }", "width: 44px;",
+                ".password-toggle[data-visible=\"false\"] .password-toggle__slash");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
+        String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(visibilityScript).contains("input.type = visible ? \"text\" : \"password\"",
+                "visible ? \"Hide password\" : \"Show password\"")
+                .doesNotContain("innerHTML", "localStorage", "sessionStorage");
 
         String login = mvc.perform(get("/login"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -70,6 +77,20 @@ class UiRenderingTests {
         assertThat(login).contains("action=\"/login\"", "name=\"email\"", "name=\"password\"");
         assertThat(register).contains("action=\"/register\"", "name=\"displayName\"",
                 "name=\"email\"", "name=\"password\"", "10–128 characters.");
+        assertThat(login).contains("Continue your translated conversations.",
+                "src=\"/js/password-visibility.js\"").doesNotContain("English ↔ Tamil", "English and Tamil");
+        assertThat(register).contains("Create your account for private translated conversations.",
+                "src=\"/js/password-visibility.js\"").doesNotContain("English ↔ Tamil", "English and Tamil");
+        assertPasswordControl(login, "password", "current-password");
+        assertPasswordControl(register, "password", "new-password");
+    }
+
+    private void assertPasswordControl(String html, String id, String autocomplete) {
+        var control = Pattern.compile("<div class=\"password-control\">\\s*<input id=\"" + id
+                + "\"[^>]*type=\"password\"[^>]*autocomplete=\"" + autocomplete
+                + "\"[^>]*>\\s*<button[^>]*type=\"button\"[^>]*aria-label=\"Show password\""
+                + "[^>]*aria-controls=\"" + id + "\"[^>]*data-password-toggle");
+        assertThat(control.matcher(html).find()).as("masked password control for " + id).isTrue();
     }
 
     @Test
@@ -77,9 +98,14 @@ class UiRenderingTests {
         AccountPrincipal owner = principal("Owner");
         String app = mvc.perform(get("/app").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(app).contains("Start an English ↔ Tamil conversation.",
+        assertThat(app).contains("Speak naturally and hear the conversation translated.",
                 "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"");
-        assertThat(app).doesNotContain("planned for later gates");
+        assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil");
+
+        String landing = mvc.perform(get("/"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(landing).contains("Private translated conversations")
+                .doesNotContain("English ↔ Tamil", "English and Tamil");
 
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -106,7 +132,10 @@ class UiRenderingTests {
                 "does not store a persistent transcript history", "glossary entries are stored in PostgreSQL",
                 "bounded recent context, and matching room glossary terms may be sent to Gemini",
                 "Premium is not available on this server.", "href=\"/login\"",
-                "href=\"/about\"", "id=\"privacy\"", "class=\"skip-link\"");
+                "href=\"/about\"", "id=\"privacy\"", "class=\"skip-link\"",
+                "VoiceLink supports two-person English ↔ Tamil rooms",
+                "Each person speaks English or Tamil and receives the other language.");
+        assertThat(about).contains("Understand each other, one turn at a time.");
         assertThat(about).doesNotContain("action=\"/logout\"", "Signed-in account");
 
         AccountPrincipal owner = principal("Owner");

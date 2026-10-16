@@ -188,6 +188,27 @@ h3 { font-size: 1.1rem; }
 .field input::placeholder { color: var(--vl-text-secondary); opacity: 1; }
 .field input[aria-invalid="true"], .field select[aria-invalid="true"] { border-color: var(--vl-error); }
 .field input:disabled, .field select:disabled { background: var(--vl-surface-subtle); color: var(--vl-text-secondary); }
+.password-control { position: relative; }
+.password-control input { padding-right: 60px; }
+.password-control input::-ms-reveal { display: none; }
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vl-text-secondary);
+}
+.password-toggle:hover { background: var(--vl-surface-subtle); color: var(--vl-text); }
+.password-toggle svg { width: 20px; height: 20px; }
+.password-toggle[data-visible="false"] .password-toggle__slash { display: none; }
 .field-help, .field-error { margin: 0; font-size: .875rem; }
 .field-help { color: var(--vl-text-secondary); }
 .field-error { color: var(--vl-error); font-weight: 650; }
