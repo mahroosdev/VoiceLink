@@ -16,6 +16,7 @@
       </a>
       <nav class="header-actions" aria-label="Account">
         <a th:href="@{/rooms}">Rooms</a>
+        <a th:href="@{/about}">About</a>
         <span class="header-account" th:text="${email}" title="Signed-in account"></span>
         <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
       </nav>
@@ -24,8 +25,8 @@
   <main id="main" class="container page">
     <section class="dashboard-hero card">
       <span class="eyebrow">Your conversation space</span>
-      <h1>Speak in English or Tamil and hear the conversation translated.</h1>
-      <p>Create a private room for two people. Each person speaks in one language and receives the other.</p>
+      <h1>Start an English ↔ Tamil conversation.</h1>
+      <p>Create a two-person room or join with an invite code.</p>
     </section>
     <div class="action-grid" aria-label="Conversation actions">
       <section class="action-card card">

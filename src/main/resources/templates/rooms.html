@@ -16,6 +16,7 @@
       </a>
       <nav class="header-actions" aria-label="Account">
         <a th:href="@{/rooms}" aria-current="page">Rooms</a>
+        <a th:href="@{/about}">About</a>
         <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
       </nav>
     </div>
@@ -79,13 +80,7 @@
             <p class="field-help" th:if="${!premiumAvailable}">Premium is not available on this server.</p>
             <p id="profile-error" class="field-error" th:if="${#fields.hasErrors('profile')}" th:errors="*{profile}" role="alert"></p>
           </fieldset>
-          <details class="disclosure data-disclosure">
-            <summary>How data is used</summary>
-            <div class="disclosure__body small muted">
-              <p>During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
-              <p>Standard uses Gemini Free Tier for translation and voice. Premium uses a separate paid Gemini project. Both use Groq for speech recognition.</p>
-            </div>
-          </details>
+          <p class="form-privacy small muted">Recent captions and generated audio are temporary. <a th:href="@{/about#privacy}">How data is used</a></p>
           <div class="form-actions"><button class="button button--primary" type="submit">Create conversation</button></div>
         </form>
       </section>

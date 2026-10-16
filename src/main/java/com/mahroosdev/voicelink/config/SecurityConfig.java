@@ -26,7 +26,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
-                .requestMatchers(HttpMethod.GET, "/", "/login", "/register", "/forgot-password",
+                .requestMatchers(HttpMethod.GET, "/", "/about", "/login", "/register", "/forgot-password",
                         "/reset-password", "/actuator/health").permitAll()
                 .requestMatchers(HttpMethod.POST, "/login", "/register", "/forgot-password",
                         "/reset-password").permitAll()
