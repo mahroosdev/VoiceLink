@@ -55,7 +55,9 @@ class UiRenderingTests {
         String css = mvc.perform(get("/css/voicelink.css"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(css).contains("--vl-primary: #006F73", "prefers-reduced-motion",
-                "focus-visible", "@media (max-width: 639px)", "min-width: 960px",
+                "focus-visible", "@media (max-width: 639px)", "@media (max-width: 799px)",
+                "--vl-shell-width: 1120px", ".app-shell > main { flex: 1; }",
+                ".room-form-grid { grid-template-columns: 1fr; }",
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
                 ".password-toggle[data-visible=\"false\"] .password-toggle__slash");
@@ -98,7 +100,7 @@ class UiRenderingTests {
         AccountPrincipal owner = principal("Owner");
         String app = mvc.perform(get("/app").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(app).contains("Speak naturally and hear the conversation translated.",
+        assertThat(app).contains("class=\"app-shell\"", "Speak naturally and hear the conversation translated.",
                 "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"");
         assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil");
 
@@ -109,7 +111,7 @@ class UiRenderingTests {
 
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(index).contains("action=\"/rooms\"", "action=\"/rooms/join\"",
+        assertThat(index).contains("class=\"app-shell\"", "action=\"/rooms\"", "action=\"/rooms/join\"",
                 "name=\"speaking\"", "name=\"listening\"", "name=\"profile\"",
                 "Paid Gemini translation and voice; Groq speech recognition is shared.",
                 "Premium is not available on this server.", "name=\"_csrf\"",
@@ -160,8 +162,9 @@ class UiRenderingTests {
         assertThat(code.find()).isTrue();
         assertThat(code.group(1)).matches("[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}")
                 .doesNotContain(roomId.toString());
-        assertThat(waiting).contains("id=\"invite-copy\"", "id=\"glossary-section\"",
-                "data-room-id=\"" + roomId + "\"", "Standard");
+        assertThat(waiting).contains("class=\"app-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
+                "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard");
+        assertThat(waiting.indexOf("id=\"invite-code\"")).isLessThan(waiting.indexOf("id=\"close-room-form\""));
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
         String active = mvc.perform(get(path).with(user(guest)))
@@ -169,13 +172,15 @@ class UiRenderingTests {
         assertThat(active).contains("Recent live turns", "id=\"record-start\"",
                 "id=\"record-stop\"", "id=\"recording-status\"", "id=\"speech-events\"",
                 "id=\"turn-announcement\"", "id=\"glossary-form\"", "id=\"live-text-form\"",
+                "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
+        assertThat(active.indexOf("id=\"record-start\"")).isLessThan(active.indexOf("id=\"close-room-form\""));
 
         rooms.closeRoom(guest.getUserId(), roomId);
         String closed = mvc.perform(get(path).with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(closed).contains("This room is closed");
-        assertThat(closed).doesNotContain("id=\"glossary-section\"", "room-live.js",
+        assertThat(closed).doesNotContain("id=\"glossary-section\"", "id=\"close-room-form\"", "room-live.js",
                 "room-glossary.js");
     }
 }

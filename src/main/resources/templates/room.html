@@ -8,7 +8,7 @@
   <title>Conversation | VoiceLink</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
-<body>
+<body class="app-shell">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="container site-header__inner">
@@ -31,7 +31,7 @@
           <div>
             <span class="eyebrow">Live conversation</span>
             <h1 id="room-heading">Conversation room</h1>
-            <p class="room-direction">English ↔ Tamil · Two people, one shared room</p>
+            <p class="room-direction">English ↔ Tamil · Two people</p>
           </div>
           <div class="row">
             <span id="room-status" class="badge" th:classappend="${room.status.name() == 'ACTIVE' ? 'badge--active' : (room.status.name() == 'WAITING' ? 'badge--waiting' : 'badge--closed')}"
@@ -55,12 +55,6 @@
             </li>
           </ul>
         </section>
-        <form id="close-room-form" class="room-close" th:if="${room.status.name() != 'CLOSED'}"
-              th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
-          <p>Closing ends this room for both people and deletes its saved glossary.</p>
-          <button class="button button--danger" type="submit"
-                  th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
-        </form>
       </section>
 
       <div class="room-main-grid">
@@ -175,6 +169,12 @@
               <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
             </div>
           </details>
+          <form id="close-room-form" class="room-close card" th:if="${room.status.name() != 'CLOSED'}"
+                th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
+            <p>Closing ends this room for both people and deletes its saved glossary.</p>
+            <button class="button button--danger" type="submit"
+                    th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
+          </form>
           <section class="room-info card" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
             <h2 id="room-info-heading">About this room</h2>
             <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
