@@ -1,6 +1,6 @@
 # Railway deployment readiness
 
-Gate 10A prepares the repository for a **single-instance, controlled campus demonstration**. These are owner steps for Gate 10B; no Railway project, database, domain, billed plan, or provider request was created in Gate 10A. Do not treat the public URL as an unrestricted production identity service: registration and room joining do not yet have request throttling, email verification, or password recovery. Use only non-sensitive, non-confidential demo conversations.
+Gate 10A prepared the repository for a **single-instance, controlled campus demonstration**; the steps below record that gate's original deployment procedure. Do not treat the public URL as an unrestricted production identity service: registration and room joining still lack request throttling and email verification. Password recovery is implemented but disabled until its HTTPS email configuration is supplied and verified. Use only non-sensitive, non-confidential demo conversations.
 
 ## Build and runtime
 
@@ -27,7 +27,7 @@ Railway supplies `PORT`; `application.yml` selects it before the existing `SERVE
 
    `DB_URL` must begin with `jdbc:postgresql://`; Railway's raw `DATABASE_URL` normally uses `postgresql://` and is not a JDBC URL. Check the resolved URL format without displaying its password. Confirm the private PostgreSQL connection accepts `sslmode=require`; do not silently disable TLS to bypass a connection error. The local `application-local.yml`, Compose `.env`, and `POSTGRES_PASSWORD` are not production app settings.
 5. Initially leave both Standard keys unset. After the owner confirms Groq Free and Gemini API Free Tier status and authorizes live use, add `VOICELINK_GROQ_API_KEY` and `VOICELINK_GEMINI_API_KEY` as Railway secrets and set `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. Keep Premium off; a separate paid Premium project/key is not required for the campus demo. Never paste keys into Git, documentation, build arguments, a public browser page, or logs.
-6. Deploy the application using Railpack. Confirm Java 21 and the Spring Boot JAR in build/start logs. Startup should connect to private PostgreSQL, apply Flyway V1–V4, and pass Hibernate `ddl-auto=validate`. A failure here blocks the deployment; do not use the local profile or manually modify the schema.
+6. Deploy the application using Railpack. Confirm Java 21 and the Spring Boot JAR in build/start logs. Startup should connect to private PostgreSQL, apply Flyway V1–V5, and pass Hibernate `ddl-auto=validate`. A failure here blocks the deployment; do not use the local profile or manually modify the schema.
 7. Configure Railway's health-check path to `/actuator/health`. It exposes only status, including database health. A healthy status does **not** verify provider credentials, outbound access, microphone, or translation quality.
 8. Generate a Railway public domain for the app, then verify its `https://` URL. Railway terminates TLS at its proxy. The `prod` profile processes trusted forwarded headers and marks the session cookie `Secure`, `HttpOnly`, and `SameSite=Lax`; confirm those attributes, HTTPS redirects/links, CSRF, and same-origin `wss://` handshakes on the actual domain. Do not make WebSocket origins permissive.
 9. Review deployment logs for accidental secrets or private content. Keep normal INFO-level logging; do not enable request/response-body, provider-body, SQL-parameter, transcript, glossary, or audio logging.
@@ -42,6 +42,10 @@ Railway supplies `PORT`; `application.yml` selects it before the existing `SERVE
 **Optional:** `SERVER_PORT` for local/non-Railway hosting when `PORT` is absent; `VOICELINK_PREMIUM_ENABLED=false` explicitly confirms the default; `VOICELINK_PREMIUM_GEMINI_API_KEY` is only for a separately authorized paid Premium launch. A JVM memory option should be chosen only after observing actual memory use and the selected Railway plan. Do not add storage infrastructure for temporary audio.
 
 **Test/live-validation only:** `VOICELINK_LIVE_AUDIO_EN` and `VOICELINK_LIVE_AUDIO_TA`; neither belongs in the production app service.
+
+**Password recovery:** `VOICELINK_PASSWORD_RESET_ENABLED` defaults to false. Enabling it requires `VOICELINK_PUBLIC_BASE_URL`, `VOICELINK_RESET_MAIL_API_KEY`, and `VOICELINK_RESET_MAIL_FROM_ADDRESS`; the application rejects incomplete or non-HTTPS configuration. The sender uses Resend's HTTPS API, not SMTP. Configure secrets only in the application environment after provider and sender verification. Do not claim live email delivery until it has been tested separately. Recovery links expire after 30 minutes, are single-use, and invalidate existing authenticated access after a successful password change.
+
+Only the production profile can use the real sender. The local profile rejects enabled recovery, and automated tests use an offline capturing sender.
 
 PostgreSQL retains accounts, rooms, and open-room glossary entries across app restarts. App memory does not: sessions, sockets, recent captions/context, idempotency state, and generated WAV may disappear on restart or redeploy. Audio is available only temporarily to active members, with a five-minute expiry and bounded memory; no app filesystem persistence or object storage is needed. Browser users may need to sign in again after a restart.
 

@@ -24,6 +24,8 @@
       <p class="notice notice--error" th:if="${param.error}" role="alert">Email or password is incorrect.</p>
       <p class="notice notice--success" th:if="${param.logout}" role="status">You have signed out.</p>
       <p class="notice notice--success" th:if="${registrationSuccess}" th:text="${registrationSuccess}" role="status" aria-live="polite"></p>
+      <p class="notice notice--success" th:if="${param.reset}" role="status">Password updated. You can now sign in.</p>
+      <p class="notice notice--error" th:if="${param.expired}" role="alert">Your session ended. Please sign in again.</p>
       <form th:action="@{/login}" method="post">
         <div class="field">
           <label for="email">Email</label>
@@ -33,6 +35,7 @@
           <label for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
         </div>
+        <p class="auth-card__switch" th:if="${@passwordResetSettings.enabled()}"><a th:href="@{/forgot-password}">Forgot password?</a></p>
         <div class="form-actions"><button class="button button--primary" type="submit">Sign in</button></div>
       </form>
       <p class="auth-card__switch">New to VoiceLink? <a th:href="@{/register}">Create an account</a></p>

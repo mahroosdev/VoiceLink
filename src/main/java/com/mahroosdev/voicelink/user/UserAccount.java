@@ -61,6 +61,7 @@ public class UserAccount {
     public String getDisplayName() { return displayName; }
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
+    public void changePasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public boolean isEnabled() { return enabled; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

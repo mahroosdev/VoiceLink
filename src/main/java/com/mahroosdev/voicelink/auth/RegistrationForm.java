@@ -18,7 +18,8 @@ public class RegistrationForm {
     private String email;
 
     @NotNull
-    @Size(min = 10, max = 128, message = "Password must be 10 to 128 characters.")
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH,
+            message = PasswordPolicy.MESSAGE)
     private String password;
 
     public String getDisplayName() { return displayName; }

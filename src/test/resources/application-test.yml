@@ -6,6 +6,9 @@ spring:
     password: ""
 
 voicelink:
+  password-reset:
+    # Offline tests use the capturing notifier even when this is enabled explicitly.
+    enabled: false
   standard:
     # Ordinary tests stay offline even when the developer shell has live keys.
     free-tier-confirmed: false

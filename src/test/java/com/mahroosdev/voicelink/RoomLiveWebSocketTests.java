@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
+import com.mahroosdev.voicelink.auth.PasswordResetService;
+import com.mahroosdev.voicelink.auth.TestPasswordResetNotifier;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
 import com.mahroosdev.voicelink.room.RoomService;
 import com.mahroosdev.voicelink.room.RoomStatus;
@@ -42,7 +44,11 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "voicelink.standard.free-tier-confirmed=false")
+        properties = {"voicelink.standard.free-tier-confirmed=false",
+                "voicelink.password-reset.enabled=true",
+                "voicelink.password-reset.public-base-url=https://voicelink.example.test",
+                "voicelink.password-reset.mail-api-key=offline-only",
+                "voicelink.password-reset.mail-from-address=noreply@example.test"})
 @ActiveProfiles("test")
 class RoomLiveWebSocketTests {
     private static final String PASSWORD = "test-password-123";
@@ -57,6 +63,8 @@ class RoomLiveWebSocketTests {
     @Autowired PasswordEncoder encoder;
     @Autowired ObjectMapper json;
     @Autowired PlatformTransactionManager transactions;
+    @Autowired PasswordResetService resets;
+    @Autowired TestPasswordResetNotifier resetNotifier;
 
     private UserAccount account(String label) {
         return accounts.save(new UserAccount(label, UUID.randomUUID() + "@example.test",
@@ -67,6 +75,22 @@ class RoomLiveWebSocketTests {
         Browser browser = new Browser(port, json);
         browser.login(account.getEmail());
         return browser;
+    }
+
+    @Test
+    void passwordResetClosesExistingRoomSocket() throws Exception {
+        UserAccount owner = account("Reset socket owner");
+        UUID roomId = rooms.createRoom(owner.getId(), "en", "ta");
+        Browser browser = browser(owner);
+        LiveSocket socket = browser.connect(roomId, browser.base);
+        socket.await("ROOM_STATE");
+        resetNotifier.clear();
+        resets.request(owner.getEmail());
+        var message = resetNotifier.await();
+        assertThat(message).isNotNull();
+        assertThat(resets.reset(message.token(), "changed-password-456")).isTrue();
+        socket.closed.get(8, TimeUnit.SECONDS);
+        assertThat(socket.closeCode).isEqualTo(1008);
     }
 
     @Test

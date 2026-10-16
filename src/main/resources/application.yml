@@ -33,6 +33,11 @@ management:
       show-details: never
 
 voicelink:
+  password-reset:
+    enabled: ${VOICELINK_PASSWORD_RESET_ENABLED:false}
+    public-base-url: ${VOICELINK_PUBLIC_BASE_URL:}
+    mail-api-key: ${VOICELINK_RESET_MAIL_API_KEY:}
+    mail-from-address: ${VOICELINK_RESET_MAIL_FROM_ADDRESS:}
   standard:
     free-tier-confirmed: ${VOICELINK_STANDARD_FREE_TIER_CONFIRMED:false}
     groq-key: ${VOICELINK_GROQ_API_KEY:}

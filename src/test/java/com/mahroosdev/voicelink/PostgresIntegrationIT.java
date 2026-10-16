@@ -35,7 +35,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-@SpringBootTest
+@SpringBootTest(properties = "voicelink.password-reset.enabled=false")
 @Testcontainers
 class PostgresIntegrationIT {
     @Container
@@ -63,7 +63,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(4);
+        assertThat(version).isEqualTo(5);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -85,6 +85,30 @@ class PostgresIntegrationIT {
 
         jdbc.update("DELETE FROM users WHERE id = ?", id);
         assertThat(preferences.findById(id)).isEmpty();
+    }
+
+    @Test
+    void v5ResetTokenConstraintsAndAccountDeletionCascade() {
+        UserAccount account = account("Reset owner");
+        String hash = "a".repeat(64);
+        jdbc.update("INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at) "
+                        + "VALUES (?, ?, now(), now() + interval '30 minutes')", account.getId(), hash);
+        assertThat(jdbc.queryForObject("SELECT token_hash FROM password_reset_tokens WHERE user_id = ?",
+                String.class, account.getId())).isEqualTo(hash);
+        UserAccount other = account("Other reset owner");
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO password_reset_tokens "
+                + "(user_id, token_hash, created_at, expires_at) VALUES (?, ?, now(), now() + interval '1 minute')",
+                other.getId(), hash)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO password_reset_tokens "
+                + "(user_id, token_hash, created_at, expires_at) VALUES (?, ?, now(), now() + interval '1 minute')",
+                other.getId(), "short")).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO password_reset_tokens "
+                + "(user_id, token_hash, created_at, expires_at) VALUES (?, ?, now(), now())",
+                other.getId(), "b".repeat(64)))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        jdbc.update("DELETE FROM users WHERE id = ?", account.getId());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_tokens WHERE user_id = ?",
+                Long.class, account.getId())).isZero();
     }
 
     private UserAccount account(String name) {

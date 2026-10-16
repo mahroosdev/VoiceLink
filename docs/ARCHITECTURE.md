@@ -22,7 +22,15 @@ Registration uses a dedicated form, central email normalization, Bean Validation
 
 Spring Security uses a database-backed `UserDetailsService`, form login with `email` as the username field, and server-side sessions. The trusted principal carries the user UUID. Login failure messages are generic; disabled accounts cannot authenticate. Session fixation protection changes the session ID on authentication. POST logout invalidates the session and deletes its cookie. CSRF protection remains enabled, including login, registration, and logout forms. At Gate 2B, `/app` and future `/rooms/**` and `/api/**` paths required authentication, while `/ws/**` was denied. Gate 4B's exact live endpoint exception is described below; all other unlisted routes remain denied. The public root and health routes remain for foundation checks.
 
-This is a controlled development/demo identity boundary. Email verification, password recovery, request throttling, production session cookie/TLS deployment configuration, and account administration are future security work before public identity use.
+At Gate 2B this was a controlled development/demo identity boundary without email verification, password recovery, request throttling, production session cookie/TLS deployment configuration, or account administration. Current password recovery is described below; email verification and request throttling remain separate work before unrestricted public identity use.
+
+## Password reset enhancement
+
+Only the production profile may use the real Resend sender. Offline tests use a capturing sender, and enabling recovery in a local profile is rejected.
+
+Password recovery is disabled by default. When enabled with a configured HTTPS public origin and Resend HTTPS email credentials, the login page offers a forgot-password flow. Known and unknown account requests receive the same acknowledgement. A 32-byte random, unpadded Base64URL token is sent only in a reset email; Flyway V5 stores one SHA-256 token hash per account, with a 30-minute expiry. Issuing a new token replaces the old one. Successful use changes the Argon2id password hash and deletes the token. The link carries the token in a URL fragment, which local JavaScript removes from browser history and submits in a CSRF-protected form. No reset link is built from an incoming Host header.
+
+After reset, authenticated HTTP sessions holding the previous password hash lose access on their next request; active room WebSockets are closed after commit and also check current account credentials. This uses the existing single-instance session model. Real Resend delivery and browser recovery remain unverified until later owner validation.
 
 ## Planned, not implemented
 

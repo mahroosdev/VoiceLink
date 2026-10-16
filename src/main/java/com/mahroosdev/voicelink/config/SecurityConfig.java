@@ -2,6 +2,8 @@ package com.mahroosdev.voicelink.config;
 
 import com.password4j.Argon2Function;
 import com.password4j.types.Argon2;
+import com.mahroosdev.voicelink.auth.CurrentCredentialFilter;
+import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,6 +12,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.crypto.password4j.Argon2Password4jPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -21,12 +24,15 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
-                .requestMatchers(HttpMethod.GET, "/", "/login", "/register", "/actuator/health").permitAll()
-                .requestMatchers(HttpMethod.POST, "/login", "/register").permitAll()
+                .requestMatchers(HttpMethod.GET, "/", "/login", "/register", "/forgot-password",
+                        "/reset-password", "/actuator/health").permitAll()
+                .requestMatchers(HttpMethod.POST, "/login", "/register", "/forgot-password",
+                        "/reset-password").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/css/voicelink.css").permitAll()
+                .requestMatchers(HttpMethod.GET, "/js/password-reset.js").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/room-live.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-glossary.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/ws/rooms/*").authenticated()
@@ -46,7 +52,8 @@ public class SecurityConfig {
                     .logoutSuccessUrl("/login?logout")
                     .invalidateHttpSession(true)
                     .deleteCookies("JSESSIONID"))
-            .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()));
+            .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
+            .addFilterAfter(new CurrentCredentialFilter(accounts), SecurityContextHolderFilter.class);
         return http.build();
     }
 }

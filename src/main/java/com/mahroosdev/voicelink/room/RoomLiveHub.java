@@ -11,6 +11,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
+import com.mahroosdev.voicelink.auth.PasswordResetCompletedEvent;
+import com.mahroosdev.voicelink.user.UserAccountRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -30,15 +32,17 @@ public class RoomLiveHub {
     private final ConcurrentHashMap<UUID, Stream> streams = new ConcurrentHashMap<>();
     private final RoomLiveAuthorizer authorizer;
     private final ObjectMapper json;
+    private final UserAccountRepository accounts;
 
-    public RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json) {
+    public RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json, UserAccountRepository accounts) {
         this.authorizer = authorizer;
         this.json = json;
+        this.accounts = accounts;
     }
 
     public Connection register(WebSocketSession socket, UUID roomId, UUID userId, HttpSession httpSession) {
         Stream stream = streams.computeIfAbsent(roomId, ignored -> new Stream());
-        Connection connection = new Connection(socket, roomId, userId, httpSession, stream);
+        Connection connection = new Connection(socket, roomId, userId, httpSession, stream, accounts);
         Connection previous;
         synchronized (stream) {
             if (!connection.valid()) {
@@ -208,6 +212,16 @@ public class RoomLiveHub {
         }
     }
 
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPasswordReset(PasswordResetCompletedEvent reset) {
+        for (Stream stream : streams.values()) {
+            synchronized (stream) {
+                Connection connection = stream.members.remove(reset.userId());
+                if (connection != null) close(connection, CloseStatus.POLICY_VIOLATION);
+            }
+        }
+    }
+
     private LiveRoomEvent event(Stream stream, UUID roomId, String type,
                                 UUID senderParticipantId, UUID turnId, Map<String, ?> payload) {
         return new LiveRoomEvent(1, UUID.randomUUID(), stream.streamId, roomId, ++stream.sequence,
@@ -247,9 +261,10 @@ public class RoomLiveHub {
         final HttpSession httpSession;
         final String httpSessionId;
         final Stream stream;
+        final UserAccountRepository accounts;
 
         Connection(WebSocketSession socket, UUID roomId, UUID userId,
-                   HttpSession httpSession, Stream stream) {
+                   HttpSession httpSession, Stream stream, UserAccountRepository accounts) {
             this.socket = socket;
             this.outbound = new ConcurrentWebSocketSessionDecorator(socket, 5000, 65536);
             this.roomId = roomId;
@@ -257,6 +272,7 @@ public class RoomLiveHub {
             this.httpSession = httpSession;
             this.httpSessionId = httpSession.getId();
             this.stream = stream;
+            this.accounts = accounts;
         }
 
         boolean valid() {
@@ -270,8 +286,10 @@ public class RoomLiveHub {
                 Authentication authentication = security.getAuthentication();
                 return authentication != null && authentication.isAuthenticated()
                         && authentication.getPrincipal() instanceof AccountPrincipal principal
-                        && principal.isEnabled() && principal.getUserId().equals(userId);
-            } catch (IllegalStateException ex) {
+                        && principal.isEnabled() && principal.getUserId().equals(userId)
+                        && accounts.findById(userId).filter(account -> account.isEnabled()
+                                && account.getPasswordHash().equals(principal.getPassword())).isPresent();
+            } catch (RuntimeException ex) {
                 return false;
             }
         }
