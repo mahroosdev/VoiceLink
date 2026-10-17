@@ -62,6 +62,10 @@ class UiRenderingTests {
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
                 ".password-toggle[data-visible=\"false\"] .password-toggle__slash");
+        assertThat(css).contains("--vl-canvas:", "--vl-depth-3:", "--vl-motion-slow:",
+                ".application-nav a.is-current::before", ".recording-card[data-phase=\"listening\"]",
+                ".turn-caption--revealed", "@media (prefers-reduced-motion: reduce)")
+                .doesNotContain("transition: all");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -106,6 +110,9 @@ class UiRenderingTests {
                 "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"",
                 "class=\"application-sidebar\"", "class=\"application-topbar\"",
                 "class=\"application-bottom-nav\"", "aria-current=\"page\"", owner.getUsername());
+        assertThat(app).contains("class=\"conversation-start\"", "class=\"action-card action-card--create\"",
+                "class=\"action-card action-card--join\"", "<details class=\"application-account\"",
+                "aria-label=\"Account options\"");
         assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil",
                 "Speak naturally and hear the conversation translated.", "class=\"site-header\"");
 
@@ -124,6 +131,8 @@ class UiRenderingTests {
                 "Premium is not available on this server.", "name=\"_csrf\"",
                 "href=\"/about#privacy\"", "Recent captions and generated audio are temporary.",
                 "href=\"/about\"", owner.getUsername());
+        assertThat(index).contains("class=\"room-direction-choice\"", "class=\"room-direction-choice__arrow\"")
+                .doesNotContain("Recent History", "Recovery Key");
         assertThat(index).doesNotContain("<details class=\"disclosure data-disclosure\"",
                 "Standard uses Gemini Free Tier for translation and voice.",
                 "VOICELINK_PREMIUM_GEMINI_API_KEY");
@@ -184,8 +193,19 @@ class UiRenderingTests {
                 "id=\"turn-announcement\"", "id=\"glossary-form\"", "id=\"live-text-form\"",
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
+        assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
+                "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-panel\"")
+                .doesNotContain("Low latency", "Recent History", "Delete account");
         assertThat(active.indexOf("id=\"record-start\"")).isLessThan(active.indexOf("id=\"close-room-form\""));
         assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
+        String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(roomScript).contains("speechSection.dataset.phase = \"listening\"",
+                "speechSection.dataset.phase = \"uploading\"",
+                "parts.row.dataset.phase = \"translating\"",
+                "parts.row.dataset.phase = \"voice\"",
+                "parts.row.dataset.phase = \"ready\"")
+                .doesNotContain("innerHTML");
 
         rooms.closeRoom(guest.getUserId(), roomId);
         String closed = mvc.perform(get(path).with(user(owner)))

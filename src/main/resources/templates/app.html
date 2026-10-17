@@ -15,18 +15,19 @@
       <h1>Conversations</h1>
       <p>Create a room or join someone with an invite code.</p>
     </header>
-    <div class="action-grid" aria-label="Conversation actions">
-      <section class="action-card card">
+    <section class="conversation-start" aria-label="Start a conversation">
+      <div class="action-card action-card--create">
+        <span class="eyebrow">Start here</span>
         <h2>Create conversation</h2>
         <p>Choose a direction and share a private invite code.</p>
         <a class="button button--primary" th:href="@{/rooms#create}">Create conversation</a>
-      </section>
-      <section class="action-card card">
+      </div>
+      <div class="action-card action-card--join">
         <h2>Join conversation</h2>
         <p>Enter a code shared with you.</p>
         <a class="button button--secondary" th:href="@{/rooms#join}">Join conversation</a>
-      </section>
-    </div>
+      </div>
+    </section>
   </main>
 </body>
 </html>

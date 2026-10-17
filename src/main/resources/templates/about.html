@@ -29,18 +29,18 @@
       <p>VoiceLink helps two people follow short spoken turns with live captions and translated voice.</p>
     </div>
     <div class="about-grid">
-      <section class="card card-pad about-section" aria-labelledby="how-heading">
+      <section class="about-section" aria-labelledby="how-heading">
         <h2 id="how-heading">How VoiceLink works</h2>
         <p>Create a private two-person room and share its invite code, or join with a code you received. Each person speaks English or Tamil and receives the other language.</p>
         <p>In an active room, record a short push-to-talk turn. Speech recognition produces a source caption, translation produces the other-language caption, and generated voice can be played back by room members.</p>
       </section>
-      <section id="privacy" class="card card-pad about-section" aria-labelledby="privacy-heading">
+      <section id="privacy" class="about-section" aria-labelledby="privacy-heading">
         <h2 id="privacy-heading">Privacy &amp; Data</h2>
         <p>During development, use only non-sensitive, non-confidential conversation content. Speech is sent to Groq for recognition. The current utterance, bounded recent context, and matching room glossary terms may be sent to Gemini for translation; translated text is sent to Gemini for voice generation.</p>
         <p>Recent captions, bounded conversation context, and generated audio are temporary. VoiceLink does not store a persistent transcript history. Context is held in memory and cleared when the room closes or the application restarts.</p>
         <p>Room glossary entries are stored in PostgreSQL while a room is open. They survive reconnects and application restarts, and are deleted when the room is explicitly closed.</p>
       </section>
-      <section id="profiles" class="card card-pad about-section" aria-labelledby="profiles-heading">
+      <section id="profiles" class="about-section" aria-labelledby="profiles-heading">
         <h2 id="profiles-heading">AI Service Profiles</h2>
         <h3>Standard</h3>
         <p>Groq handles speech recognition; Gemini handles translation and generated voice. Standard uses free-tier services with usage quotas when the server's free-tier configuration is confirmed.</p>
@@ -49,7 +49,7 @@
         <p th:if="${!premiumAvailable}">Premium is not available on this server.</p>
         <p>The room creator chooses a profile when creating the room. That choice cannot be changed later.</p>
       </section>
-      <section class="card card-pad about-section" aria-labelledby="scope-heading">
+      <section class="about-section" aria-labelledby="scope-heading">
         <h2 id="scope-heading">Current Scope</h2>
         <p>VoiceLink supports two-person English ↔ Tamil rooms and short, push-to-talk speech turns. Recent captions help members follow the active conversation; they are not a permanent chat history.</p>
         <p>Rooms can keep a small, room-specific glossary until they are explicitly closed.</p>

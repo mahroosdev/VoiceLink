@@ -14,7 +14,7 @@
   <main id="main" class="workspace workspace--conversation room-page">
     <div id="room-page" th:attr="data-room-id=${room.id}">
       <a class="room-back" th:href="@{/rooms}">← Back to your rooms</a>
-      <section class="room-header card" aria-labelledby="room-heading">
+      <section class="room-header" aria-labelledby="room-heading">
         <div class="room-header__top">
           <div>
             <span class="eyebrow">Conversation workspace</span>
@@ -67,7 +67,7 @@
 
           <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
             <h2 id="active-heading" class="sr-only">Active conversation</h2>
-            <section class="turns-card card" aria-labelledby="turns-heading">
+            <section class="turns-card" aria-labelledby="turns-heading">
               <span class="eyebrow">Current conversation</span>
               <h3 id="turns-heading">Live captions</h3>
               <p class="turns-card__intro">Recent turns are temporary and may disappear after expiry or restart.</p>
@@ -75,7 +75,7 @@
               <ol id="speech-events" class="turn-list"></ol>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
-            <section id="speech-section" class="recording-card card" aria-labelledby="speech-heading">
+            <section id="speech-section" class="recording-card" data-phase="idle" aria-labelledby="speech-heading">
               <span class="eyebrow">Your turn to speak</span>
               <h3 id="speech-heading">Record a turn</h3>
               <p class="recording-card__intro">Speak for up to 15 seconds. Captions and translated audio appear for both people.</p>
@@ -108,7 +108,7 @@
             </details>
           </section>
 
-          <section id="closed-notice" class="room-closed card" th:hidden="${room.status.name() != 'CLOSED'}"
+          <section id="closed-notice" class="room-closed" th:hidden="${room.status.name() != 'CLOSED'}"
                    aria-labelledby="closed-heading">
             <h2 id="closed-heading">This room is closed</h2>
             <p>It cannot be reopened or joined. The room glossary has been deleted.</p>
@@ -116,7 +116,7 @@
         </div>
 
         <aside class="room-sidebar" aria-label="Room tools">
-          <details id="glossary-section" class="glossary-panel card" th:if="${room.status.name() != 'CLOSED'}">
+          <details id="glossary-section" class="glossary-panel" th:if="${room.status.name() != 'CLOSED'}">
             <summary>
               <span class="glossary-panel__heading"><strong id="glossary-heading">Technical glossary</strong>
                 <small id="glossary-capacity">Loading terms…</small></span>
@@ -158,13 +158,13 @@
               <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
             </div>
           </details>
-          <form id="close-room-form" class="room-close card" th:if="${room.status.name() != 'CLOSED'}"
+          <form id="close-room-form" class="room-close" th:if="${room.status.name() != 'CLOSED'}"
                 th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
             <p>Closing ends this room for both people and deletes its saved glossary.</p>
             <button class="button button--danger" type="submit"
                     th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
           </form>
-          <section class="room-info card" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
+          <section class="room-info" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
             <h2 id="room-info-heading">About this room</h2>
             <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
             <p class="room-privacy">During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>

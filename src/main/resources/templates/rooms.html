@@ -23,25 +23,28 @@
         </div>
         <p class="notice notice--error" th:if="${roomError}" th:text="${roomError}" role="alert"></p>
         <form th:action="@{/rooms}" th:object="${createRoomForm}" method="post">
-          <div class="field">
-            <label for="speaking">Your spoken language</label>
-            <select id="speaking" th:field="*{speaking}"
-                    th:attr="aria-invalid=${#fields.hasErrors('speaking')},aria-describedby=${#fields.hasErrors('speaking') ? 'speaking-error' : ''}">
-              <option value="">Choose a language</option>
-              <option value="en">English</option>
-              <option value="ta">Tamil</option>
-            </select>
-            <p id="speaking-error" class="field-error" th:if="${#fields.hasErrors('speaking')}" th:errors="*{speaking}" role="alert"></p>
-          </div>
-          <div class="field">
-            <label for="listening">Language you receive</label>
-            <select id="listening" th:field="*{listening}"
-                    th:attr="aria-invalid=${#fields.hasErrors('listening')},aria-describedby=${#fields.hasErrors('listening') ? 'listening-error' : ''}">
-              <option value="">Choose a language</option>
-              <option value="en">English</option>
-              <option value="ta">Tamil</option>
-            </select>
-            <p id="listening-error" class="field-error" th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
+          <div class="room-direction-choice">
+            <div class="field">
+              <label for="speaking">Your spoken language</label>
+              <select id="speaking" th:field="*{speaking}"
+                      th:attr="aria-invalid=${#fields.hasErrors('speaking')},aria-describedby=${#fields.hasErrors('speaking') ? 'speaking-error' : ''}">
+                <option value="">Choose a language</option>
+                <option value="en">English</option>
+                <option value="ta">Tamil</option>
+              </select>
+              <p id="speaking-error" class="field-error" th:if="${#fields.hasErrors('speaking')}" th:errors="*{speaking}" role="alert"></p>
+            </div>
+            <span class="room-direction-choice__arrow" aria-hidden="true">→</span>
+            <div class="field">
+              <label for="listening">Language you receive</label>
+              <select id="listening" th:field="*{listening}"
+                      th:attr="aria-invalid=${#fields.hasErrors('listening')},aria-describedby=${#fields.hasErrors('listening') ? 'listening-error' : ''}">
+                <option value="">Choose a language</option>
+                <option value="en">English</option>
+                <option value="ta">Tamil</option>
+              </select>
+              <p id="listening-error" class="field-error" th:if="${#fields.hasErrors('listening')}" th:errors="*{listening}" role="alert"></p>
+            </div>
           </div>
           <fieldset class="profile-fieldset"
                     th:attr="aria-describedby=${#fields.hasErrors('profile') ? 'profile-help profile-error' : 'profile-help'}">

@@ -93,6 +93,7 @@
       recorder.stop();
     }
     if (value === "CLOSED") {
+      speechSection.dataset.phase = "idle";
       stopped = true;
       speechEvents.replaceChildren();
       turnRows.clear();
@@ -167,6 +168,7 @@
     content.textContent = textValue;
     if (language === "en" || language === "ta") content.lang = language;
     block.hidden = false;
+    block.classList.add("turn-caption--revealed");
   }
 
   function showAudio(parts, url) {
@@ -197,21 +199,26 @@
     if (!Number.isSafeInteger(payload.turnIndex) || !event.turnId) return;
     const parts = rowFor(event.turnId, payload.turnIndex, event.senderParticipantId);
     if (event.type === "TURN_ACCEPTED") parts.progress.textContent = "Recognizing speech";
+    if (event.type === "TURN_ACCEPTED") parts.row.dataset.phase = "recognizing";
     if (event.type === "TRANSCRIPT_READY") {
       showCaption(parts, "source", payload.sourceLanguage, payload.transcript);
       parts.progress.textContent = "Translating";
+      parts.row.dataset.phase = "translating";
     }
     if (event.type === "TRANSLATION_READY") {
       showCaption(parts, "target", payload.targetLanguage, payload.translatedText);
       parts.progress.textContent = "Creating voice";
+      parts.row.dataset.phase = "voice";
     }
     if (event.type === "AUDIO_READY") {
       showAudio(parts, payload.audioUrl);
       parts.progress.textContent = "Audio ready";
+      parts.row.dataset.phase = "ready";
     }
     if (event.type === "TURN_FAILED") {
       parts.progress.textContent = failureText(payload.stage);
       parts.progress.dataset.failed = "true";
+      parts.row.dataset.phase = "error";
     }
     turnAnnouncement.textContent = "Turn " + payload.turnIndex + ": " + parts.progress.textContent;
   }
@@ -236,6 +243,10 @@
           turn.status === "TRANSLATED" ? "Creating voice" :
           turn.status === "TRANSCRIBED" ? "Translating" : "Recognizing speech";
         parts.progress.dataset.failed = String(turn.status === "FAILED");
+        parts.row.dataset.phase = turn.status === "FAILED" ? "error" :
+          turn.status === "READY" ? "ready" :
+          turn.status === "TRANSLATED" ? "voice" :
+          turn.status === "TRANSCRIBED" ? "translating" : "recognizing";
       }
       for (const [turnId, parts] of turnRows) {
         if (knownIdsAtStart.has(turnId) && !currentIds.has(turnId)) {
@@ -394,6 +405,7 @@
     if (busy || !connected || !socketOpen() ||
         status.textContent !== "ACTIVE" || !speechSupported) return;
     busy = true;
+    speechSection.dataset.phase = "requesting";
     discardRecording = false;
     recordStart.disabled = true;
     try {
@@ -401,6 +413,7 @@
       if (status.textContent !== "ACTIVE" || !connected) {
         microphone.getTracks().forEach(track => track.stop());
         busy = false;
+        speechSection.dataset.phase = "idle";
         setStatus(status.textContent);
         return;
       }
@@ -413,15 +426,18 @@
         microphone.getTracks().forEach(track => track.stop());
         recordStop.disabled = true;
         speechSection.dataset.recording = "false";
+        speechSection.dataset.phase = "uploading";
         recordingTimer.hidden = true;
         const durationMillis = Math.min(15000, Math.round(performance.now() - startedAt));
         const blob = new Blob(chunks, { type: speechType });
         if (discardRecording || !connected || status.textContent !== "ACTIVE") {
           recordingStatus.textContent = "Recording ended because the room connection changed. Reconnect and try again.";
+          speechSection.dataset.phase = "idle";
           busy = false; setStatus(status.textContent); return;
         }
         if (!blob.size || blob.size > 1024 * 1024 || durationMillis < 100) {
           recordingStatus.textContent = "That recording could not be used. Keep it under 15 seconds and try again.";
+          speechSection.dataset.phase = "idle";
           busy = false; setStatus(status.textContent); return;
         }
         recordingStatus.textContent = "Uploading speech";
@@ -429,6 +445,7 @@
         data.append("clientRequestId", crypto.randomUUID());
         data.append("durationMillis", String(durationMillis));
         data.append("audio", blob, "turn.webm");
+        let accepted = false;
         try {
           const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
           const csrfToken = document.querySelector('meta[name="_csrf"]').content;
@@ -439,11 +456,13 @@
           recordingStatus.textContent = response.ok ? "Speech accepted for processing" :
             response.status === 503 ? "Speech processing is busy. Try again shortly." :
             "Speech upload failed. Check room access and recording limits.";
+          accepted = response.ok;
           if (response.ok) refreshTurns();
         } catch {
           recordingStatus.textContent = "Speech upload failed. Check your connection and try again.";
         } finally {
           busy = false;
+          speechSection.dataset.phase = accepted ? "accepted" : "idle";
           setStatus(status.textContent);
         }
       };
@@ -451,6 +470,7 @@
       startedAt = performance.now();
       recordStop.disabled = false;
       speechSection.dataset.recording = "true";
+      speechSection.dataset.phase = "listening";
       recordingStatus.textContent = "Recording. Stop within 15 seconds.";
       recordingTimer.hidden = false;
       recordingTimer.textContent = "0.0s / 15s";
@@ -468,6 +488,7 @@
       recordStop.disabled = true;
       recordingTimer.hidden = true;
       speechSection.dataset.recording = "false";
+      speechSection.dataset.phase = "idle";
       recordingStatus.textContent = error?.name === "NotAllowedError" ||
         error?.name === "SecurityError"
         ? "Microphone access was denied. Allow access in your browser and try again."
