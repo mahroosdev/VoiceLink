@@ -14,9 +14,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 public final class CurrentCredentialFilter extends OncePerRequestFilter {
     private final UserAccountRepository accounts;
+    private final AccountSessionRegistry sessions;
 
-    public CurrentCredentialFilter(UserAccountRepository accounts) {
+    public CurrentCredentialFilter(UserAccountRepository accounts, AccountSessionRegistry sessions) {
         this.accounts = accounts;
+        this.sessions = sessions;
     }
 
     @Override
@@ -36,6 +38,10 @@ public final class CurrentCredentialFilter extends OncePerRequestFilter {
                 response.sendRedirect(request.getContextPath() + "/login?expired");
             }
             return;
+        }
+        if (authentication != null && authentication.getPrincipal() instanceof AccountPrincipal principal) {
+            HttpSession session = request.getSession(false);
+            if (session != null) sessions.register(principal.getUserId(), session);
         }
         chain.doFilter(request, response);
     }

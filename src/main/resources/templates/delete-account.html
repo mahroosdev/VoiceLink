@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete account | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
+  <script th:src="@{/js/password-visibility.js}" defer></script>
+  <script th:src="@{/js/delete-account.js}" defer></script>
+</head>
+<body class="authenticated-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div th:replace="~{fragments/app-shell :: chrome('account', 'Account', ${email})}"></div>
+  <main id="main" class="workspace workspace--account">
+    <header class="workspace-heading"><span class="eyebrow">Account security</span><h1>Delete account</h1></header>
+    <section class="card card-pad account-section account-section--danger" aria-labelledby="delete-title">
+      <h2 id="delete-title">Deleting your account is permanent.</h2>
+      <p>Your account will be removed and your active sessions will end. Open rooms you participate in will close, their room glossary will be removed, and rooms you created will be removed.</p>
+      <p class="notice notice--error" th:if="${deleteError}" th:text="${deleteError}" role="alert"></p>
+      <form id="delete-account-form" th:action="@{/account/delete}" method="post">
+        <div class="field">
+          <label for="currentPassword">Current password</label>
+          <div class="password-control">
+            <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
+            <button class="password-toggle" type="button" aria-label="Show password" aria-controls="currentPassword" data-password-toggle data-visible="false">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M2 12s3.6-5.5 10-5.5S22 12 22 12s-3.6 5.5-10 5.5S2 12 2 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8"/><path class="password-toggle__slash" d="M3 3 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field"><label for="confirmation">Type DELETE to confirm</label><input id="confirmation" name="confirmation" type="text" autocomplete="off" spellcheck="false" required aria-describedby="confirmation-help"><p id="confirmation-help" class="field-help">Use uppercase letters exactly as shown.</p></div>
+        <div class="form-actions account-actions"><a class="button button--secondary" th:href="@{/account}">Cancel</a><button id="delete-account-submit" class="button button--danger" type="submit" disabled>Delete account</button></div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

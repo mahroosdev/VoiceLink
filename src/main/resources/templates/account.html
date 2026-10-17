@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account management | VoiceLink</title>
+  <link rel="stylesheet" th:href="@{/css/voicelink.css}">
+</head>
+<body class="authenticated-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div th:replace="~{fragments/app-shell :: chrome('account', 'Account', ${email})}"></div>
+  <main id="main" class="workspace workspace--account">
+    <header class="workspace-heading"><span class="eyebrow">Your account</span><h1>Account management</h1><p>Manage your VoiceLink sign-in and account.</p></header>
+    <section class="card card-pad account-section" aria-labelledby="account-identity-title">
+      <h2 id="account-identity-title">Account</h2>
+      <dl class="account-details"><dt>Name</dt><dd th:text="${account.displayName}"></dd><dt>Email</dt><dd th:text="${account.email}"></dd></dl>
+    </section>
+    <section class="card card-pad account-section account-section--danger" aria-labelledby="danger-title">
+      <span class="eyebrow">Danger zone</span><h2 id="danger-title">Delete account</h2>
+      <p>Deleting your account is permanent. Open rooms you participate in will close and their room glossary will be removed. Rooms you created will be removed. You will be signed out of your active sessions.</p>
+      <a class="button button--danger" th:href="@{/account/delete}">Continue to delete account</a>
+    </section>
+  </main>
+</body>
+</html>

@@ -717,6 +717,24 @@ h3 { font-size: 1.1rem; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* Account management keeps destructive choices contained and explicit. */
+.workspace--account { max-width: 900px; }
+.account-section { margin-bottom: var(--vl-space-5); }
+.account-section h2 { margin: 0 0 var(--vl-space-3); }
+.account-section p { max-width: 65ch; color: var(--vl-text-secondary); line-height: 1.6; }
+.account-section--danger { border: 1px solid #DDA8AF; }
+.account-section--danger .eyebrow { color: var(--vl-error); }
+.account-details { display: grid; grid-template-columns: minmax(80px, 130px) minmax(0, 1fr); gap: var(--vl-space-3); margin: 0; }
+.account-details dt { color: var(--vl-text-secondary); }
+.account-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 650; }
+.account-actions { display: flex; flex-wrap: wrap; gap: var(--vl-space-3); }
+.account-actions .button { width: auto; min-width: 156px; }
+@media (max-width: 390px) {
+  .account-actions .button { width: 100%; }
+  .account-details { grid-template-columns: minmax(0, 1fr); gap: var(--vl-space-1); }
+  .account-details dt:not(:first-child) { margin-top: var(--vl-space-3); }
+}
+
 /* Premium visual system: one quiet canvas, with depth reserved for active tools. */
 .authenticated-shell { background: var(--vl-canvas); }
 .application-sidebar {

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RoomParticipantRepository extends JpaRepository<RoomParticipant, UUID> {
+    List<RoomParticipant> findByUser_Id(UUID userId);
     boolean existsByRoom_IdAndUser_Id(UUID roomId, UUID userId);
     boolean existsByRoom_IdAndParticipantSlot(UUID roomId, short slot);
 

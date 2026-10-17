@@ -3,6 +3,8 @@ package com.mahroosdev.voicelink.config;
 import com.password4j.Argon2Function;
 import com.password4j.types.Argon2;
 import com.mahroosdev.voicelink.auth.CurrentCredentialFilter;
+import com.mahroosdev.voicelink.auth.AccountPrincipal;
+import com.mahroosdev.voicelink.auth.AccountSessionRegistry;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,7 +26,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts,
+                                            AccountSessionRegistry sessions) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/", "/about", "/login", "/register", "/forgot-password",
                         "/reset-password", "/actuator/health").permitAll()
@@ -37,8 +40,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/js/password-visibility.js").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/room-live.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-glossary.js").authenticated()
+                .requestMatchers(HttpMethod.GET, "/js/delete-account.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/ws/rooms/*").authenticated()
-                .requestMatchers("/app", "/app/**", "/rooms", "/rooms/**", "/api/**").authenticated()
+                .requestMatchers("/app", "/app/**", "/account", "/account/**",
+                        "/rooms", "/rooms/**", "/api/**").authenticated()
                 .requestMatchers("/ws/**").denyAll()
                 .anyRequest().denyAll())
             .httpBasic(AbstractHttpConfigurer::disable)
@@ -46,7 +51,11 @@ public class SecurityConfig {
                     .loginPage("/login")
                     .loginProcessingUrl("/login")
                     .usernameParameter("email")
-                    .defaultSuccessUrl("/app", true)
+                    .successHandler((request, response, authentication) -> {
+                        AccountPrincipal principal = (AccountPrincipal) authentication.getPrincipal();
+                        sessions.register(principal.getUserId(), request.getSession());
+                        response.sendRedirect(request.getContextPath() + "/app");
+                    })
                     .failureUrl("/login?error")
                     .permitAll())
             .logout(logout -> logout
@@ -55,7 +64,7 @@ public class SecurityConfig {
                     .invalidateHttpSession(true)
                     .deleteCookies("JSESSIONID"))
             .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
-            .addFilterAfter(new CurrentCredentialFilter(accounts), SecurityContextHolderFilter.class);
+            .addFilterAfter(new CurrentCredentialFilter(accounts, sessions), SecurityContextHolderFilter.class);
         return http.build();
     }
 }

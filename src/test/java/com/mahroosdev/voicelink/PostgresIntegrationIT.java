@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import com.mahroosdev.voicelink.auth.RegistrationForm;
 import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import com.mahroosdev.voicelink.auth.RegistrationService;
+import com.mahroosdev.voicelink.auth.AccountDeletionService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
@@ -50,6 +51,7 @@ class PostgresIntegrationIT {
     }
 
     @Autowired RegistrationService registration;
+    @Autowired AccountDeletionService accountDeletion;
     @Autowired UserAccountRepository accounts;
     @Autowired UserPreferencesRepository preferences;
     @Autowired JdbcTemplate jdbc;
@@ -58,6 +60,28 @@ class PostgresIntegrationIT {
     @Autowired RoomParticipantRepository participants;
     @Autowired RoomGlossaryService glossary;
     @Autowired RoomGlossaryRepository glossaryEntries;
+
+    @Test
+    void accountDeletionRespectsRealForeignKeysAndRemovesResetToken() {
+        RegistrationForm deletionForm = new RegistrationForm();
+        deletionForm.setDisplayName("Account deletion owner");
+        deletionForm.setEmail(UUID.randomUUID() + "@example.test");
+        deletionForm.setPassword("long integration passphrase");
+        UserAccount departing = accounts.findById(registration.register(deletionForm)).orElseThrow();
+        UserAccount counterpart = account("Account deletion counterpart");
+        UUID roomId = rooms.createRoom(departing.getId(), "en", "ta");
+        rooms.joinRoom(counterpart.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        jdbc.update("INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at) "
+                + "VALUES (?, ?, now(), now() + interval '30 minutes')", departing.getId(), "c".repeat(64));
+        assertThat(accountDeletion.delete(departing.getId(), "long integration passphrase", "DELETE")).isTrue();
+        assertThat(accounts.findById(departing.getId())).isEmpty();
+        assertThat(accounts.findById(counterpart.getId())).isPresent();
+        assertThat(roomRepository.findById(roomId)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_tokens WHERE user_id = ?",
+                Long.class, departing.getId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM room_participants WHERE user_id = ?",
+                Long.class, departing.getId())).isZero();
+    }
 
     @Test
     void flywayAndHibernatePersistUuidAccountAndPreferences() {

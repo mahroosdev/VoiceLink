@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.auth.PasswordResetCompletedEvent;
+import com.mahroosdev.voicelink.auth.AccountDeletedEvent;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.security.core.Authentication;
@@ -217,6 +218,16 @@ public class RoomLiveHub {
         for (Stream stream : streams.values()) {
             synchronized (stream) {
                 Connection connection = stream.members.remove(reset.userId());
+                if (connection != null) close(connection, CloseStatus.POLICY_VIOLATION);
+            }
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onAccountDeleted(AccountDeletedEvent deleted) {
+        for (Stream stream : streams.values()) {
+            synchronized (stream) {
+                Connection connection = stream.members.remove(deleted.userId());
                 if (connection != null) close(connection, CloseStatus.POLICY_VIOLATION);
             }
         }

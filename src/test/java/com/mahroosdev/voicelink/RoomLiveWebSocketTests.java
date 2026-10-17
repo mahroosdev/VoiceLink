@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.auth.PasswordResetService;
+import com.mahroosdev.voicelink.auth.AccountDeletionService;
 import com.mahroosdev.voicelink.auth.TestPasswordResetNotifier;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
 import com.mahroosdev.voicelink.room.RoomService;
@@ -64,6 +65,7 @@ class RoomLiveWebSocketTests {
     @Autowired ObjectMapper json;
     @Autowired PlatformTransactionManager transactions;
     @Autowired PasswordResetService resets;
+    @Autowired AccountDeletionService accountDeletion;
     @Autowired TestPasswordResetNotifier resetNotifier;
 
     private UserAccount account(String label) {
@@ -91,6 +93,26 @@ class RoomLiveWebSocketTests {
         assertThat(resets.reset(message.token(), "changed-password-456")).isTrue();
         socket.closed.get(8, TimeUnit.SECONDS);
         assertThat(socket.closeCode).isEqualTo(1008);
+    }
+
+    @Test
+    void accountDeletionClosesBothSocketsAndNotifiesRemainingMember() throws Exception {
+        UserAccount creator = account("Deleting socket owner");
+        UserAccount peer = account("Remaining socket member");
+        UUID roomId = rooms.createRoom(creator.getId(), "en", "ta");
+        rooms.joinRoom(peer.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        Browser first = browser(creator);
+        Browser second = browser(peer);
+        LiveSocket firstSocket = first.connect(roomId, first.base);
+        LiveSocket secondSocket = second.connect(roomId, second.base);
+        firstSocket.await("ROOM_STATE");
+        secondSocket.await("ROOM_STATE");
+        assertThat(accountDeletion.delete(creator.getId(), PASSWORD, "DELETE")).isTrue();
+        assertThat(secondSocket.await("ROOM_CLOSED").path("type").textValue()).isEqualTo("ROOM_CLOSED");
+        firstSocket.awaitClose();
+        secondSocket.awaitClose();
+        assertThat(accounts.findById(creator.getId())).isEmpty();
+        assertThat(accounts.findById(peer.getId())).isPresent();
     }
 
     @Test
