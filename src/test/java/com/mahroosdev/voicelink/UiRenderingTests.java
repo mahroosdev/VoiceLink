@@ -56,7 +56,8 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(css).contains("--vl-primary: #006F73", "prefers-reduced-motion",
                 "focus-visible", "@media (max-width: 639px)", "@media (max-width: 799px)",
-                "--vl-shell-width: 1120px", ".app-shell > main { flex: 1; }",
+                "--vl-shell-width: 1120px", ".authenticated-shell {",
+                ".application-sidebar {", ".application-bottom-nav {",
                 ".room-form-grid { grid-template-columns: 1fr; }",
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
@@ -100,9 +101,13 @@ class UiRenderingTests {
         AccountPrincipal owner = principal("Owner");
         String app = mvc.perform(get("/app").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(app).contains("class=\"app-shell\"", "Speak naturally and hear the conversation translated.",
-                "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"");
-        assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil");
+        assertThat(app).contains("class=\"authenticated-shell\"", "<h1>Conversations</h1>",
+                "Create a room or join someone with an invite code.",
+                "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"",
+                "class=\"application-sidebar\"", "class=\"application-topbar\"",
+                "class=\"application-bottom-nav\"", "aria-current=\"page\"", owner.getUsername());
+        assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil",
+                "Speak naturally and hear the conversation translated.", "class=\"site-header\"");
 
         String landing = mvc.perform(get("/"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -111,12 +116,14 @@ class UiRenderingTests {
 
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(index).contains("class=\"app-shell\"", "action=\"/rooms\"", "action=\"/rooms/join\"",
+        assertThat(index).contains("class=\"authenticated-shell\"", "<h1>Rooms</h1>",
+                "class=\"application-sidebar\"", "class=\"application-bottom-nav\"",
+                "action=\"/rooms\"", "action=\"/rooms/join\"",
                 "name=\"speaking\"", "name=\"listening\"", "name=\"profile\"",
                 "Paid Gemini translation and voice; Groq speech recognition is shared.",
                 "Premium is not available on this server.", "name=\"_csrf\"",
                 "href=\"/about#privacy\"", "Recent captions and generated audio are temporary.",
-                "href=\"/about\"");
+                "href=\"/about\"", owner.getUsername());
         assertThat(index).doesNotContain("<details class=\"disclosure data-disclosure\"",
                 "Standard uses Gemini Free Tier for translation and voice.",
                 "VOICELINK_PREMIUM_GEMINI_API_KEY");
@@ -138,14 +145,17 @@ class UiRenderingTests {
                 "VoiceLink supports two-person English ↔ Tamil rooms",
                 "Each person speaks English or Tamil and receives the other language.");
         assertThat(about).contains("Understand each other, one turn at a time.");
-        assertThat(about).doesNotContain("action=\"/logout\"", "Signed-in account");
+        assertThat(about).contains("class=\"public-shell\"", "class=\"site-header\"");
+        assertThat(about).doesNotContain("action=\"/logout\"", "Signed-in account",
+                "class=\"application-sidebar\"", "class=\"application-bottom-nav\"");
 
         AccountPrincipal owner = principal("Owner");
         String signedIn = mvc.perform(get("/about").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(signedIn).contains("href=\"/rooms\"", "action=\"/logout\"",
-                "name=\"_csrf\"", owner.getUsername());
-        assertThat(signedIn).doesNotContain("href=\"/login\"");
+        assertThat(signedIn).contains("class=\"authenticated-shell\"", "class=\"application-sidebar\"",
+                "class=\"application-bottom-nav\"", "href=\"/rooms\"", "action=\"/logout\"",
+                "aria-current=\"page\"", "name=\"_csrf\"", owner.getUsername());
+        assertThat(signedIn).doesNotContain("href=\"/login\"", "class=\"site-header\"");
     }
 
     @Test
@@ -162,19 +172,20 @@ class UiRenderingTests {
         assertThat(code.find()).isTrue();
         assertThat(code.group(1)).matches("[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}")
                 .doesNotContain(roomId.toString());
-        assertThat(waiting).contains("class=\"app-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
+        assertThat(waiting).contains("class=\"authenticated-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
                 "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard");
         assertThat(waiting.indexOf("id=\"invite-code\"")).isLessThan(waiting.indexOf("id=\"close-room-form\""));
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
         String active = mvc.perform(get(path).with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(active).contains("Recent live turns", "id=\"record-start\"",
+        assertThat(active).contains("Live captions", "id=\"record-start\"",
                 "id=\"record-stop\"", "id=\"recording-status\"", "id=\"speech-events\"",
                 "id=\"turn-announcement\"", "id=\"glossary-form\"", "id=\"live-text-form\"",
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
         assertThat(active.indexOf("id=\"record-start\"")).isLessThan(active.indexOf("id=\"close-room-form\""));
+        assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
 
         rooms.closeRoom(guest.getUserId(), roomId);
         String closed = mvc.perform(get(path).with(user(owner)))

@@ -8,28 +8,16 @@
   <title>Conversation | VoiceLink</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
-<body class="app-shell">
+<body class="authenticated-shell">
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <div class="container site-header__inner">
-      <a class="brand" th:href="@{/app}" aria-label="VoiceLink home">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
-        <span>VoiceLink</span>
-      </a>
-      <nav class="header-actions" aria-label="Account">
-        <a th:href="@{/rooms}" aria-current="page">Rooms</a>
-        <a th:href="@{/about}">About</a>
-        <form th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
-      </nav>
-    </div>
-  </header>
-  <main id="main" class="container room-page">
+  <div th:replace="~{fragments/app-shell :: chrome('rooms', 'Conversation', ${email})}"></div>
+  <main id="main" class="workspace workspace--conversation room-page">
     <div id="room-page" th:attr="data-room-id=${room.id}">
       <a class="room-back" th:href="@{/rooms}">← Back to your rooms</a>
       <section class="room-header card" aria-labelledby="room-heading">
         <div class="room-header__top">
           <div>
-            <span class="eyebrow">Live conversation</span>
+            <span class="eyebrow">Conversation workspace</span>
             <h1 id="room-heading">Conversation room</h1>
             <p class="room-direction">English ↔ Tamil · Two people</p>
           </div>
@@ -62,8 +50,8 @@
           <section id="waiting-section" class="waiting-card card" th:hidden="${room.status.name() != 'WAITING'}"
                    aria-labelledby="waiting-heading">
             <span class="eyebrow">Invite someone</span>
-            <h2 id="waiting-heading">Waiting for the second participant</h2>
-            <p class="waiting-card__intro">Share this private code directly with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+            <h2 id="waiting-heading">Waiting for a guest</h2>
+            <p class="waiting-card__intro">Share this private code with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
             <p class="notice notice--warning" th:if="${room.inviteExpired}">Invite expired. Close this room and create a new one.</p>
             <div th:if="${room.inviteCode != null}">
               <span class="field-label">Private invite code</span>
@@ -79,10 +67,18 @@
 
           <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
             <h2 id="active-heading" class="sr-only">Active conversation</h2>
+            <section class="turns-card card" aria-labelledby="turns-heading">
+              <span class="eyebrow">Current conversation</span>
+              <h3 id="turns-heading">Live captions</h3>
+              <p class="turns-card__intro">Recent turns are temporary and may disappear after expiry or restart.</p>
+              <p id="turn-empty" class="empty-state">No live captions yet.</p>
+              <ol id="speech-events" class="turn-list"></ol>
+              <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
+            </section>
             <section id="speech-section" class="recording-card card" aria-labelledby="speech-heading">
               <span class="eyebrow">Your turn to speak</span>
-              <h3 id="speech-heading">Speak naturally. VoiceLink will translate.</h3>
-              <p class="recording-card__intro">Short turns, up to 15 seconds. The other person can follow the caption and translated voice.</p>
+              <h3 id="speech-heading">Record a turn</h3>
+              <p class="recording-card__intro">Speak for up to 15 seconds. Captions and translated audio appear for both people.</p>
               <div class="recording-controls">
                 <button id="record-start" class="button button--primary recording-controls__main" type="button"
                         th:disabled="${room.status.name() != 'ACTIVE'}">
@@ -93,13 +89,6 @@
                 <output id="recording-timer" class="recording-timer" aria-hidden="true" hidden></output>
               </div>
               <p id="recording-status" class="recording-status" role="status" aria-live="polite">Checking microphone support</p>
-            </section>
-            <section class="turns-card card" aria-labelledby="turns-heading">
-              <h3 id="turns-heading">Recent live turns</h3>
-              <p class="turns-card__intro">Captions and translated audio are temporary. They may disappear after a restart or short expiry.</p>
-              <p id="turn-empty" class="empty-state">No speech turns yet. Start speaking when you’re ready.</p>
-              <ol id="speech-events" class="turn-list"></ol>
-              <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
             <details id="live-text-section" class="live-text disclosure" aria-labelledby="live-text-heading">
               <summary id="live-text-heading">Temporary live text</summary>

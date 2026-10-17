@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+  <div class="application-chrome" th:fragment="chrome(current, pageTitle, accountEmail)">
+    <aside class="application-sidebar" aria-label="Application sidebar">
+      <a class="brand application-brand" th:href="@{/app}" aria-label="VoiceLink conversations">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <nav class="application-nav" aria-label="Application">
+        <a th:href="@{/app}" th:attr="aria-current=${current == 'conversations' ? 'page' : null}" th:classappend="${current == 'conversations'} ? 'is-current'">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20H4v-9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.8"/></svg><span>Conversations</span>
+        </a>
+        <a th:href="@{/rooms}" th:attr="aria-current=${current == 'rooms' ? 'page' : null}" th:classappend="${current == 'rooms'} ? 'is-current'">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 10h8M8 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Rooms</span>
+        </a>
+        <a th:href="@{/about}" th:attr="aria-current=${current == 'about' ? 'page' : null}" th:classappend="${current == 'about'} ? 'is-current'">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5V17M12 7h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>About</span>
+        </a>
+      </nav>
+      <div class="application-account">
+        <span class="application-account__label">Signed in as</span>
+        <span class="application-account__email" th:text="${accountEmail}" title="Signed-in account"></span>
+        <form th:action="@{/logout}" method="post"><button class="application-signout" type="submit">Sign out</button></form>
+      </div>
+    </aside>
+    <header class="application-topbar">
+      <a class="brand" th:href="@{/app}" aria-label="VoiceLink conversations">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
+        <span>VoiceLink</span>
+      </a>
+      <span class="application-topbar__title" th:text="${pageTitle}"></span>
+      <details class="application-mobile-account">
+        <summary aria-label="Account options"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></summary>
+        <div class="application-mobile-account__menu">
+          <span class="application-account__label">Signed in as</span>
+          <span class="application-account__email" th:text="${accountEmail}"></span>
+          <form th:action="@{/logout}" method="post"><button class="application-signout" type="submit">Sign out</button></form>
+        </div>
+      </details>
+    </header>
+    <nav class="application-bottom-nav" aria-label="Application mobile navigation">
+      <a th:href="@{/app}" th:attr="aria-current=${current == 'conversations' ? 'page' : null}" th:classappend="${current == 'conversations'} ? 'is-current'">Conversations</a>
+      <a th:href="@{/rooms}" th:attr="aria-current=${current == 'rooms' ? 'page' : null}" th:classappend="${current == 'rooms'} ? 'is-current'">Rooms</a>
+      <a th:href="@{/about}" th:attr="aria-current=${current == 'about' ? 'page' : null}" th:classappend="${current == 'about'} ? 'is-current'">About</a>
+    </nav>
+  </div>
+</body>
+</html>

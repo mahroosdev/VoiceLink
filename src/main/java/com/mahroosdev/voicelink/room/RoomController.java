@@ -33,6 +33,7 @@ public class RoomController {
         if (!model.containsAttribute("createRoomForm")) model.addAttribute("createRoomForm", new CreateRoomForm());
         model.addAttribute("rooms", rooms.listRoomsForMember(principal.getUserId()));
         model.addAttribute("premiumAvailable", premium.available());
+        model.addAttribute("email", principal.getUsername());
         return "rooms";
     }
 
@@ -76,6 +77,7 @@ public class RoomController {
     @GetMapping("/rooms/{id}")
     String show(@AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID id, Model model) {
         model.addAttribute("room", rooms.getRoomForMember(principal.getUserId(), id));
+        model.addAttribute("email", principal.getUsername());
         return "room";
     }
 

@@ -7,24 +7,22 @@
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
   <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}">
 </head>
-<body class="app-shell">
+<body th:class="${signedIn} ? 'authenticated-shell' : 'public-shell'">
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
+  <header class="site-header" th:unless="${signedIn}">
     <div class="container site-header__inner">
-      <a class="brand" th:href="${signedIn} ? @{/app} : @{/}" aria-label="VoiceLink home">
+      <a class="brand" th:href="@{/}" aria-label="VoiceLink home">
         <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
         <span>VoiceLink</span>
       </a>
       <nav class="header-actions" aria-label="Account">
-        <a th:if="${signedIn}" th:href="@{/rooms}">Rooms</a>
         <a th:href="@{/about}" aria-current="page">About</a>
-        <span th:if="${signedIn}" class="header-account" th:text="${email}" title="Signed-in account"></span>
-        <form th:if="${signedIn}" th:action="@{/logout}" method="post"><button class="link-button" type="submit">Sign out</button></form>
-        <a th:unless="${signedIn}" th:href="@{/login}">Sign in</a>
+        <a th:href="@{/login}">Sign in</a>
       </nav>
     </div>
   </header>
-  <main id="main" class="container page">
+  <div th:if="${signedIn}"><div th:replace="~{fragments/app-shell :: chrome('about', 'About', ${email})}"></div></div>
+  <main id="main" th:class="${signedIn} ? 'workspace workspace--about' : 'container page'">
     <div class="page-heading">
       <span class="eyebrow">About VoiceLink</span>
       <h1>Understand each other, one turn at a time.</h1>

@@ -278,13 +278,13 @@ class RoomFlowTests {
         String code = rooms.findById(id).orElseThrow().getJoinCode();
         mvc.perform(get(redirect).with(user(principal(creator))))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Waiting for the second participant")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Waiting for a guest")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("and receive")));
         mvc.perform(post("/rooms/join").with(user(principal(joiner))).with(csrf()).param("joinCode", code))
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Recent live turns")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Live captions")));
         mvc.perform(post(redirect + "/close").with(user(principal(outsider))).with(csrf()))
                 .andExpect(status().isNotFound());
         mvc.perform(post(redirect + "/close").with(user(principal(joiner))).with(csrf()))
