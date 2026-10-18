@@ -91,7 +91,7 @@ public class RoomService {
     @Transactional(readOnly = true)
     public List<RoomSummary> listRoomsForMember(UUID userId) {
         Instant now = Instant.now();
-        return participants.findByUser_IdOrderByJoinedAtDesc(userId).stream()
+        return participants.findByUser_IdAndRemovedAtIsNullOrderByJoinedAtDesc(userId).stream()
                 .map(p -> new RoomSummary(p.getRoom().getId(), p.getRoom().getStatus(),
                         p.getRoom().getServiceProfile(),
                         p.getRoom().getCreatedAt(), p.getRoom().getStatus() == RoomStatus.WAITING
@@ -127,6 +127,18 @@ public class RoomService {
         room.close(Instant.now());
         glossary.deleteByRoom_Id(roomId);
         events.publishEvent(new RoomClosedEvent(roomId));
+    }
+
+    @Transactional
+    public void removeClosedRoom(UUID userId, UUID roomId) {
+        ConversationRoom room = rooms.findLockedById(roomId).orElseThrow(this::notFound);
+        access.requireMember(userId, roomId);
+        if (room.getStatus() != RoomStatus.CLOSED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only closed rooms can be removed");
+        }
+        RoomParticipant membership = participants.findByRoom_IdAndUser_IdAndRemovedAtIsNull(roomId, userId)
+                .orElseThrow(this::notFound);
+        membership.removeFromList(Instant.now());
     }
 
     private ResponseStatusException notFound() {

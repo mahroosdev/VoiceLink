@@ -152,4 +152,15 @@ class AccountDeletionFlowTests {
         assertThat(session.isInvalid()).isFalse();
         mvc.perform(get("/account").session(session)).andExpect(status().isOk());
     }
+
+    @Test
+    void accountDeletionAlsoRemovesPreviouslyDismissedCreatedRoom() {
+        UUID owner = createAccount();
+        UUID id = rooms.createRoom(owner, "en", "ta");
+        rooms.closeRoom(owner, id);
+        rooms.removeClosedRoom(owner, id);
+        assertThat(rooms.listRoomsForMember(owner)).noneMatch(view -> view.id().equals(id));
+        assertThat(deletion.delete(owner, PASSWORD, "DELETE")).isTrue();
+        assertThat(roomRepository.findById(id)).isEmpty();
+    }
 }

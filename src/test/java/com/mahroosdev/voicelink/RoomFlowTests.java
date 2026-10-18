@@ -294,4 +294,63 @@ class RoomFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("cannot be reopened")));
     }
+
+    @Test
+    void removingClosedRoomOnlyHidesItForRequestingMember() {
+        UserAccount creator = account("Creator");
+        UserAccount guest = account("Guest");
+        UserAccount outsider = account("Outsider");
+        UUID id = service.createRoom(creator.getId(), "en", "ta");
+        assertThatThrownBy(() -> service.removeClosedRoom(creator.getId(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("409");
+        service.joinRoom(guest.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+        assertThatThrownBy(() -> service.removeClosedRoom(guest.getId(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("409");
+        service.closeRoom(creator.getId(), id);
+        assertThatThrownBy(() -> service.removeClosedRoom(outsider.getId(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("404");
+        service.removeClosedRoom(creator.getId(), id);
+        assertThat(service.listRoomsForMember(creator.getId())).noneMatch(view -> view.id().equals(id));
+        assertThat(service.listRoomsForMember(guest.getId())).anyMatch(view -> view.id().equals(id));
+        assertThat(rooms.findById(id).orElseThrow().getStatus()).isEqualTo(RoomStatus.CLOSED);
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(2);
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id).getFirst().getRemovedAt()).isNotNull();
+        assertThatThrownBy(() -> service.getRoomForMember(creator.getId(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> service.removeClosedRoom(creator.getId(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void closedRoomRemovalPostRequiresMemberCsrfAndConfirmationPage() throws Exception {
+        UserAccount creator = account("Creator");
+        UserAccount guest = account("Guest");
+        UserAccount outsider = account("Outsider");
+        UUID id = service.createRoom(creator.getId(), "en", "ta");
+        service.joinRoom(guest.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+        String path = "/rooms/" + id + "/remove";
+        mvc.perform(get(path).with(user(principal(creator)))).andExpect(status().isMethodNotAllowed());
+        mvc.perform(post(path).with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isConflict());
+        service.closeRoom(creator.getId(), id);
+        mvc.perform(get("/rooms/" + id).with(user(principal(creator))))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Confirm removal")));
+        mvc.perform(get("/rooms").with(user(principal(creator))))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Remove room")));
+        mvc.perform(post(path).with(user(principal(creator))))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).with(user(principal(outsider))).with(csrf()))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(path).with(user(principal(creator))).with(csrf())
+                .param("userId", guest.getId().toString()))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms"));
+        mvc.perform(get("/rooms/" + id).with(user(principal(creator))))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/rooms/" + id).with(user(principal(guest))))
+                .andExpect(status().isOk());
+    }
 }

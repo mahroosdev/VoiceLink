@@ -45,23 +45,27 @@
         </section>
       </section>
 
-      <div class="room-main-grid">
+      <div class="room-main-grid" th:classappend="${room.status.name() == 'WAITING' ? 'room-main-grid--waiting' : (room.status.name() == 'CLOSED' ? 'room-main-grid--closed' : '')}">
         <div class="room-main">
           <section id="waiting-section" class="waiting-card card" th:hidden="${room.status.name() != 'WAITING'}"
                    aria-labelledby="waiting-heading">
-            <span class="eyebrow">Invite someone</span>
-            <h2 id="waiting-heading">Waiting for a guest</h2>
-            <p class="waiting-card__intro">Share this private code with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
-            <p class="notice notice--warning" th:if="${room.inviteExpired}">Invite expired. Close this room and create a new one.</p>
-            <div th:if="${room.inviteCode != null}">
-              <span class="field-label">Private invite code</span>
-              <code id="invite-code" class="invite-code" th:text="${room.inviteCode}"></code>
-              <div class="invite-actions">
-                <button id="invite-copy" class="button button--secondary" type="button">Copy code</button>
-                <span id="copy-status" class="small muted" role="status" aria-live="polite"></span>
+            <div class="waiting-card__layout">
+              <div class="waiting-card__lead">
+                <span class="eyebrow">Invite someone</span>
+                <h2 id="waiting-heading">Waiting for a guest</h2>
+                <p class="waiting-card__intro">Share this private code with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+                <p class="notice notice--warning" th:if="${room.inviteExpired}">Invite expired. Close this room and create a new one.</p>
               </div>
-              <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
-                  th:text="${room.inviteExpiresAt}"></time>.</p>
+              <div class="waiting-card__invite" th:if="${room.inviteCode != null}">
+                <span class="field-label">Private invite code</span>
+                <code id="invite-code" class="invite-code" th:text="${room.inviteCode}"></code>
+                <div class="invite-actions">
+                  <button id="invite-copy" class="button button--secondary" type="button">Copy code</button>
+                  <span id="copy-status" class="small muted" role="status" aria-live="polite"></span>
+                </div>
+                <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
+                    th:text="${room.inviteExpiresAt}"></time>.</p>
+              </div>
             </div>
           </section>
 
@@ -112,6 +116,15 @@
                    aria-labelledby="closed-heading">
             <h2 id="closed-heading">This room is closed</h2>
             <p>It cannot be reopened or joined. The room glossary has been deleted.</p>
+            <details class="room-remove-disclosure">
+              <summary>Remove room</summary>
+              <div class="room-remove-disclosure__body">
+                <p>Remove this closed room from your list? The other person's list is unaffected.</p>
+                <form th:action="@{/rooms/{id}/remove(id=${room.id})}" method="post">
+                  <button class="button button--danger" type="submit">Confirm removal</button>
+                </form>
+              </div>
+            </details>
           </section>
         </div>
 
@@ -128,6 +141,7 @@
               <form id="glossary-form" class="glossary-form"
                     th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
                 <h3 id="glossary-form-heading">Add term</h3>
+                <div class="glossary-language-grid">
                 <div class="field">
                   <label for="glossary-source-language">Source language</label>
                   <select id="glossary-source-language" required>
@@ -139,6 +153,7 @@
                   <select id="glossary-target-language" required>
                     <option value="ta">Tamil</option><option value="en">English</option>
                   </select>
+                </div>
                 </div>
                 <div class="field">
                   <label for="glossary-source-term">Source term</label>
@@ -158,17 +173,17 @@
               <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
             </div>
           </details>
+          <section class="room-info" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
+            <h2 id="room-info-heading">About this room</h2>
+            <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
+            <p class="room-privacy">During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
+          </section>
           <form id="close-room-form" class="room-close" th:if="${room.status.name() != 'CLOSED'}"
                 th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
             <p>Closing ends this room for both people and deletes its saved glossary.</p>
             <button class="button button--danger" type="submit"
                     th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
           </form>
-          <section class="room-info" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
-            <h2 id="room-info-heading">About this room</h2>
-            <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
-            <p class="room-privacy">During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
-          </section>
         </aside>
       </div>
     </div>

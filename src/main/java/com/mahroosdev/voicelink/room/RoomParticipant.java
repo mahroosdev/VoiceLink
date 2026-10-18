@@ -41,6 +41,9 @@ public class RoomParticipant {
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
 
+    @Column(name = "removed_at")
+    private Instant removedAt;
+
     protected RoomParticipant() {}
 
     public RoomParticipant(ConversationRoom room, UserAccount user, short participantSlot,
@@ -60,4 +63,9 @@ public class RoomParticipant {
     public String getSpeakingLanguageTag() { return speakingLanguageTag; }
     public String getListeningLanguageTag() { return listeningLanguageTag; }
     public Instant getJoinedAt() { return joinedAt; }
+    public Instant getRemovedAt() { return removedAt; }
+    public void removeFromList(Instant now) {
+        if (removedAt != null) throw new IllegalStateException("Room already removed");
+        removedAt = now;
+    }
 }

@@ -86,4 +86,12 @@ public class RoomController {
         rooms.closeRoom(principal.getUserId(), id);
         return "redirect:/rooms/" + id;
     }
+
+    @PostMapping("/rooms/{id}/remove")
+    String remove(@AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID id,
+                  RedirectAttributes redirect) {
+        rooms.removeClosedRoom(principal.getUserId(), id);
+        redirect.addFlashAttribute("roomRemoved", "Closed room removed from your list.");
+        return "redirect:/rooms";
+    }
 }

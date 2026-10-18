@@ -87,7 +87,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(5);
+        assertThat(version).isEqualTo(6);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -109,6 +109,23 @@ class PostgresIntegrationIT {
 
         jdbc.update("DELETE FROM users WHERE id = ?", id);
         assertThat(preferences.findById(id)).isEmpty();
+    }
+
+    @Test
+    void closedRoomRemovalIsPerMemberAndPersistsInPostgres() {
+        UserAccount creator = account("Room list creator");
+        UserAccount guest = account("Room list guest");
+        UUID id = rooms.createRoom(creator.getId(), "en", "ta");
+        rooms.joinRoom(guest.getId(), roomRepository.findById(id).orElseThrow().getJoinCode());
+        rooms.closeRoom(creator.getId(), id);
+        rooms.removeClosedRoom(creator.getId(), id);
+        assertThat(jdbc.queryForObject("SELECT removed_at IS NOT NULL FROM room_participants "
+                + "WHERE room_id = ? AND user_id = ?", Boolean.class, id, creator.getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT removed_at IS NULL FROM room_participants "
+                + "WHERE room_id = ? AND user_id = ?", Boolean.class, id, guest.getId())).isTrue();
+        assertThat(rooms.listRoomsForMember(creator.getId())).noneMatch(view -> view.id().equals(id));
+        assertThat(rooms.listRoomsForMember(guest.getId())).anyMatch(view -> view.id().equals(id));
+        assertThat(roomRepository.findById(id)).isPresent();
     }
 
     @Test

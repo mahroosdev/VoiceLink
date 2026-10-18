@@ -15,7 +15,7 @@ public class RoomAccessService {
     }
 
     public void requireMember(UUID userId, UUID roomId) {
-        if (!participants.existsByRoom_IdAndUser_Id(roomId, userId)) {
+        if (!participants.existsByRoom_IdAndUser_IdAndRemovedAtIsNull(roomId, userId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found");
         }
     }

@@ -95,6 +95,7 @@
     </div>
     <section class="room-list-section" aria-labelledby="list-heading">
       <h2 id="list-heading">Your rooms</h2>
+      <p class="notice notice--success" th:if="${roomRemoved}" th:text="${roomRemoved}" role="status" aria-live="polite"></p>
       <div class="empty-state" th:if="${#lists.isEmpty(rooms)}">
         <strong>No rooms yet</strong>
         <p>Create a conversation or enter an invite code to get started.</p>
@@ -108,7 +109,16 @@
                   th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
           </div>
           <strong th:text="${item.inviteExpired ? 'Invite expired' : 'Two-person conversation'}"></strong>
-          <a th:href="@{/rooms/{id}(id=${item.id})}">Open room <span class="sr-only" th:text="${item.status}"></span></a>
+          <a th:href="@{/rooms/{id}(id=${item.id})}" th:text="${item.status.name() == 'CLOSED' ? 'View closed room' : 'Open room'}">Open room</a>
+          <details class="room-remove-disclosure" th:if="${item.status.name() == 'CLOSED'}">
+            <summary>Remove room</summary>
+            <div class="room-remove-disclosure__body">
+              <p>Remove this closed room from your list? The other person's list is unaffected.</p>
+              <form th:action="@{/rooms/{id}/remove(id=${item.id})}" method="post">
+                <button class="button button--danger" type="submit">Confirm removal</button>
+              </form>
+            </div>
+          </details>
         </li>
       </ul>
     </section>
