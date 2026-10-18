@@ -19,6 +19,7 @@
   const speechSection = document.getElementById("speech-section");
   const glossarySection = document.getElementById("glossary-section");
   const recordStart = document.getElementById("record-start");
+  const recordStartLabel = recordStart.querySelector("span");
   const recordStop = document.getElementById("record-stop");
   const recordingStatus = document.getElementById("recording-status");
   const recordingTimer = document.getElementById("recording-timer");
@@ -71,12 +72,14 @@
   }
 
   function setStatus(value) {
+    const wasWaiting = status.textContent === "WAITING";
     status.textContent = value;
     status.classList.remove("badge--active", "badge--waiting", "badge--closed");
     status.classList.add(value === "ACTIVE" ? "badge--active" :
       value === "WAITING" ? "badge--waiting" : "badge--closed");
     waiting.hidden = value !== "WAITING";
     active.hidden = value !== "ACTIVE";
+    if (wasWaiting && value === "ACTIVE") active.classList.add("room-state-entered");
     live.hidden = value !== "ACTIVE";
     speechSection.hidden = value !== "ACTIVE";
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
@@ -396,9 +399,10 @@
     input.value = "";
   });
 
-  if (!speechSupported)
+  if (!speechSupported) {
     recordingStatus.textContent = "This browser cannot record WebM/Opus audio for VoiceLink.";
-  else recordingStatus.textContent = "Ready to record. Speak for up to 15 seconds.";
+    speechSection.dataset.phase = "error";
+  } else recordingStatus.textContent = "Ready to record. Speak for up to 15 seconds.";
   setStatus(status.textContent);
 
   recordStart.addEventListener("click", async () => {
@@ -406,6 +410,7 @@
         status.textContent !== "ACTIVE" || !speechSupported) return;
     busy = true;
     speechSection.dataset.phase = "requesting";
+    recordingStatus.textContent = "Requesting microphone access";
     discardRecording = false;
     recordStart.disabled = true;
     try {
@@ -424,6 +429,7 @@
         clearTimeout(stopTimer);
         clearInterval(displayTimer);
         microphone.getTracks().forEach(track => track.stop());
+        recordStartLabel.textContent = "Start speaking";
         recordStop.disabled = true;
         speechSection.dataset.recording = "false";
         speechSection.dataset.phase = "uploading";
@@ -432,12 +438,12 @@
         const blob = new Blob(chunks, { type: speechType });
         if (discardRecording || !connected || status.textContent !== "ACTIVE") {
           recordingStatus.textContent = "Recording ended because the room connection changed. Reconnect and try again.";
-          speechSection.dataset.phase = "idle";
+          speechSection.dataset.phase = "error";
           busy = false; setStatus(status.textContent); return;
         }
         if (!blob.size || blob.size > 1024 * 1024 || durationMillis < 100) {
           recordingStatus.textContent = "That recording could not be used. Keep it under 15 seconds and try again.";
-          speechSection.dataset.phase = "idle";
+          speechSection.dataset.phase = "error";
           busy = false; setStatus(status.textContent); return;
         }
         recordingStatus.textContent = "Uploading speech";
@@ -462,7 +468,7 @@
           recordingStatus.textContent = "Speech upload failed. Check your connection and try again.";
         } finally {
           busy = false;
-          speechSection.dataset.phase = accepted ? "accepted" : "idle";
+          speechSection.dataset.phase = accepted ? "accepted" : "error";
           setStatus(status.textContent);
         }
       };
@@ -471,6 +477,7 @@
       recordStop.disabled = false;
       speechSection.dataset.recording = "true";
       speechSection.dataset.phase = "listening";
+      recordStartLabel.textContent = "Listening";
       recordingStatus.textContent = "Recording. Stop within 15 seconds.";
       recordingTimer.hidden = false;
       recordingTimer.textContent = "0.0s / 15s";
@@ -488,7 +495,8 @@
       recordStop.disabled = true;
       recordingTimer.hidden = true;
       speechSection.dataset.recording = "false";
-      speechSection.dataset.phase = "idle";
+      speechSection.dataset.phase = "error";
+      recordStartLabel.textContent = "Start speaking";
       recordingStatus.textContent = error?.name === "NotAllowedError" ||
         error?.name === "SecurityError"
         ? "Microphone access was denied. Allow access in your browser and try again."

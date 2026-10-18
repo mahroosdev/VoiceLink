@@ -60,18 +60,38 @@
     <script>
       "use strict";
       const accountMenus = document.querySelectorAll(".application-account, .application-mobile-account");
+      const reduceAccountMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      function closeAccountMenu(menu) {
+        if (!menu.open || menu.dataset.closing === "true") return;
+        if (reduceAccountMotion.matches) {
+          menu.open = false;
+          return;
+        }
+        menu.dataset.closing = "true";
+        window.setTimeout(() => {
+          menu.open = false;
+          delete menu.dataset.closing;
+        }, 190);
+      }
       accountMenus.forEach((menu) => {
+        const summary = menu.querySelector("summary");
+        menu.addEventListener("click", (event) => {
+          if (menu.open && summary.contains(event.target)) {
+            event.preventDefault();
+            closeAccountMenu(menu);
+          }
+        });
         menu.addEventListener("keydown", (event) => {
           if (event.key === "Escape" && menu.open) {
-            menu.open = false;
-            menu.querySelector("summary").focus();
+            closeAccountMenu(menu);
+            summary.focus();
             event.stopPropagation();
           }
         });
       });
       document.addEventListener("pointerdown", (event) => {
         accountMenus.forEach((menu) => {
-          if (menu.open && !menu.contains(event.target)) menu.open = false;
+          if (menu.open && !menu.contains(event.target)) closeAccountMenu(menu);
         });
       });
     </script>

@@ -67,6 +67,13 @@ class UiRenderingTests {
                 ".application-nav a.is-current::before", ".recording-card[data-phase=\"listening\"]",
                 ".turn-caption--revealed", "@media (prefers-reduced-motion: reduce)")
                 .doesNotContain("transition: all");
+        assertThat(css).contains("account-menu-out", ".room-state-entered",
+                ".recording-card[data-phase=\"uploading\"] .recording-status::before",
+                ".recording-card[data-phase=\"error\"] .recording-status",
+                ".turn-card[data-phase=\"ready\"] .turn-card__status",
+                ".glossary-panel[open] .glossary-panel__body",
+                ".recording-card[data-phase=\"uploading\"] .recording-status::before,",
+                "animation: none !important");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -121,7 +128,7 @@ class UiRenderingTests {
                 "title=\"" + owner.getUsername() + "\"", "Account management", "Sign out");
         assertThat(app.indexOf("Signed in as")).isLessThan(app.indexOf("Account management"));
         assertThat(app.indexOf("Account management")).isLessThan(app.indexOf("Sign out"));
-        assertThat(app).contains("event.key === \"Escape\"", "menu.querySelector(\"summary\").focus()",
+        assertThat(app).contains("event.key === \"Escape\"", "summary.focus()",
                 "!menu.contains(event.target)")
                 .doesNotContain("href=\"/account/delete\"");
         assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil",
@@ -230,6 +237,11 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(roomScript).contains("speechSection.dataset.phase = \"listening\"",
                 "speechSection.dataset.phase = \"uploading\"",
+                "recordingStatus.textContent = \"Requesting microphone access\"",
+                "speechSection.dataset.phase = \"error\"",
+                "recordStartLabel.textContent = \"Listening\"",
+                "recordStartLabel.textContent = \"Start speaking\"",
+                "active.classList.add(\"room-state-entered\")",
                 "parts.row.dataset.phase = \"translating\"",
                 "parts.row.dataset.phase = \"voice\"",
                 "parts.row.dataset.phase = \"ready\"")
