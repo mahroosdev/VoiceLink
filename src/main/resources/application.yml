@@ -33,6 +33,9 @@ management:
       show-details: never
 
 voicelink:
+  speech:
+    max-turns-per-user-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_USER_PER_MINUTE:12}
+    max-turns-per-instance-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_INSTANCE_PER_MINUTE:60}
   password-reset:
     enabled: ${VOICELINK_PASSWORD_RESET_ENABLED:false}
     public-base-url: ${VOICELINK_PUBLIC_BASE_URL:}

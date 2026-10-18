@@ -471,6 +471,7 @@
             body: data
           });
           recordingStatus.textContent = response.ok ? "Speech accepted for processing" :
+            response.status === 429 ? "Too many speech turns. Wait a minute and try again." :
             response.status === 503 ? "Speech processing is busy. Try again shortly." :
             "Speech upload failed. Check room access and recording limits.";
           accepted = response.ok;

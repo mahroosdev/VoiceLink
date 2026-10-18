@@ -1,6 +1,7 @@
 package com.mahroosdev.voicelink.conversation;
 
 import java.time.Instant;
+import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -28,6 +29,7 @@ import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomStatus;
 import jakarta.annotation.PreDestroy;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
@@ -52,23 +54,40 @@ public class SpeechTurnService {
     private final AiProviderResolver providers;
     private final AudioTurnValidator validator;
     private final RoomGlossaryService glossary;
+    private final SpeechTurnRateLimiter rateLimiter;
+    private final SpeechTurnMetrics metrics;
+    private final Clock clock;
     private long storedAudioBytes;
 
+    @Autowired
     public SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                              AiProviderResolver providers, AudioTurnValidator validator,
-                             RoomGlossaryService glossary) {
+                             RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
+                             SpeechTurnMetrics metrics) {
+        this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics, Clock.systemUTC());
+    }
+
+    SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
+                      AiProviderResolver providers, AudioTurnValidator validator,
+                      RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
+                      SpeechTurnMetrics metrics, Clock clock) {
         this.authorizer = authorizer;
         this.hub = hub;
         this.providers = providers;
         this.validator = validator;
         this.glossary = glossary;
+        this.rateLimiter = rateLimiter;
+        this.metrics = metrics;
+        this.clock = clock;
     }
 
     public Accepted accept(UUID userId, UUID roomId, UUID clientRequestId, byte[] bytes,
                            String mediaType, long durationMillis) {
         RoomLiveAuthorizer.Member member = activeMember(userId, roomId);
         if (clientRequestId == null) throw badRequest();
+        metrics.count(member.profile(), "received");
         synchronized (this) {
+            expireLocked(clock.instant());
             RoomQueue room = states.get(roomId);
             String key = member.participantId() + ":" + clientRequestId;
             if (room != null && room.byRequest.containsKey(key)) {
@@ -76,14 +95,20 @@ public class SpeechTurnService {
                 return new Accepted(existing.id, existing.index, true, existing.profile.name());
             }
             validator.validate(bytes, mediaType, durationMillis);
+            if (room == null && states.size() >= MAX_ROOMS) throw unavailable();
+            if (room != null && (room.closed || room.pending >= MAX_PENDING_PER_ROOM)) throw unavailable();
+            if (!rateLimiter.tryAcquire(userId)) {
+                metrics.count(member.profile(), "rate_limited");
+                throw rateLimited();
+            }
             if (room == null) {
-                if (states.size() >= MAX_ROOMS) throw unavailable();
                 room = new RoomQueue(roomId);
                 states.put(roomId, room);
             }
-            if (room.closed || room.pending >= MAX_PENDING_PER_ROOM) throw unavailable();
             Turn turn = new Turn(roomId, userId, member.participantId(), clientRequestId,
-                    ++room.nextIndex, member.speaking(), member.listening(), member.profile(), bytes.clone());
+                    ++room.nextIndex, member.speaking(), member.listening(), member.profile(),
+                    bytes.clone(), clock.instant());
+            metrics.count(turn.profile, "accepted");
             room.queue.add(turn);
             room.recent.add(turn);
             room.byRequest.put(key, turn);
@@ -109,6 +134,8 @@ public class SpeechTurnService {
                     turn.status = "FAILED";
                     turn.failedStage = "PIPELINE";
                     turn.errorCode = "CAPACITY";
+                    metrics.count(turn.profile, "failed");
+                    metrics.duration(turn.profile, "end_to_end", turn.receivedNanos);
                     hub.publishTurn(roomId, userId, member.participantId(), turn.id, "TURN_FAILED",
                             failurePayload(turn, "The speech service is busy. Please try again later."));
                 }
@@ -127,10 +154,14 @@ public class SpeechTurnService {
                     return;
                 }
             }
+            metrics.duration(turn.profile, "queue_wait", turn.receivedNanos);
             try {
                 process(turn);
             } finally {
                 synchronized (this) { room.pending--; turn.rawAudio = null; }
+                metrics.count(turn.profile, "READY".equals(turn.status) ? "ready" :
+                        "FAILED".equals(turn.status) ? "failed" : "discarded");
+                metrics.duration(turn.profile, "end_to_end", turn.receivedNanos);
             }
         }
     }
@@ -141,8 +172,13 @@ public class SpeechTurnService {
         try {
             if (!stillActive(turn)) return;
             AiProviderBundle bundle = providers.resolve(turn.profile);
-            SpeechToTextProvider.Result transcript = bundle.stt().transcribe(
-                    new SpeechToTextProvider.Input(turn.rawAudio, turn.source));
+            long stageStarted = System.nanoTime();
+            SpeechToTextProvider.Result transcript;
+            try {
+                transcript = bundle.stt().transcribe(new SpeechToTextProvider.Input(turn.rawAudio, turn.source));
+            } finally {
+                metrics.duration(turn.profile, "stt", stageStarted);
+            }
             synchronized (this) { turn.rawAudio = null; turn.transcript = transcript.transcript(); turn.status = "TRANSCRIBED"; }
             if (turn.transcript == null || turn.transcript.isBlank()
                     || turn.transcript.codePointCount(0, turn.transcript.length()) > 4000) {
@@ -159,8 +195,14 @@ public class SpeechTurnService {
                     turn.roomId, turn.source, turn.target, turn.transcript);
             if (!stillActive(turn)) return;
             requirePaidStage(turn);
-            TranslationProvider.Result translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
-                    turn.transcript, turn.source, turn.target, context, terms));
+            stageStarted = System.nanoTime();
+            TranslationProvider.Result translated;
+            try {
+                translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
+                        turn.transcript, turn.source, turn.target, context, terms));
+            } finally {
+                metrics.duration(turn.profile, "translation", stageStarted);
+            }
             if (translated.translatedText() == null || translated.translatedText().isBlank()
                     || translated.translatedText().codePointCount(0, translated.translatedText().length()) > 6000) {
                 throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
@@ -174,11 +216,17 @@ public class SpeechTurnService {
             hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
                     Map.of("turnIndex", turn.index, "translatedText", turn.translation,
                             "targetLanguage", turn.target));
+            metrics.duration(turn.profile, "caption_event", turn.receivedNanos);
             requireTime(deadline);
             stage = "TTS";
             requirePaidStage(turn);
-            TextToSpeechProvider.Result spoken = bundle.tts().synthesize(
-                    new TextToSpeechProvider.Input(turn.translation, turn.target));
+            stageStarted = System.nanoTime();
+            TextToSpeechProvider.Result spoken;
+            try {
+                spoken = bundle.tts().synthesize(new TextToSpeechProvider.Input(turn.translation, turn.target));
+            } finally {
+                metrics.duration(turn.profile, "tts", stageStarted);
+            }
             if (!stillActive(turn)) return;
             requireTime(deadline);
             synchronized (this) {
@@ -191,7 +239,7 @@ public class SpeechTurnService {
                 turn.generatedAudio = spoken.audio().clone();
                 storedAudioBytes += turn.generatedAudio.length;
                 turn.mediaType = spoken.mediaType();
-                turn.audioExpiresAt = Instant.now().plusSeconds(AUDIO_TTL_SECONDS);
+                turn.audioExpiresAt = clock.instant().plusSeconds(AUDIO_TTL_SECONDS);
                 turn.status = "READY";
             }
             if (!stillActive(turn)) {
@@ -201,6 +249,7 @@ public class SpeechTurnService {
             hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "AUDIO_READY",
                     Map.of("turnIndex", turn.index, "audioUrl", "/api/rooms/" + turn.roomId
                             + "/turns/" + turn.id + "/audio", "mediaType", turn.mediaType));
+            metrics.duration(turn.profile, "audio_event", turn.receivedNanos);
         } catch (ProviderFailure ex) {
             fail(turn, stage, ex.code().name(), ex.getMessage());
         } catch (RuntimeException ex) {
@@ -231,7 +280,7 @@ public class SpeechTurnService {
             List<RecentContext.Candidate> prior = room.recent.stream().map(turn ->
                     new RecentContext.Candidate(turn.index, turn.acceptedAt, turn.source,
                             turn.target, turn.transcript, turn.translationSucceeded)).toList();
-            return RecentContext.select(prior, current.index, Instant.now());
+            return RecentContext.select(prior, current.index, clock.instant());
         }
     }
 
@@ -278,7 +327,7 @@ public class SpeechTurnService {
             if (room == null) throw notFound();
             for (Turn turn : room.recent) {
                 if (turn.id.equals(turnId) && turn.generatedAudio != null
-                        && Instant.now().isBefore(turn.audioExpiresAt)) {
+                        && clock.instant().isBefore(turn.audioExpiresAt)) {
                     return new Audio(turn.generatedAudio.clone(), turn.mediaType);
                 }
             }
@@ -301,20 +350,28 @@ public class SpeechTurnService {
     @Scheduled(fixedDelay = 60_000)
     public void expire() {
         synchronized (this) {
-            Instant now = Instant.now();
+            expireLocked(clock.instant());
+        }
+    }
+
+    private void expireLocked(Instant now) {
             Iterator<RoomQueue> rooms = states.values().iterator();
             while (rooms.hasNext()) {
                 RoomQueue room = rooms.next();
                 for (Turn turn : room.recent) {
                     if (turn.generatedAudio != null && !now.isBefore(turn.audioExpiresAt)) discardAudio(turn);
                 }
-                room.recent.removeIf(turn -> !"PENDING".equals(turn.status)
-                        && turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS).isBefore(now));
-                room.byRequest.values().removeIf(turn -> !"PENDING".equals(turn.status)
-                        && turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS).isBefore(now));
-                // Retain the room counter until close so turnIndex stays monotonic in this runtime.
+                room.recent.removeIf(turn -> terminal(turn) && turn.generatedAudio == null
+                        && !now.isBefore(turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS)));
+                room.byRequest.values().removeIf(turn -> terminal(turn) && turn.generatedAudio == null
+                        && !now.isBefore(turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS)));
+                if (!room.processing && room.pending == 0 && room.queue.isEmpty()
+                        && room.recent.isEmpty() && room.byRequest.isEmpty()) rooms.remove();
             }
-        }
+    }
+
+    private static boolean terminal(Turn turn) {
+        return "READY".equals(turn.status) || "FAILED".equals(turn.status);
     }
 
     private void discardAudio(Turn turn) {
@@ -336,6 +393,11 @@ public class SpeechTurnService {
         return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Speech processing is busy");
     }
 
+    private static ResponseStatusException rateLimited() {
+        return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                "Too many speech turns. Please wait and try again.");
+    }
+
     private static ResponseStatusException notFound() {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "Audio unavailable");
     }
@@ -343,12 +405,15 @@ public class SpeechTurnService {
     private Snapshot snapshot(Turn turn) {
         return new Snapshot(turn.id, turn.index, turn.participantId, turn.source, turn.target,
                 turn.status, turn.transcript, turn.translation,
-                turn.generatedAudio != null && Instant.now().isBefore(turn.audioExpiresAt),
+                turn.generatedAudio != null && clock.instant().isBefore(turn.audioExpiresAt),
                 turn.failedStage, turn.errorCode);
     }
 
     @PreDestroy
     public void shutdown() { workers.shutdownNow(); }
+
+    synchronized int roomStateCount() { return states.size(); }
+    synchronized long cachedAudioBytes() { return storedAudioBytes; }
 
     public record Accepted(UUID turnId, long turnIndex, boolean duplicate, String profile) {}
     public record Audio(byte[] bytes, String mediaType) {}
@@ -380,7 +445,8 @@ public class SpeechTurnService {
         final String source;
         final String target;
         final AiServiceProfile profile;
-        final Instant acceptedAt = Instant.now();
+        final Instant acceptedAt;
+        final long receivedNanos = System.nanoTime();
         byte[] rawAudio;
         byte[] generatedAudio;
         Instant audioExpiresAt;
@@ -393,7 +459,8 @@ public class SpeechTurnService {
         String errorCode;
 
         Turn(UUID roomId, UUID userId, UUID participantId, UUID clientRequestId,
-             long index, String source, String target, AiServiceProfile profile, byte[] rawAudio) {
+             long index, String source, String target, AiServiceProfile profile, byte[] rawAudio,
+             Instant acceptedAt) {
             this.roomId = roomId;
             this.userId = userId;
             this.participantId = participantId;
@@ -403,6 +470,7 @@ public class SpeechTurnService {
             this.target = target;
             this.profile = profile;
             this.rawAudio = rawAudio;
+            this.acceptedAt = acceptedAt;
         }
     }
 }
