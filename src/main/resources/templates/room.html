@@ -46,35 +46,7 @@
       </section>
 
       <div class="room-tool-bar" th:if="${room.status.name() != 'CLOSED'}" aria-label="Room tools">
-        <details id="glossary-section" class="glossary-panel">
-          <summary><strong id="glossary-heading">Technical glossary</strong><small id="glossary-capacity">Loading terms…</small></summary>
-          <div class="glossary-panel__body">
-            <p class="small muted">Shared room terms can guide translation. Relevant terms may be sent to Gemini. Use non-sensitive demo terms.</p>
-            <button id="glossary-refresh" class="button button--secondary" type="button">Refresh terms</button>
-            <ul id="glossary-list" class="glossary-list"></ul>
-            <form id="glossary-form" class="glossary-form"
-                  th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
-              <h3 id="glossary-form-heading">Add term</h3>
-              <div class="glossary-language-grid">
-                <div class="field"><label for="glossary-source-language">Source language</label>
-                  <select id="glossary-source-language" required><option value="en">English</option><option value="ta">Tamil</option></select></div>
-                <div class="field"><label for="glossary-target-language">Target language</label>
-                  <select id="glossary-target-language" required><option value="ta">Tamil</option><option value="en">English</option></select></div>
-              </div>
-              <div class="field"><label for="glossary-source-term">Source term</label>
-                <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
-                       aria-describedby="glossary-term-limits glossary-status"></div>
-              <div class="field"><label for="glossary-preferred-term">Preferred term</label>
-                <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
-                       aria-describedby="glossary-preferred-help glossary-term-limits glossary-status">
-                <p id="glossary-preferred-help" class="field-help">Leave preferred term blank to keep the source wording.</p></div>
-              <p id="glossary-term-limits" class="field-help">Source: 1–48 Unicode characters. Preferred: up to 64. Newlines and control characters are not allowed.</p>
-              <button id="glossary-save" class="button button--primary" type="submit">Add term</button>
-              <button id="glossary-cancel" class="button button--secondary" type="button" hidden>Cancel edit</button>
-            </form>
-            <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
-          </div>
-        </details>
+        <button id="glossary-open" class="room-tool-button" type="button" aria-haspopup="dialog" aria-controls="glossary-section">Technical glossary</button>
         <details id="room-details" class="room-details">
           <summary>Room details</summary>
           <div class="room-details__body">
@@ -90,6 +62,48 @@
           </div>
         </details>
       </div>
+      <dialog id="glossary-section" class="glossary-dialog" th:if="${room.status.name() != 'CLOSED'}"
+              aria-labelledby="glossary-heading" aria-describedby="glossary-intro">
+        <div class="glossary-dialog__header">
+          <div><h2 id="glossary-heading">Technical glossary</h2>
+            <p id="glossary-capacity" class="glossary-dialog__capacity" aria-live="polite">Loading terms…</p></div>
+          <button id="glossary-close" class="glossary-dialog__close" type="button" aria-label="Close technical glossary">Close</button>
+        </div>
+        <div class="glossary-dialog__content">
+          <p id="glossary-intro" class="glossary-dialog__intro">Shared room terms guide translation. Relevant terms may be sent to Gemini. Use non-sensitive demo terms.</p>
+          <p id="glossary-status" class="glossary-dialog__status" role="status" aria-live="polite"></p>
+          <div id="glossary-view">
+            <div class="glossary-dialog__actions">
+              <button id="glossary-add" class="button button--primary" type="button" hidden>Add term</button>
+              <button id="glossary-refresh" class="button button--secondary" type="button">Refresh terms</button>
+            </div>
+            <p id="glossary-empty" class="glossary-dialog__empty" hidden><strong>No terms yet</strong><span>Add a term to guide translation in this room.</span></p>
+            <ul id="glossary-list" class="glossary-list"></ul>
+          </div>
+          <form id="glossary-form" class="glossary-form" hidden
+                th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
+            <h3 id="glossary-form-heading">Add term</h3>
+            <div class="glossary-language-grid">
+              <div class="field"><label for="glossary-source-language">Source language</label>
+                <select id="glossary-source-language" required><option value="en">English</option><option value="ta">Tamil</option></select></div>
+              <div class="field"><label for="glossary-target-language">Target language</label>
+                <select id="glossary-target-language" required><option value="ta">Tamil</option><option value="en">English</option></select></div>
+            </div>
+            <div class="field"><label for="glossary-source-term">Source term</label>
+              <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
+                     aria-describedby="glossary-term-limits glossary-status"></div>
+            <div class="field"><label for="glossary-preferred-term">Preferred term</label>
+              <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
+                     aria-describedby="glossary-preferred-help glossary-term-limits glossary-status">
+              <p id="glossary-preferred-help" class="field-help">Leave blank to keep the source wording.</p></div>
+            <p id="glossary-term-limits" class="field-help">Source: 1–48 Unicode characters. Preferred: up to 64. No newlines or control characters.</p>
+            <div class="glossary-form__actions">
+              <button id="glossary-save" class="button button--primary" type="submit">Add term</button>
+              <button id="glossary-cancel" class="button button--secondary" type="button">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
 
       <div class="room-main-grid" th:classappend="${room.status.name() == 'WAITING' ? 'room-main-grid--waiting' : (room.status.name() == 'CLOSED' ? 'room-main-grid--closed' : '')}">
         <div class="room-main">

@@ -85,13 +85,13 @@
     if (wasWaiting && value === "ACTIVE") active.classList.add("room-state-entered");
     live.hidden = value !== "ACTIVE";
     speechSection.hidden = value !== "ACTIVE";
+    if (value === "CLOSED" && glossarySection?.open) glossarySection.close();
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
     if (roomDetails) roomDetails.hidden = value === "CLOSED";
     if (roomToolBar) roomToolBar.hidden = value === "CLOSED";
     roomMainGrid.classList.toggle("room-main-grid--waiting", value === "WAITING");
     roomMainGrid.classList.toggle("room-main-grid--closed", value === "CLOSED");
     if (value === "CLOSED") {
-      if (glossarySection) glossarySection.open = false;
       if (roomDetails) roomDetails.open = false;
     }
     notice.hidden = value !== "CLOSED";

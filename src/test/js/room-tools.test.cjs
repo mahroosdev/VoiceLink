@@ -11,8 +11,10 @@ assert.ok(script, "contextual room tools script must be present");
 const glossaryScript = fs.readFileSync(path.resolve(__dirname,
   "../../main/resources/static/js/room-glossary.js"), "utf8");
 
-test("glossary does not open automatically on desktop", () => {
-  assert.doesNotMatch(glossaryScript, /matchMedia\("\(min-width: 960px\)"\)\.matches\) panel\.open = true/);
+test("glossary uses a native modal instead of an automatic edge drawer", () => {
+  assert.match(template, /<dialog id="glossary-section" class="glossary-dialog"/);
+  assert.match(glossaryScript, /panel\.showModal\(\)/);
+  assert.doesNotMatch(glossaryScript, /panel\.open = true/);
 });
 
 function setup() {
@@ -26,44 +28,41 @@ function setup() {
       contains(target) { return target === this || target === trigger; }
     };
   }
-  const glossary = makeTool();
   const details = makeTool();
   const events = {};
   const document = {
     querySelectorAll(selector) {
       assert.equal(selector, ".room-tool-bar > details");
-      return [glossary, details];
+      return [details];
     },
     addEventListener(name, callback) { events[name] = callback; }
   };
   vm.runInNewContext(script, { document });
-  return { glossary, details, events };
+  return { details, events };
 }
 
-test("opening one contextual room tool closes the other", () => {
-  const { glossary, details } = setup();
-  glossary.open = true;
+test("room details remains a contextual disclosure", () => {
+  const { details } = setup();
   details.open = true;
   details.events.toggle();
   assert.equal(details.open, true);
-  assert.equal(glossary.open, false);
 });
 
 test("Escape closes a room tool and returns focus to its trigger", () => {
-  const { glossary } = setup();
-  glossary.open = true;
+  const { details } = setup();
+  details.open = true;
   let stopped = false;
-  glossary.events.keydown({ key: "Escape", stopPropagation() { stopped = true; } });
-  assert.equal(glossary.open, false);
-  assert.equal(glossary.trigger.focused, true);
+  details.events.keydown({ key: "Escape", stopPropagation() { stopped = true; } });
+  assert.equal(details.open, false);
+  assert.equal(details.trigger.focused, true);
   assert.equal(stopped, true);
 });
 
 test("outside pointer press closes the panel but an inside press does not", () => {
-  const { glossary, events } = setup();
-  glossary.open = true;
-  events.pointerdown({ target: glossary.trigger });
-  assert.equal(glossary.open, true);
+  const { details, events } = setup();
+  details.open = true;
+  events.pointerdown({ target: details.trigger });
+  assert.equal(details.open, true);
   events.pointerdown({ target: {} });
-  assert.equal(glossary.open, false);
+  assert.equal(details.open, false);
 });

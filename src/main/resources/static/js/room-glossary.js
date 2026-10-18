@@ -6,6 +6,11 @@
   const roomId = page.dataset.roomId;
   const endpoint = "/api/rooms/" + roomId + "/glossary";
   const panel = document.getElementById("glossary-section");
+  const trigger = document.getElementById("glossary-open");
+  const close = document.getElementById("glossary-close");
+  const view = document.getElementById("glossary-view");
+  const empty = document.getElementById("glossary-empty");
+  const add = document.getElementById("glossary-add");
   const list = document.getElementById("glossary-list");
   const status = document.getElementById("glossary-status");
   const capacity = document.getElementById("glossary-capacity");
@@ -37,9 +42,18 @@
     form.reset();
     heading.textContent = "Add term";
     save.textContent = "Add term";
-    cancel.hidden = true;
     clearValidation();
+    form.hidden = true;
+    view.hidden = false;
     setEditable(editable && !roomClosed() && count < 12);
+  }
+
+  function showForm() {
+    view.hidden = true;
+    form.hidden = false;
+    status.textContent = "";
+    delete status.dataset.kind;
+    (editing ? sourceTerm : sourceLanguage).focus();
   }
 
   function errorMessage(response, error) {
@@ -66,13 +80,10 @@
   function render(entries) {
     list.replaceChildren();
     count = entries.length;
-    capacity.textContent = count + " of 12 terms used";
-    if (!count) {
-      const empty = document.createElement("li");
-      empty.className = "small muted";
-      empty.textContent = "No terms yet.";
-      list.append(empty);
-    }
+    capacity.textContent = count + "/12 terms";
+    empty.hidden = count !== 0;
+    add.hidden = !editable || roomClosed();
+    add.disabled = count >= 12;
     for (const entry of entries) {
       const row = document.createElement("li");
       row.className = "glossary-item";
@@ -112,8 +123,7 @@
           cancel.hidden = false;
           clearValidation();
           setEditable(true);
-          panel.open = true;
-          sourceTerm.focus();
+          showForm();
         });
         const remove = document.createElement("button");
         remove.type = "button";
@@ -129,8 +139,10 @@
             status.textContent = "Term deleted.";
             clearEdit();
             await refresh();
+            (add.disabled || add.hidden ? document.getElementById("glossary-refresh") : add).focus();
           } catch (error) {
             status.textContent = error.message;
+            status.dataset.kind = "error";
             remove.disabled = false;
           }
         });
@@ -163,7 +175,10 @@
       const entries = await response.json();
       if (!roomClosed()) render(entries);
     } catch (error) {
-      if (!roomClosed()) status.textContent = error.message;
+      if (!roomClosed()) {
+        status.textContent = error.message;
+        status.dataset.kind = "error";
+      }
     }
   }
 
@@ -171,6 +186,7 @@
     event.preventDefault();
     if (!editable || roomClosed() || (count >= 12 && !editing)) return;
     clearValidation();
+    delete status.dataset.kind;
     const body = { sourceLanguage: sourceLanguage.value,
       targetLanguage: targetLanguage.value, sourceTerm: sourceTerm.value,
       preferredTerm: preferredTerm.value };
@@ -183,6 +199,7 @@
         if (response.status === 400) {
           sourceTerm.setAttribute("aria-invalid", "true");
           preferredTerm.setAttribute("aria-invalid", "true");
+          sourceTerm.focus();
         }
         if (response.status === 409) {
           const message = await readError(response);
@@ -195,29 +212,63 @@
         throw new Error(await readError(response));
       }
       status.textContent = editing ? "Term updated." : "Term added.";
+      delete status.dataset.kind;
       clearEdit();
       await refresh();
+      (add.disabled || add.hidden ? document.getElementById("glossary-refresh") : add).focus();
     } catch (error) {
       status.textContent = error.message;
+      status.dataset.kind = "error";
     } finally {
       setEditable(editable && !roomClosed() && (editing !== null || count < 12));
     }
   });
 
-  cancel.addEventListener("click", clearEdit);
+  trigger.addEventListener("click", () => {
+    if (roomClosed()) return;
+    const details = document.getElementById("room-details");
+    if (details) details.open = false;
+    panel.showModal();
+    close.focus();
+    refresh();
+  });
+  close.addEventListener("click", () => panel.close());
+  panel.addEventListener("close", () => {
+    clearEdit();
+    status.textContent = "";
+    delete status.dataset.kind;
+    if (!roomClosed()) trigger.focus();
+  });
+  add.addEventListener("click", () => {
+    if (!editable || roomClosed() || count >= 12) return;
+    clearEdit();
+    showForm();
+  });
+  cancel.addEventListener("click", () => {
+    clearEdit();
+    status.textContent = "";
+    delete status.dataset.kind;
+    (add.disabled || add.hidden ? document.getElementById("glossary-refresh") : add).focus();
+  });
   sourceLanguage.addEventListener("change", () => {
     targetLanguage.value = sourceLanguage.value === "en" ? "ta" : "en";
   });
   document.getElementById("glossary-refresh").addEventListener("click", refresh);
   window.addEventListener("voicelink-room-state", () => {
     if (roomClosed()) {
+      if (panel.open) panel.close();
+      panel.hidden = true;
       list.replaceChildren();
       capacity.textContent = "";
       clearEdit();
       form.hidden = true;
       setEditable(false);
       status.textContent = "Room closed; saved terms were deleted.";
-    } else refresh();
+      delete status.dataset.kind;
+    } else {
+      panel.hidden = false;
+      refresh();
+    }
   });
   window.addEventListener("focus", refresh);
 

@@ -71,7 +71,7 @@ class UiRenderingTests {
                 ".recording-card[data-phase=\"uploading\"] .recording-status::before",
                 ".recording-card[data-phase=\"error\"] .recording-status",
                 ".turn-card[data-phase=\"ready\"] .turn-card__status",
-                ".glossary-panel[open] .glossary-panel__body",
+                ".glossary-dialog::backdrop", ".glossary-dialog:not([open])",
                 ".recording-card[data-phase=\"uploading\"] .recording-status::before,",
                 "animation: none !important");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
@@ -244,7 +244,9 @@ class UiRenderingTests {
                 .doesNotContain(roomId.toString());
         assertThat(waiting).contains("class=\"authenticated-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
                 "id=\"room-details\"", "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard",
-                "class=\"waiting-card__code-row\"", ".room-tool-bar > details", "Back to conversations");
+                "class=\"waiting-card__code-row\"", "Back to conversations",
+                "id=\"glossary-open\"", "id=\"glossary-add\"", "id=\"glossary-close\"",
+                "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden");
         assertThat(waiting).doesNotContain("class=\"room-sidebar\"");
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
@@ -256,9 +258,12 @@ class UiRenderingTests {
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
         assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
-                "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-panel\"",
+                "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-dialog\"",
                 "id=\"room-details\"")
                 .doesNotContain("Low latency", "Recent History", "Delete account");
+        var ids = Pattern.compile(" id=\"([^\"]+)\"").matcher(active).results()
+                .map(match -> match.group(1)).toList();
+        assertThat(ids).doesNotHaveDuplicates();
         assertThat(active).containsPattern("(?s)<details id=\"room-details\".*?<form id=\"close-room-form\"");
         assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
@@ -281,6 +286,6 @@ class UiRenderingTests {
         assertThat(closed).contains("This room is closed");
         assertThat(closed).contains("Back to rooms", "Confirm removal");
         assertThat(closed).doesNotContain("id=\"glossary-section\"", "id=\"close-room-form\"", "room-live.js",
-                "room-glossary.js", ".room-tool-bar > details", "id=\"record-stop\"");
+                "room-glossary.js", "id=\"glossary-open\"", "id=\"record-stop\"");
     }
 }
