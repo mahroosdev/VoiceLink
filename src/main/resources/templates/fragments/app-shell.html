@@ -21,12 +21,14 @@
       <details class="application-account">
         <summary aria-label="Account options">
           <span class="application-account__avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span class="application-account__identity"><span class="application-account__label">Your account</span><span class="application-account__email" th:text="${accountEmail}" title="Signed-in account"></span></span>
+          <span class="application-account__identity"><span class="application-account__label">Your account</span><span class="application-account__email" th:text="${accountEmail}" th:attr="title=${accountEmail}"></span></span>
           <span class="application-account__chevron" aria-hidden="true"></span>
         </summary>
         <div class="application-account__menu">
-          <span class="application-account__label">Signed in as</span>
-          <span class="application-account__email" th:text="${accountEmail}"></span>
+          <div class="application-account__menu-identity">
+            <span class="application-account__avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="application-account__menu-copy"><span class="application-account__label">Signed in as</span><span class="application-account__email" th:text="${accountEmail}" th:attr="title=${accountEmail}"></span></span>
+          </div>
           <a class="application-signout" th:href="@{/account}">Account management</a>
           <form th:action="@{/logout}" method="post"><button class="application-signout" type="submit">Sign out</button></form>
         </div>
@@ -41,8 +43,10 @@
       <details class="application-mobile-account">
         <summary aria-label="Account options"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></summary>
         <div class="application-mobile-account__menu">
-          <span class="application-account__label">Signed in as</span>
-          <span class="application-account__email" th:text="${accountEmail}"></span>
+          <div class="application-account__menu-identity">
+            <span class="application-account__avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="application-account__menu-copy"><span class="application-account__label">Signed in as</span><span class="application-account__email" th:text="${accountEmail}" th:attr="title=${accountEmail}"></span></span>
+          </div>
           <a class="application-signout" th:href="@{/account}">Account management</a>
           <form th:action="@{/logout}" method="post"><button class="application-signout" type="submit">Sign out</button></form>
         </div>
@@ -53,6 +57,24 @@
       <a th:href="@{/rooms}" th:attr="aria-current=${current == 'rooms' ? 'page' : null}" th:classappend="${current == 'rooms'} ? 'is-current'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 10h8M8 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Rooms</span></a>
       <a th:href="@{/about}" th:attr="aria-current=${current == 'about' ? 'page' : null}" th:classappend="${current == 'about'} ? 'is-current'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5V17M12 7h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>About</span></a>
     </nav>
+    <script>
+      "use strict";
+      const accountMenus = document.querySelectorAll(".application-account, .application-mobile-account");
+      accountMenus.forEach((menu) => {
+        menu.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && menu.open) {
+            menu.open = false;
+            menu.querySelector("summary").focus();
+            event.stopPropagation();
+          }
+        });
+      });
+      document.addEventListener("pointerdown", (event) => {
+        accountMenus.forEach((menu) => {
+          if (menu.open && !menu.contains(event.target)) menu.open = false;
+        });
+      });
+    </script>
   </div>
 </body>
 </html>

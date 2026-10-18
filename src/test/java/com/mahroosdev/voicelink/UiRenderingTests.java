@@ -61,7 +61,8 @@ class UiRenderingTests {
                 ".room-form-grid { grid-template-columns: 1fr; }",
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
-                ".password-toggle[data-visible=\"false\"] .password-toggle__slash");
+                ".password-toggle__hide, .password-toggle[data-visible=\"true\"] .password-toggle__show",
+                ".password-toggle[data-visible=\"true\"] .password-toggle__hide");
         assertThat(css).contains("--vl-canvas:", "--vl-depth-3:", "--vl-motion-slow:",
                 ".application-nav a.is-current::before", ".recording-card[data-phase=\"listening\"]",
                 ".turn-caption--revealed", "@media (prefers-reduced-motion: reduce)")
@@ -70,7 +71,8 @@ class UiRenderingTests {
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(visibilityScript).contains("input.type = visible ? \"text\" : \"password\"",
-                "visible ? \"Hide password\" : \"Show password\"")
+                "visible ? \"Hide password\" : \"Show password\"",
+                "button.setAttribute(\"aria-pressed\", String(visible))")
                 .doesNotContain("innerHTML", "localStorage", "sessionStorage");
 
         String login = mvc.perform(get("/login"))
@@ -96,8 +98,10 @@ class UiRenderingTests {
         var control = Pattern.compile("<div class=\"password-control\">\\s*<input id=\"" + id
                 + "\"[^>]*type=\"password\"[^>]*autocomplete=\"" + autocomplete
                 + "\"[^>]*>\\s*<button[^>]*type=\"button\"[^>]*aria-label=\"Show password\""
-                + "[^>]*aria-controls=\"" + id + "\"[^>]*data-password-toggle");
+                + "[^>]*aria-pressed=\"false\"[^>]*title=\"Show password\""
+                + "[^>]*aria-controls=\"" + id + "\"[^>]*data-password-toggle[^>]*data-visible=\"false\"");
         assertThat(control.matcher(html).find()).as("masked password control for " + id).isTrue();
+        assertThat(html).contains("class=\"password-toggle__show\"", "class=\"password-toggle__hide\"");
     }
 
     @Test
@@ -112,7 +116,14 @@ class UiRenderingTests {
                 "class=\"application-bottom-nav\"", "aria-current=\"page\"", owner.getUsername());
         assertThat(app).contains("class=\"conversation-start\"", "class=\"action-card action-card--create\"",
                 "class=\"action-card action-card--join\"", "<details class=\"application-account\"",
-                "aria-label=\"Account options\"");
+                "aria-label=\"Account options\"", "class=\"application-account__menu-identity\"",
+                "class=\"application-account__menu-copy\"", "class=\"application-account__email\"",
+                "title=\"" + owner.getUsername() + "\"", "Account management", "Sign out");
+        assertThat(app.indexOf("Signed in as")).isLessThan(app.indexOf("Account management"));
+        assertThat(app.indexOf("Account management")).isLessThan(app.indexOf("Sign out"));
+        assertThat(app).contains("event.key === \"Escape\"", "menu.querySelector(\"summary\").focus()",
+                "!menu.contains(event.target)")
+                .doesNotContain("href=\"/account/delete\"");
         assertThat(app).doesNotContain("planned for later gates", "English ↔ Tamil", "English and Tamil",
                 "Speak naturally and hear the conversation translated.", "class=\"site-header\"");
 
@@ -154,6 +165,13 @@ class UiRenderingTests {
                 "VoiceLink supports two-person English ↔ Tamil rooms",
                 "Each person speaks English or Tamil and receives the other language.");
         assertThat(about).contains("Understand each other, one turn at a time.");
+        assertThat(about).contains("class=\"page-heading about-intro\"", "class=\"about-grid\"",
+                "class=\"about-flow\"", "Speak", "Translate", "Hear",
+                "Provider processing", "Temporary on this server", "Room glossary",
+                "Two-person rooms", "English ↔ Tamil", "Short push-to-talk turns");
+        assertThat(about.indexOf("How VoiceLink works")).isLessThan(about.indexOf("AI Service Profiles"));
+        assertThat(about.indexOf("AI Service Profiles")).isLessThan(about.indexOf("Privacy &amp; Data"));
+        assertThat(about.indexOf("Privacy &amp; Data")).isLessThan(about.indexOf("Current Scope"));
         assertThat(about).contains("class=\"public-shell\"", "class=\"site-header\"");
         assertThat(about).doesNotContain("action=\"/logout\"", "Signed-in account",
                 "class=\"application-sidebar\"", "class=\"application-bottom-nav\"");
@@ -165,6 +183,16 @@ class UiRenderingTests {
                 "class=\"application-bottom-nav\"", "href=\"/rooms\"", "action=\"/logout\"",
                 "aria-current=\"page\"", "name=\"_csrf\"", owner.getUsername());
         assertThat(signedIn).doesNotContain("href=\"/login\"", "class=\"site-header\"");
+    }
+
+    @Test
+    void deleteAccountPasswordUsesTheSharedMaskedControlWithoutChangingConfirmation() throws Exception {
+        AccountPrincipal owner = principal("Owner");
+        String page = mvc.perform(get("/account/delete").with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertPasswordControl(page, "currentPassword", "current-password");
+        assertThat(page).contains("action=\"/account/delete\"", "name=\"confirmation\"",
+                "Type DELETE to confirm", "src=\"/js/password-visibility.js\"");
     }
 
     @Test

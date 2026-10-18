@@ -7,7 +7,10 @@ document.querySelectorAll("[data-password-toggle]").forEach((button) => {
   button.addEventListener("click", () => {
     const visible = input.type === "password";
     input.type = visible ? "text" : "password";
-    button.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+    const label = visible ? "Hide password" : "Show password";
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", String(visible));
+    button.title = label;
     button.dataset.visible = String(visible);
   });
 });
