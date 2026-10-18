@@ -18,6 +18,9 @@
   const events = document.getElementById("live-events");
   const speechSection = document.getElementById("speech-section");
   const glossarySection = document.getElementById("glossary-section");
+  const roomToolBar = document.querySelector(".room-tool-bar");
+  const roomDetails = document.getElementById("room-details");
+  const roomMainGrid = document.querySelector(".room-main-grid");
   const recordStart = document.getElementById("record-start");
   const recordStartLabel = recordStart.querySelector("span");
   const recordStop = document.getElementById("record-stop");
@@ -83,6 +86,14 @@
     live.hidden = value !== "ACTIVE";
     speechSection.hidden = value !== "ACTIVE";
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
+    if (roomDetails) roomDetails.hidden = value === "CLOSED";
+    if (roomToolBar) roomToolBar.hidden = value === "CLOSED";
+    roomMainGrid.classList.toggle("room-main-grid--waiting", value === "WAITING");
+    roomMainGrid.classList.toggle("room-main-grid--closed", value === "CLOSED");
+    if (value === "CLOSED") {
+      if (glossarySection) glossarySection.open = false;
+      if (roomDetails) roomDetails.open = false;
+    }
     notice.hidden = value !== "CLOSED";
     if (closeForm) closeForm.hidden = value === "CLOSED";
     if (closeButton) closeButton.textContent =

@@ -13,20 +13,39 @@
     <header class="workspace-heading">
       <span class="eyebrow">Workspace</span>
       <h1>Conversations</h1>
-      <p>Create a room or join someone with an invite code.</p>
+      <p>Continue an active room or start a new conversation.</p>
     </header>
-    <section class="conversation-start" aria-label="Start a conversation">
-      <div class="action-card action-card--create">
-        <span class="eyebrow">Start here</span>
-        <h2>Create conversation</h2>
-        <p>Choose a direction and share a private invite code.</p>
-        <a class="button button--primary" th:href="@{/rooms#create}">Create conversation</a>
+    <section class="current-conversations" aria-labelledby="current-conversations-heading">
+      <div class="section-heading"><span class="eyebrow">Live communication</span>
+        <h2 id="current-conversations-heading">Current conversations</h2>
       </div>
-      <div class="action-card action-card--join">
-        <h2>Join conversation</h2>
-        <p>Enter a code shared with you.</p>
-        <a class="button button--secondary" th:href="@{/rooms#join}">Join conversation</a>
+      <div class="conversation-empty" th:if="${#lists.isEmpty(currentRooms)}">
+        <span class="conversation-empty__mark" aria-hidden="true">↔</span>
+        <h3>No active conversations</h3>
+        <p>Create a room or join someone using an invite code.</p>
+        <div class="conversation-empty__actions">
+          <a class="button button--primary" th:href="@{/rooms#create}">Create conversation</a>
+          <a class="button button--secondary" th:href="@{/rooms#join}">Join conversation</a>
+        </div>
       </div>
+      <ul class="conversation-list" th:unless="${#lists.isEmpty(currentRooms)}">
+        <li class="conversation-item" th:each="item : ${currentRooms}">
+          <div class="conversation-item__content">
+            <div class="row">
+              <span class="badge" th:classappend="${item.status.name() == 'ACTIVE' ? 'badge--active' : 'badge--waiting'}"
+                    th:text="${item.status.name() == 'ACTIVE' ? 'Active' : 'Waiting'}"></span>
+              <span class="badge" th:classappend="${item.profile.name() == 'PREMIUM' ? 'badge--premium' : 'badge--standard'}"
+                    th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
+            </div>
+            <h3 th:text="${(item.speaking == 'en' ? 'English' : 'Tamil') + ' → ' + (item.listening == 'en' ? 'English' : 'Tamil')}">English → Tamil</h3>
+            <p th:text="${item.status.name() == 'ACTIVE' ? 'Two people connected' : (item.inviteExpired ? 'Waiting room · Invite expired' : 'Waiting for a guest')}"></p>
+          </div>
+          <a class="button button--secondary" th:href="@{/rooms/{id}(id=${item.id})}">Open room</a>
+        </li>
+      </ul>
+      <p class="current-conversations__manage" th:unless="${#lists.isEmpty(currentRooms)}">
+        <a th:href="@{/rooms}">Create, join, or manage rooms →</a>
+      </p>
     </section>
   </main>
 </body>

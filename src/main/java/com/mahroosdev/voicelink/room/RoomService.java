@@ -93,7 +93,8 @@ public class RoomService {
         Instant now = Instant.now();
         return participants.findByUser_IdAndRemovedAtIsNullOrderByJoinedAtDesc(userId).stream()
                 .map(p -> new RoomSummary(p.getRoom().getId(), p.getRoom().getStatus(),
-                        p.getRoom().getServiceProfile(),
+                        p.getRoom().getServiceProfile(), p.getSpeakingLanguageTag(),
+                        p.getListeningLanguageTag(),
                         p.getRoom().getCreatedAt(), p.getRoom().getStatus() == RoomStatus.WAITING
                                 && !now.isBefore(p.getRoom().getInviteExpiresAt())))
                 .toList();
@@ -146,6 +147,7 @@ public class RoomService {
     }
 
     public record RoomSummary(UUID id, RoomStatus status, AiServiceProfile profile,
+                              String speaking, String listening,
                               Instant createdAt, boolean inviteExpired) {}
     public record ParticipantView(String displayName, short slot, String speaking, String listening) {}
     public record RoomView(UUID id, RoomStatus status, AiServiceProfile profile,

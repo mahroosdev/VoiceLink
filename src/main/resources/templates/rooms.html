@@ -11,9 +11,9 @@
   <div th:replace="~{fragments/app-shell :: chrome('rooms', 'Rooms', ${email})}"></div>
   <main id="main" class="workspace workspace--rooms">
     <header class="workspace-heading">
-      <span class="eyebrow">Manage conversations</span>
+      <span class="eyebrow">Room management</span>
       <h1>Rooms</h1>
-      <p>Create a conversation or enter an invite code.</p>
+      <p>Create or join a room, and manage rooms that have closed.</p>
     </header>
     <div class="room-form-grid">
       <section id="create" class="card card-pad" aria-labelledby="create-heading">
@@ -94,23 +94,22 @@
       </section>
     </div>
     <section class="room-list-section" aria-labelledby="list-heading">
-      <h2 id="list-heading">Your rooms</h2>
+      <h2 id="list-heading">Closed rooms</h2>
       <p class="notice notice--success" th:if="${roomRemoved}" th:text="${roomRemoved}" role="status" aria-live="polite"></p>
-      <div class="empty-state" th:if="${#lists.isEmpty(rooms)}">
-        <strong>No rooms yet</strong>
-        <p>Create a conversation or enter an invite code to get started.</p>
+      <div class="empty-state" th:if="${#lists.isEmpty(closedRooms)}">
+        <strong>No closed rooms</strong>
+        <p>Rooms you close will appear here until you remove them.</p>
       </div>
-      <ul class="room-list" th:unless="${#lists.isEmpty(rooms)}">
-        <li class="room-list__item" th:each="item : ${rooms}">
+      <ul class="room-list" th:unless="${#lists.isEmpty(closedRooms)}">
+        <li class="room-list__item" th:each="item : ${closedRooms}">
           <div class="row">
-            <span class="badge" th:classappend="${item.status.name() == 'ACTIVE' ? 'badge--active' : (item.status.name() == 'WAITING' ? 'badge--waiting' : 'badge--closed')}"
-                  th:text="${item.status.name() == 'ACTIVE' ? 'Active' : (item.status.name() == 'WAITING' ? 'Waiting' : 'Closed')}"></span>
+            <span class="badge badge--closed">Closed</span>
             <span class="badge" th:classappend="${item.profile.name() == 'PREMIUM' ? 'badge--premium' : 'badge--standard'}"
                   th:text="${item.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
           </div>
-          <strong th:text="${item.inviteExpired ? 'Invite expired' : 'Two-person conversation'}"></strong>
-          <a th:href="@{/rooms/{id}(id=${item.id})}" th:text="${item.status.name() == 'CLOSED' ? 'View closed room' : 'Open room'}">Open room</a>
-          <details class="room-remove-disclosure" th:if="${item.status.name() == 'CLOSED'}">
+          <strong th:text="${(item.speaking == 'en' ? 'English' : 'Tamil') + ' → ' + (item.listening == 'en' ? 'English' : 'Tamil')}"></strong>
+          <a th:href="@{/rooms/{id}(id=${item.id})}">View closed room</a>
+          <details class="room-remove-disclosure">
             <summary>Remove room</summary>
             <div class="room-remove-disclosure__body">
               <p>Remove this closed room from your list? The other person's list is unaffected.</p>

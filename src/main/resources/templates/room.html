@@ -10,14 +10,14 @@
 </head>
 <body class="authenticated-shell">
   <a class="skip-link" href="#main">Skip to content</a>
-  <div th:replace="~{fragments/app-shell :: chrome('rooms', 'Conversation', ${email})}"></div>
+  <div th:replace="~{fragments/app-shell :: chrome(${room.status.name() == 'CLOSED' ? 'rooms' : 'conversations'}, 'Conversation', ${email})}"></div>
   <main id="main" class="workspace workspace--conversation room-page">
     <div id="room-page" th:attr="data-room-id=${room.id}">
-      <a class="room-back" th:href="@{/rooms}">← Back to your rooms</a>
+      <a class="room-back" th:if="${room.status.name() != 'CLOSED'}" th:href="@{/app}">← Back to conversations</a>
+      <a class="room-back" th:if="${room.status.name() == 'CLOSED'}" th:href="@{/rooms}">← Back to rooms</a>
       <section class="room-header" aria-labelledby="room-heading">
         <div class="room-header__top">
           <div>
-            <span class="eyebrow">Conversation workspace</span>
             <h1 id="room-heading">Conversation room</h1>
             <p class="room-direction">English ↔ Tamil · Two people</p>
           </div>
@@ -45,31 +45,78 @@
         </section>
       </section>
 
+      <div class="room-tool-bar" th:if="${room.status.name() != 'CLOSED'}" aria-label="Room tools">
+        <details id="glossary-section" class="glossary-panel">
+          <summary><strong id="glossary-heading">Technical glossary</strong><small id="glossary-capacity">Loading terms…</small></summary>
+          <div class="glossary-panel__body">
+            <p class="small muted">Shared room terms can guide translation. Relevant terms may be sent to Gemini. Use non-sensitive demo terms.</p>
+            <button id="glossary-refresh" class="button button--secondary" type="button">Refresh terms</button>
+            <ul id="glossary-list" class="glossary-list"></ul>
+            <form id="glossary-form" class="glossary-form"
+                  th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
+              <h3 id="glossary-form-heading">Add term</h3>
+              <div class="glossary-language-grid">
+                <div class="field"><label for="glossary-source-language">Source language</label>
+                  <select id="glossary-source-language" required><option value="en">English</option><option value="ta">Tamil</option></select></div>
+                <div class="field"><label for="glossary-target-language">Target language</label>
+                  <select id="glossary-target-language" required><option value="ta">Tamil</option><option value="en">English</option></select></div>
+              </div>
+              <div class="field"><label for="glossary-source-term">Source term</label>
+                <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
+                       aria-describedby="glossary-term-limits glossary-status"></div>
+              <div class="field"><label for="glossary-preferred-term">Preferred term</label>
+                <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
+                       aria-describedby="glossary-preferred-help glossary-term-limits glossary-status">
+                <p id="glossary-preferred-help" class="field-help">Leave preferred term blank to keep the source wording.</p></div>
+              <p id="glossary-term-limits" class="field-help">Source: 1–48 Unicode characters. Preferred: up to 64. Newlines and control characters are not allowed.</p>
+              <button id="glossary-save" class="button button--primary" type="submit">Add term</button>
+              <button id="glossary-cancel" class="button button--secondary" type="button" hidden>Cancel edit</button>
+            </form>
+            <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
+          </div>
+        </details>
+        <details id="room-details" class="room-details">
+          <summary>Room details</summary>
+          <div class="room-details__body">
+            <p><strong>Language pair:</strong> English ↔ Tamil</p>
+            <p><strong>Service profile:</strong> <span th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span></p>
+            <p>Groq processes speech. Gemini translates and generates voice. Recent captions and audio here are temporary.</p>
+            <p>During development, use non-sensitive conversation content. Relevant room terms may be sent to Gemini.</p>
+            <form id="close-room-form" class="room-close" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
+              <p>Closing ends this room for both people and deletes its saved glossary.</p>
+              <button class="button button--danger" type="submit"
+                      th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
+            </form>
+          </div>
+        </details>
+      </div>
+
       <div class="room-main-grid" th:classappend="${room.status.name() == 'WAITING' ? 'room-main-grid--waiting' : (room.status.name() == 'CLOSED' ? 'room-main-grid--closed' : '')}">
         <div class="room-main">
-          <section id="waiting-section" class="waiting-card card" th:hidden="${room.status.name() != 'WAITING'}"
+          <section id="waiting-section" class="waiting-card card" th:if="${room.status.name() != 'CLOSED'}" th:hidden="${room.status.name() != 'WAITING'}"
                    aria-labelledby="waiting-heading">
             <div class="waiting-card__layout">
               <div class="waiting-card__lead">
                 <span class="eyebrow">Invite someone</span>
                 <h2 id="waiting-heading">Waiting for a guest</h2>
-                <p class="waiting-card__intro">Share this private code with one person. They will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+                <p class="waiting-card__intro">Share this private code with one person.</p>
                 <p class="notice notice--warning" th:if="${room.inviteExpired}">Invite expired. Close this room and create a new one.</p>
               </div>
               <div class="waiting-card__invite" th:if="${room.inviteCode != null}">
                 <span class="field-label">Private invite code</span>
-                <code id="invite-code" class="invite-code" th:text="${room.inviteCode}"></code>
-                <div class="invite-actions">
+                <div class="waiting-card__code-row">
+                  <code id="invite-code" class="invite-code" th:text="${room.inviteCode}"></code>
                   <button id="invite-copy" class="button button--secondary" type="button">Copy code</button>
-                  <span id="copy-status" class="small muted" role="status" aria-live="polite"></span>
                 </div>
+                <span id="copy-status" class="small muted" role="status" aria-live="polite"></span>
                 <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
                     th:text="${room.inviteExpiresAt}"></time>.</p>
               </div>
+              <p class="waiting-card__direction">Your guest will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
             </div>
           </section>
 
-          <section id="active-section" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
+          <section id="active-section" th:if="${room.status.name() != 'CLOSED'}" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
             <h2 id="active-heading" class="sr-only">Active conversation</h2>
             <section class="turns-card" aria-labelledby="turns-heading">
               <span class="eyebrow">Current conversation</span>
@@ -115,6 +162,7 @@
           <section id="closed-notice" class="room-closed" th:hidden="${room.status.name() != 'CLOSED'}"
                    aria-labelledby="closed-heading">
             <h2 id="closed-heading">This room is closed</h2>
+            <p><strong>English ↔ Tamil</strong> · <span th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span></p>
             <p>It cannot be reopened or joined. The room glossary has been deleted.</p>
             <details class="room-remove-disclosure">
               <summary>Remove room</summary>
@@ -128,67 +176,38 @@
           </section>
         </div>
 
-        <aside class="room-sidebar" aria-label="Room tools">
-          <details id="glossary-section" class="glossary-panel" th:if="${room.status.name() != 'CLOSED'}">
-            <summary>
-              <span class="glossary-panel__heading"><strong id="glossary-heading">Technical glossary</strong>
-                <small id="glossary-capacity">Loading terms…</small></span>
-            </summary>
-            <div class="glossary-panel__body">
-              <p class="small muted">Shared room terms can guide translation. Relevant terms may be sent to Gemini. Use non-sensitive demo terms.</p>
-              <button id="glossary-refresh" class="button button--secondary" type="button">Refresh terms</button>
-              <ul id="glossary-list" class="glossary-list"></ul>
-              <form id="glossary-form" class="glossary-form"
-                    th:attr="data-can-edit=${room.status.name() == 'ACTIVE' or (room.creator and !room.inviteExpired)}">
-                <h3 id="glossary-form-heading">Add term</h3>
-                <div class="glossary-language-grid">
-                <div class="field">
-                  <label for="glossary-source-language">Source language</label>
-                  <select id="glossary-source-language" required>
-                    <option value="en">English</option><option value="ta">Tamil</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="glossary-target-language">Target language</label>
-                  <select id="glossary-target-language" required>
-                    <option value="ta">Tamil</option><option value="en">English</option>
-                  </select>
-                </div>
-                </div>
-                <div class="field">
-                  <label for="glossary-source-term">Source term</label>
-                  <input id="glossary-source-term" type="text" maxlength="96" required autocomplete="off"
-                         aria-describedby="glossary-term-limits glossary-status">
-                </div>
-                <div class="field">
-                  <label for="glossary-preferred-term">Preferred term</label>
-                  <input id="glossary-preferred-term" type="text" maxlength="128" autocomplete="off"
-                         aria-describedby="glossary-preferred-help glossary-term-limits glossary-status">
-                  <p id="glossary-preferred-help" class="field-help">Leave preferred term blank to keep the source wording.</p>
-                </div>
-                <p id="glossary-term-limits" class="field-help">Source: 1–48 Unicode characters. Preferred: up to 64. Newlines and control characters are not allowed.</p>
-                <button id="glossary-save" class="button button--primary" type="submit">Add term</button>
-                <button id="glossary-cancel" class="button button--secondary" type="button" hidden>Cancel edit</button>
-              </form>
-              <p id="glossary-status" class="glossary-panel__status" role="status" aria-live="polite"></p>
-            </div>
-          </details>
-          <section class="room-info" th:if="${room.status.name() != 'CLOSED'}" aria-labelledby="room-info-heading">
-            <h2 id="room-info-heading">About this room</h2>
-            <p class="small muted">The profile is chosen when the room is created and cannot be changed.</p>
-            <p class="room-privacy">During development, use non-sensitive conversation content. Speech and relevant room terms are sent to the selected providers; recent captions and audio here are temporary.</p>
-          </section>
-          <form id="close-room-form" class="room-close" th:if="${room.status.name() != 'CLOSED'}"
-                th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
-            <p>Closing ends this room for both people and deletes its saved glossary.</p>
-            <button class="button button--danger" type="submit"
-                    th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
-          </form>
-        </aside>
+
       </div>
     </div>
   </main>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>
+  <script th:if="${room.status.name() != 'CLOSED'}">
+    (() => {
+      "use strict";
+
+      const tools = [...document.querySelectorAll(".room-tool-bar > details")];
+      tools.forEach((tool) => {
+        const trigger = tool.querySelector("summary");
+        tool.addEventListener("toggle", () => {
+          if (tool.open) tools.forEach((other) => {
+            if (other !== tool) other.open = false;
+          });
+        });
+        tool.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && tool.open) {
+            tool.open = false;
+            trigger.focus();
+            event.stopPropagation();
+          }
+        });
+      });
+      document.addEventListener("pointerdown", (event) => {
+        tools.forEach((tool) => {
+          if (tool.open && !tool.contains(event.target)) tool.open = false;
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

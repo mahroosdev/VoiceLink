@@ -6,6 +6,13 @@ const vm = require("node:vm");
 
 const script = fs.readFileSync(path.resolve(__dirname,
   "../../main/resources/static/js/password-visibility.js"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname,
+  "../../main/resources/static/css/voicelink.css"), "utf8");
+
+test("icon shows crossed eye while hidden and open eye while visible", () => {
+  assert.match(css, /\.password-toggle__show, \.password-toggle\[data-visible="true"\] \.password-toggle__hide \{ display: none; \}/);
+  assert.match(css, /\.password-toggle\[data-visible="true"\] \.password-toggle__show \{ display: inline; \}/);
+});
 
 for (const [page, field] of [
   ["login", "password"],
@@ -18,6 +25,11 @@ for (const [page, field] of [
     const template = fs.readFileSync(path.resolve(__dirname,
       `../../main/resources/templates/${page}.html`), "utf8");
     assert.match(template, new RegExp(`aria-controls="${field}"[^>]*data-password-toggle data-visible="false"`));
+    const markup = template.match(new RegExp(`<button[^>]*aria-controls="${field}"[^>]*>[\\s\\S]*?</button>`))?.[0];
+    assert.ok(markup, `${page} ${field} has a visibility button`);
+    assert.match(markup, /type="button"[^>]*aria-label="Show password"[^>]*title="Show password"/);
+    assert.match(markup, /class="password-toggle__show"[\s\S]*?<circle/);
+    assert.match(markup, /class="password-toggle__hide"[\s\S]*?M3 3 21 21/);
     const input = { type: "password", value: "example-secret" };
     const attributes = { "aria-controls": field, "aria-label": "Show password",
       "aria-pressed": "false" };

@@ -221,7 +221,6 @@
   });
   window.addEventListener("focus", refresh);
 
-  if (window.matchMedia("(min-width: 960px)").matches) panel.open = true;
   setEditable(editable);
   refresh();
 })();

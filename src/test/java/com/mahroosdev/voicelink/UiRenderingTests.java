@@ -61,8 +61,8 @@ class UiRenderingTests {
                 ".room-form-grid { grid-template-columns: 1fr; }",
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
-                ".password-toggle__hide, .password-toggle[data-visible=\"true\"] .password-toggle__show",
-                ".password-toggle[data-visible=\"true\"] .password-toggle__hide");
+                ".password-toggle__show, .password-toggle[data-visible=\"true\"] .password-toggle__hide { display: none; }",
+                ".password-toggle[data-visible=\"true\"] .password-toggle__show { display: inline; }");
         assertThat(css).contains("--vl-canvas:", "--vl-depth-3:", "--vl-motion-slow:",
                 ".application-nav a.is-current::before", ".recording-card[data-phase=\"listening\"]",
                 ".turn-caption--revealed", "@media (prefers-reduced-motion: reduce)")
@@ -117,12 +117,12 @@ class UiRenderingTests {
         String app = mvc.perform(get("/app").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(app).contains("class=\"authenticated-shell\"", "<h1>Conversations</h1>",
-                "Create a room or join someone with an invite code.",
+                "Continue an active room or start a new conversation.",
                 "/rooms#create", "/rooms#join", "href=\"/about\"", "action=\"/logout\"",
                 "class=\"application-sidebar\"", "class=\"application-topbar\"",
                 "class=\"application-bottom-nav\"", "aria-current=\"page\"", owner.getUsername());
-        assertThat(app).contains("class=\"conversation-start\"", "class=\"action-card action-card--create\"",
-                "class=\"action-card action-card--join\"", "<details class=\"application-account\"",
+        assertThat(app).contains("Current conversations", "No active conversations",
+                "class=\"conversation-empty\"", "<details class=\"application-account\"",
                 "aria-label=\"Account options\"", "class=\"application-account__menu-identity\"",
                 "class=\"application-account__menu-copy\"", "class=\"application-account__email\"",
                 "title=\"" + owner.getUsername() + "\"", "Account management", "Sign out");
@@ -142,6 +142,7 @@ class UiRenderingTests {
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(index).contains("class=\"authenticated-shell\"", "<h1>Rooms</h1>",
+                "Closed rooms", "No closed rooms",
                 "class=\"application-sidebar\"", "class=\"application-bottom-nav\"",
                 "action=\"/rooms\"", "action=\"/rooms/join\"",
                 "name=\"speaking\"", "name=\"listening\"", "name=\"profile\"",
@@ -156,6 +157,31 @@ class UiRenderingTests {
                 "VOICELINK_PREMIUM_GEMINI_API_KEY");
         assertThat(index.indexOf("Premium is not available on this server.") - index.indexOf("value=\"PREMIUM\""))
                 .isBetween(0, 1000);
+    }
+
+    @Test
+    void conversationsShowsOnlyCurrentMemberRoomsWhileRoomsManagesClosedRooms() throws Exception {
+        AccountPrincipal owner = principal("Owner");
+        AccountPrincipal guest = principal("Guest");
+        UUID waitingId = rooms.createRoom(owner.getUserId(), "ta", "en");
+        UUID activeId = rooms.createRoom(owner.getUserId(), "en", "ta");
+        rooms.joinRoom(guest.getUserId(), rooms.getRoomForMember(owner.getUserId(), activeId).inviteCode());
+        UUID closedId = rooms.createRoom(owner.getUserId(), "en", "ta");
+        rooms.closeRoom(owner.getUserId(), closedId);
+
+        String app = mvc.perform(get("/app").with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(app).contains("href=\"/rooms/" + waitingId + "\"", "href=\"/rooms/" + activeId + "\"",
+                "Waiting for a guest", "Two people connected", "Tamil → English", "Open room");
+        assertThat(app).doesNotContain("href=\"/rooms/" + closedId + "\"", "No active conversations",
+                "transcript preview", "conversation history", "last message");
+
+        String index = mvc.perform(get("/rooms").with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(index).contains("Closed rooms", "href=\"/rooms/" + closedId + "\"",
+                "View closed room", "Remove room", "action=\"/rooms\"", "action=\"/rooms/join\"");
+        assertThat(index).doesNotContain("href=\"/rooms/" + waitingId + "\"",
+                "href=\"/rooms/" + activeId + "\"");
     }
 
     @Test
@@ -217,8 +243,9 @@ class UiRenderingTests {
         assertThat(code.group(1)).matches("[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}")
                 .doesNotContain(roomId.toString());
         assertThat(waiting).contains("class=\"authenticated-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
-                "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard");
-        assertThat(waiting.indexOf("id=\"invite-code\"")).isLessThan(waiting.indexOf("id=\"close-room-form\""));
+                "id=\"room-details\"", "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard",
+                "class=\"waiting-card__code-row\"", ".room-tool-bar > details", "Back to conversations");
+        assertThat(waiting).doesNotContain("class=\"room-sidebar\"");
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
         String active = mvc.perform(get(path).with(user(guest)))
@@ -229,9 +256,10 @@ class UiRenderingTests {
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
         assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
-                "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-panel\"")
+                "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-panel\"",
+                "id=\"room-details\"")
                 .doesNotContain("Low latency", "Recent History", "Delete account");
-        assertThat(active.indexOf("id=\"record-start\"")).isLessThan(active.indexOf("id=\"close-room-form\""));
+        assertThat(active).containsPattern("(?s)<details id=\"room-details\".*?<form id=\"close-room-form\"");
         assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -251,7 +279,8 @@ class UiRenderingTests {
         String closed = mvc.perform(get(path).with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(closed).contains("This room is closed");
+        assertThat(closed).contains("Back to rooms", "Confirm removal");
         assertThat(closed).doesNotContain("id=\"glossary-section\"", "id=\"close-room-form\"", "room-live.js",
-                "room-glossary.js");
+                "room-glossary.js", ".room-tool-bar > details", "id=\"record-stop\"");
     }
 }

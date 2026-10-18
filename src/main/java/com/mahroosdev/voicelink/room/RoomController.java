@@ -31,7 +31,8 @@ public class RoomController {
     @GetMapping("/rooms")
     String index(@AuthenticationPrincipal AccountPrincipal principal, Model model) {
         if (!model.containsAttribute("createRoomForm")) model.addAttribute("createRoomForm", new CreateRoomForm());
-        model.addAttribute("rooms", rooms.listRoomsForMember(principal.getUserId()));
+        model.addAttribute("closedRooms", rooms.listRoomsForMember(principal.getUserId()).stream()
+                .filter(room -> room.status() == RoomStatus.CLOSED).toList());
         model.addAttribute("premiumAvailable", premium.available());
         model.addAttribute("email", principal.getUsername());
         return "rooms";
