@@ -372,6 +372,28 @@ h3 { font-size: 1.1rem; }
   width: 100%;
   padding: 28px clamp(20px, 2.8vw, 42px) 48px;
 }
+.authenticated-shell--about, .public-shell--about { min-width: 0; }
+@media (min-width: 900px) {
+  .authenticated-shell--about { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  .authenticated-shell--about .application-chrome { min-height: 0; }
+  .authenticated-shell--about .workspace--about {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}
+@media (min-width: 900px) and (max-height: 359px) {
+  .authenticated-shell--about .application-sidebar { overflow-y: auto; }
+  .authenticated-shell--about .application-account__menu {
+    position: fixed;
+    right: auto;
+    bottom: 8px;
+    left: 8px;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+  }
+}
 .workspace-heading { margin-bottom: 22px; }
 .workspace-heading .eyebrow { margin-bottom: 5px; }
 .workspace-heading h1 { font-size: clamp(1.7rem, 2.4vw, 2.15rem); }

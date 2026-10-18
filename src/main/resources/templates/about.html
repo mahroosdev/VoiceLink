@@ -7,7 +7,7 @@
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
   <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}">
 </head>
-<body th:class="${signedIn} ? 'authenticated-shell' : 'public-shell'">
+<body th:class="${signedIn} ? 'authenticated-shell authenticated-shell--about' : 'public-shell public-shell--about'">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header" th:unless="${signedIn}">
     <div class="container site-header__inner">
@@ -21,8 +21,8 @@
       </nav>
     </div>
   </header>
-  <div th:if="${signedIn}"><div th:replace="~{fragments/app-shell :: chrome('about', 'About', ${email})}"></div></div>
-  <main id="main" th:class="${signedIn} ? 'workspace workspace--about' : 'container page'">
+  <th:block th:if="${signedIn}"><div th:replace="~{fragments/app-shell :: chrome('about', 'About', ${email})}"></div></th:block>
+  <main id="main" th:class="${signedIn} ? 'workspace workspace--about' : 'container page'" th:attr="tabindex=${signedIn} ? '0' : null">
     <div class="page-heading about-intro">
       <span class="eyebrow">About VoiceLink</span>
       <h1>Understand each other, one turn at a time.</h1>

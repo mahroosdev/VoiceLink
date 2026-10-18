@@ -74,6 +74,11 @@ class UiRenderingTests {
                 ".glossary-dialog::backdrop", ".glossary-dialog:not([open])",
                 ".recording-card[data-phase=\"uploading\"] .recording-status::before,",
                 "animation: none !important");
+        assertThat(css).contains("@media (min-width: 900px)",
+                ".authenticated-shell--about .workspace--about {",
+                "overflow-y: auto;", "overscroll-behavior-y: contain;",
+                "@media (min-width: 900px) and (max-height: 359px)",
+                ".authenticated-shell--about .application-sidebar { overflow-y: auto; }");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -205,16 +210,22 @@ class UiRenderingTests {
         assertThat(about.indexOf("How VoiceLink works")).isLessThan(about.indexOf("AI Service Profiles"));
         assertThat(about.indexOf("AI Service Profiles")).isLessThan(about.indexOf("Privacy &amp; Data"));
         assertThat(about.indexOf("Privacy &amp; Data")).isLessThan(about.indexOf("Current Scope"));
-        assertThat(about).contains("class=\"public-shell\"", "class=\"site-header\"");
+        assertThat(about).contains("class=\"public-shell public-shell--about\"", "class=\"site-header\"")
+                .doesNotContain("tabindex=\"0\"")
+                .doesNotContain("authenticated-shell--about");
         assertThat(about).doesNotContain("action=\"/logout\"", "Signed-in account",
                 "class=\"application-sidebar\"", "class=\"application-bottom-nav\"");
 
         AccountPrincipal owner = principal("Owner");
         String signedIn = mvc.perform(get("/about").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(signedIn).contains("class=\"authenticated-shell\"", "class=\"application-sidebar\"",
+        assertThat(signedIn).contains("class=\"authenticated-shell authenticated-shell--about\"",
+                "<main id=\"main\" class=\"workspace workspace--about\" tabindex=\"0\"",
+                "class=\"application-sidebar\"",
                 "class=\"application-bottom-nav\"", "href=\"/rooms\"", "action=\"/logout\"",
                 "aria-current=\"page\"", "name=\"_csrf\"", owner.getUsername());
+        assertThat(signedIn).containsPattern("(?s)<body class=\"authenticated-shell authenticated-shell--about\">"
+                + "\\s*<a class=\"skip-link\"[^>]*>.*?</a>\\s*<div class=\"application-chrome\"");
         assertThat(signedIn).doesNotContain("href=\"/login\"", "class=\"site-header\"");
     }
 
