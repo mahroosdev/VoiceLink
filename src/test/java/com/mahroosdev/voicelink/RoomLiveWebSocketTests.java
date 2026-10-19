@@ -2,6 +2,10 @@ package com.mahroosdev.voicelink;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -35,6 +39,10 @@ import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomService;
 import com.mahroosdev.voicelink.room.RoomStatus;
 import com.mahroosdev.voicelink.conversation.TextSharingState;
+import com.mahroosdev.voicelink.ai.ProviderFailure;
+import com.mahroosdev.voicelink.ai.stt.SpeechToTextProvider;
+import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
+import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.junit.jupiter.api.Test;
@@ -43,6 +51,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
@@ -73,6 +82,9 @@ class RoomLiveWebSocketTests {
     @Autowired TestPasswordResetNotifier resetNotifier;
     @Autowired RoomLiveHub liveHub;
     @Autowired TextSharingState textSharing;
+    @MockitoBean SpeechToTextProvider stt;
+    @MockitoBean(name = "geminiTranslationProvider") TranslationProvider translation;
+    @MockitoBean(name = "geminiTextToSpeechProvider") TextToSpeechProvider tts;
 
     private UserAccount account(String label) {
         return accounts.save(new UserAccount(label, UUID.randomUUID() + "@example.test",
@@ -133,6 +145,7 @@ class RoomLiveWebSocketTests {
         LiveSocket bSocket = second.connect(roomId, second.base);
         aSocket.await("ROOM_STATE");
         bSocket.await("ROOM_STATE");
+        when(stt.transcribe(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.CONFIGURATION));
         UUID requestId = UUID.randomUUID();
         assertThat(first.upload(roomId, requestId, smallWebm())).isEqualTo(202);
         JsonNode acceptedA = aSocket.await("TURN_ACCEPTED");
@@ -145,6 +158,62 @@ class RoomLiveWebSocketTests {
         assertThat(failed.path("payload").path("code").asText()).isEqualTo("CONFIGURATION");
         assertThat(failed.path("sequence").longValue()).isGreaterThan(acceptedB.path("sequence").longValue());
         assertThat(failed.toString()).doesNotContain("replace-with", "Bearer", "api.groq.com");
+    }
+
+    @Test
+    void finishAndSendReviewStaysOffSocketsUntilAuthenticatedExplicitSend() throws Exception {
+        var a = account("Private speech sender");
+        var b = account("Private speech receiver");
+        var other = account("Other speech room");
+        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        UUID otherRoom = rooms.createRoom(other.getId(), "ta", "en");
+        Browser sender = browser(a), receiver = browser(b), separate = browser(other);
+        LiveSocket senderSocket = sender.connect(roomId, sender.base);
+        LiveSocket receiverSocket = receiver.connect(roomId, receiver.base);
+        LiveSocket separateSocket = separate.connect(otherRoom, separate.base);
+        senderSocket.await("ROOM_STATE");
+        receiverSocket.await("ROOM_STATE");
+        separateSocket.await("ROOM_STATE");
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result(
+                "Hello Java", "GROQ", "whisper-large-v3", 1));
+        when(translation.translate(any())).thenReturn(new TranslationProvider.Result(
+                "வணக்கம் Java", "GEMINI", "gemini-3.1-flash-lite", 1));
+        when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
+
+        HttpResponse<String> upload = sender.upload(roomId, UUID.randomUUID(), smallWebm(),
+                "FINISH_AND_SEND");
+        assertThat(upload.statusCode()).isEqualTo(202);
+        String turnId = json.readTree(upload.body()).path("turnId").asText();
+        assertThat(senderSocket.messages.poll(250, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(receiverSocket.messages.poll(250, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(separateSocket.messages.poll(250, TimeUnit.MILLISECONDS)).isNull();
+
+        JsonNode review = null;
+        for (int attempt = 0; attempt < 100; attempt++) {
+            HttpResponse<String> response = sender.get("/api/rooms/" + roomId + "/turns/" + turnId + "/review");
+            assertThat(response.statusCode()).isEqualTo(200);
+            review = json.readTree(response.body());
+            if ("READY_FOR_REVIEW".equals(review.path("status").asText())) break;
+            Thread.sleep(20);
+        }
+        assertThat(review.path("status").asText()).isEqualTo("READY_FOR_REVIEW");
+        assertThat(review.path("transcript").asText()).isEqualTo("Hello Java");
+        assertThat(review.path("translatedText").asText()).isEqualTo("வணக்கம் Java");
+        assertThat(receiverSocket.messages.poll(250, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(review.toString()).doesNotContain(sender.sessionId(), "api-key");
+
+        assertThat(sender.post("/api/rooms/" + roomId + "/turns/" + turnId + "/send",
+                "/rooms/" + roomId).statusCode()).isEqualTo(200);
+        for (String type : List.of("TURN_ACCEPTED", "TRANSCRIPT_READY", "TRANSLATION_READY", "AUDIO_READY")) {
+            JsonNode senderEvent = senderSocket.await(type);
+            JsonNode receiverEvent = receiverSocket.await(type);
+            assertThat(senderEvent.path("eventId").asText()).isEqualTo(receiverEvent.path("eventId").asText());
+            assertThat(receiverEvent.toString()).doesNotContain("review", sender.sessionId());
+        }
+        assertThat(separateSocket.messages.poll(250, TimeUnit.MILLISECONDS)).isNull();
+        verify(tts, times(1)).synthesize(any());
     }
 
     @Test
@@ -524,20 +593,37 @@ class RoomLiveWebSocketTests {
         }
 
         int upload(UUID roomId, UUID requestId, byte[] audio) throws Exception {
+            return upload(roomId, requestId, audio, "LIVE_SEND").statusCode();
+        }
+
+        HttpResponse<String> upload(UUID roomId, UUID requestId, byte[] audio,
+                                    String workflow) throws Exception {
             String boundary = "test-" + UUID.randomUUID();
             java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
             multipartField(body, boundary, "clientRequestId", requestId.toString());
             multipartField(body, boundary, "durationMillis", "1000");
+            multipartField(body, boundary, "workflow", workflow);
             body.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"turn.webm\"\r\n"
                     + "Content-Type: audio/webm;codecs=opus\r\n\r\n").getBytes(StandardCharsets.UTF_8));
             body.writeBytes(audio);
             body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-            var response = http.send(HttpRequest.newBuilder(URI.create(base + "/api/rooms/" + roomId + "/turns"))
+            return http.send(HttpRequest.newBuilder(URI.create(base + "/api/rooms/" + roomId + "/turns"))
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .header("X-CSRF-TOKEN", csrf("/rooms/" + roomId))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(),
                     HttpResponse.BodyHandlers.ofString());
-            return response.statusCode();
+        }
+
+        HttpResponse<String> get(String path) throws Exception {
+            return http.send(HttpRequest.newBuilder(URI.create(base + path)).GET().build(),
+                    HttpResponse.BodyHandlers.ofString());
+        }
+
+        HttpResponse<String> post(String path, String csrfPath) throws Exception {
+            return http.send(HttpRequest.newBuilder(URI.create(base + path))
+                    .header("X-CSRF-TOKEN", csrf(csrfPath))
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(),
+                    HttpResponse.BodyHandlers.ofString());
         }
 
         private static void multipartField(java.io.ByteArrayOutputStream body, String boundary,

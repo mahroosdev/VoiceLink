@@ -7,6 +7,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -24,6 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.mahroosdev.voicelink.ai.AiProviderBundle;
 import com.mahroosdev.voicelink.ai.AiProviderResolver;
 import com.mahroosdev.voicelink.ai.AiServiceProfile;
+import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.stt.SpeechToTextProvider;
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
@@ -46,18 +49,19 @@ class SpeechTurnResourceTests {
     private final SpeechToTextProvider stt = mock(SpeechToTextProvider.class);
     private final TranslationProvider translation = mock(TranslationProvider.class);
     private final TextToSpeechProvider tts = mock(TextToSpeechProvider.class);
+    private final RoomLiveHub hub = mock(RoomLiveHub.class);
+    private final RoomGlossaryService glossary = mock(RoomGlossaryService.class);
     private final SpeechTurnService turns = service(100, 200);
 
     private SpeechTurnService service(int perUser, int global) {
         RoomLiveAuthorizer authorizer = mock(RoomLiveAuthorizer.class);
-        RoomLiveHub hub = mock(RoomLiveHub.class);
         AiProviderResolver resolver = mock(AiProviderResolver.class);
-        RoomGlossaryService glossary = mock(RoomGlossaryService.class);
         when(authorizer.authorize(any(), any())).thenAnswer(call -> new RoomLiveAuthorizer.Member(
                 call.getArgument(0), RoomStatus.ACTIVE, "en", "ta", AiServiceProfile.STANDARD));
         when(resolver.resolve(AiServiceProfile.STANDARD))
                 .thenReturn(new AiProviderBundle(stt, translation, tts));
         when(glossary.applicableForTranslation(any(), any(), any(), any())).thenReturn(List.of());
+        when(glossary.list(any(), any())).thenReturn(List.of());
         when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result("Hello", "GROQ", "whisper-large-v3", 1));
         when(translation.translate(any())).thenReturn(new TranslationProvider.Result("வணக்கம்", "GEMINI",
                 "gemini-3.1-flash-lite", 1));
@@ -88,6 +92,83 @@ class SpeechTurnResourceTests {
             Thread.sleep(10);
         }
         throw new AssertionError("Speech turns did not finish");
+    }
+
+    private SpeechTurnService.Review awaitReview(UUID room, UUID turn, String status) throws Exception {
+        for (int i = 0; i < 200; i++) {
+            var review = turns.review(user, "session", room, turn);
+            if (status.equals(review.status())) return review;
+            Thread.sleep(10);
+        }
+        throw new AssertionError("Private review did not finish");
+    }
+
+    @Test void privateReviewExpiresAndSessionRevocationDiscardsLateProviderWork() throws Exception {
+        UUID room = UUID.randomUUID();
+        var accepted = turns.accept(user, "session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(room, accepted.turnId(), "READY_FOR_REVIEW");
+        assertThat(turns.recent(user, room)).isEmpty();
+        clock.advanceSeconds(121);
+        turns.expire();
+        assertThatThrownBy(() -> turns.review(user, "session", room, accepted.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        verify(tts, never()).synthesize(any());
+
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(stt.transcribe(any())).thenAnswer(call -> {
+            entered.countDown();
+            try {
+                release.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            return new SpeechToTextProvider.Result("late", "GROQ", "whisper-large-v3", 1);
+        });
+        var late = turns.accept(user, "revoked", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+        turns.revokeHttpSession("revoked");
+        release.countDown();
+        assertThatThrownBy(() -> turns.review(user, "revoked", room, late.turnId()))
+                .isInstanceOf(ResponseStatusException.class);
+        verify(translation, times(1)).translate(any());
+    }
+
+    @Test void failedPrivateTranslationCannotRetainRecognizedTextPastReviewExpiry() throws Exception {
+        UUID room = UUID.randomUUID();
+        when(translation.translate(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE));
+        var accepted = turns.accept(user, "session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        SpeechTurnService.Review failed = awaitReview(room, accepted.turnId(), "FAILED");
+        assertThat(failed.transcript()).isEqualTo("Hello");
+        assertThat(failed.translatedText()).isNull();
+
+        clock.advanceSeconds(121);
+        turns.expire();
+
+        assertThatThrownBy(() -> turns.review(user, "session", room, accepted.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        verify(tts, never()).synthesize(any());
+    }
+
+    @Test void concurrentFinalizationSchedulesExactlyOneTtsJob() throws Exception {
+        UUID room = UUID.randomUUID();
+        when(hub.hasCurrentConnection(room, user, "session")).thenReturn(true);
+        var accepted = turns.accept(user, "session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(room, accepted.turnId(), "READY_FOR_REVIEW");
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            CountDownLatch start = new CountDownLatch(1);
+            var one = executor.submit(() -> { start.await(); return turns.send(user, "session", room, accepted.turnId()); });
+            var two = executor.submit(() -> { start.await(); return turns.send(user, "session", room, accepted.turnId()); });
+            start.countDown();
+            assertThat(List.of(one.get(2, TimeUnit.SECONDS).duplicate(), two.get(2, TimeUnit.SECONDS).duplicate()))
+                    .containsExactlyInAnyOrder(false, true);
+        }
+        verify(tts, timeout(2000).times(1)).synthesize(any());
     }
 
     private void expireUntilEmpty() throws InterruptedException {

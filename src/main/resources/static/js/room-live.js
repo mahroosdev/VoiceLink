@@ -24,6 +24,16 @@
   const recordStart = document.getElementById("record-start");
   const recordStartLabel = recordStart.querySelector("span");
   const recordStop = document.getElementById("record-stop");
+  const speechModeLive = document.getElementById("speech-mode-live");
+  const speechModeFinish = document.getElementById("speech-mode-finish");
+  const speechModeHelp = document.getElementById("speech-mode-help");
+  const speechReview = document.getElementById("speech-review");
+  const speechReviewTranscript = document.getElementById("speech-review-transcript");
+  const speechReviewTranslation = document.getElementById("speech-review-translation");
+  const speechReviewExpiry = document.getElementById("speech-review-expiry");
+  const speechReviewSend = document.getElementById("speech-review-send");
+  const speechReviewRecordAgain = document.getElementById("speech-review-record-again");
+  const speechReviewCancel = document.getElementById("speech-review-cancel");
   const recordingStatus = document.getElementById("recording-status");
   const recordingTimer = document.getElementById("recording-timer");
   const speechEvents = document.getElementById("speech-events");
@@ -46,6 +56,10 @@
   let displayTimer;
   let busy = false;
   let discardRecording = false;
+  let speechWorkflow = "LIVE_SEND";
+  let privateTurnId;
+  let reviewGeneration = 0;
+  let reviewPollTimer;
   let connected = false;
   let socket;
   let retry = 0;
@@ -72,6 +86,104 @@
 
   function socketOpen() {
     return typeof WebSocket !== "undefined" && socket?.readyState === WebSocket.OPEN;
+  }
+
+  function csrfHeaders() {
+    const header = document.querySelector('meta[name="_csrf_header"]').content;
+    const token = document.querySelector('meta[name="_csrf"]').content;
+    return { [header]: token };
+  }
+
+  function resetPrivateReview() {
+    clearTimeout(reviewPollTimer);
+    reviewGeneration++;
+    privateTurnId = undefined;
+    speechReview.hidden = true;
+    speechReviewTranscript.textContent = "";
+    speechReviewTranslation.textContent = "";
+    speechReviewExpiry.textContent = "";
+    speechReviewSend.disabled = false;
+  }
+
+  async function cancelPrivateReview() {
+    const turnId = privateTurnId;
+    resetPrivateReview();
+    if (!turnId) return;
+    try {
+      await fetch("/api/rooms/" + roomId + "/turns/" + turnId + "/review", {
+        method: "DELETE", credentials: "same-origin", headers: csrfHeaders()
+      });
+    } catch {
+      // Session and room lifecycle cleanup also revoke unsent private reviews.
+    }
+  }
+
+  function selectSpeechMode(workflow) {
+    if (speechWorkflow === workflow) return;
+    cancelPrivateReview();
+    speechWorkflow = workflow;
+    speechModeLive.setAttribute("aria-pressed", String(workflow === "LIVE_SEND"));
+    speechModeFinish.setAttribute("aria-pressed", String(workflow === "FINISH_AND_SEND"));
+    speechModeHelp.textContent = workflow === "LIVE_SEND"
+      ? "Live Send shares captions while your turn is processed."
+      : "Finish & Send keeps recognition and translation private until you review and send.";
+    recordingStatus.textContent = workflow === "LIVE_SEND"
+      ? "Ready for Live Send. Speak for up to 15 seconds."
+      : "Ready for private review. Speak for up to 15 seconds.";
+  }
+
+  async function pollPrivateReview(turnId, generation, attempt = 0) {
+    if (generation !== reviewGeneration || turnId !== privateTurnId) return;
+    if (attempt >= 80) {
+      cancelPrivateReview();
+      recordingStatus.textContent = "Private review timed out. Record again.";
+      speechSection.dataset.phase = "error";
+      return;
+    }
+    try {
+      const response = await fetch("/api/rooms/" + roomId + "/turns/" + turnId + "/review",
+        { credentials: "same-origin", headers: { Accept: "application/json" } });
+      if (generation !== reviewGeneration || turnId !== privateTurnId) return;
+      if (response.status === 404 || response.status === 409) {
+        resetPrivateReview();
+        recordingStatus.textContent = "That private review is no longer available. Record again.";
+        speechSection.dataset.phase = "error";
+        return;
+      }
+      if (!response.ok) throw new Error("Review unavailable");
+      const review = await response.json();
+      if (review.status === "READY_FOR_REVIEW") {
+        speechReviewTranscript.textContent = review.transcript;
+        speechReviewTranscript.lang = review.sourceLanguage;
+        speechReviewTranslation.textContent = review.translatedText;
+        speechReviewTranslation.lang = review.targetLanguage;
+        speechReviewExpiry.textContent = "Available for two minutes";
+        speechReview.hidden = false;
+        speechReviewSend.focus();
+        recordingStatus.textContent = "Private review ready. Check it, then send or record again.";
+        speechSection.dataset.phase = "review";
+        const expiresIn = Math.max(0, Date.parse(review.expiresAt) - Date.now());
+        reviewPollTimer = setTimeout(() => {
+          if (generation !== reviewGeneration || turnId !== privateTurnId) return;
+          resetPrivateReview();
+          recordingStatus.textContent = "That private review expired. Record again.";
+          speechSection.dataset.phase = "error";
+        }, Math.min(expiresIn + 50, 120050));
+        return;
+      }
+      recordingStatus.textContent = review.status === "TRANSCRIBED"
+        ? "Speech recognized. Translating privately."
+        : "Recognizing speech privately.";
+      if (review.status === "FAILED") {
+        resetPrivateReview();
+        recordingStatus.textContent = failureText(review.failedStage);
+        speechSection.dataset.phase = "error";
+        return;
+      }
+      reviewPollTimer = setTimeout(() => pollPrivateReview(turnId, generation, attempt + 1), 750);
+    } catch {
+      reviewPollTimer = setTimeout(() => pollPrivateReview(turnId, generation, attempt + 1), 750);
+    }
   }
 
   function setStatus(value) {
@@ -107,6 +219,7 @@
       recorder.stop();
     }
     if (value === "CLOSED") {
+      resetPrivateReview();
       speechSection.dataset.phase = "idle";
       stopped = true;
       speechEvents.replaceChildren();
@@ -409,6 +522,7 @@
   window.addEventListener("voicelink-force-live-disconnect", () => {
     if (socketOpen()) socket.close(1000, "Sharing state reset");
   });
+  window.addEventListener("voicelink-speech-cancel-private", cancelPrivateReview);
 
   form.addEventListener("submit", event => {
     event.preventDefault();
@@ -428,9 +542,58 @@
   } else recordingStatus.textContent = "Ready to record. Speak for up to 15 seconds.";
   setStatus(status.textContent);
 
+  speechModeLive.addEventListener("click", () => selectSpeechMode("LIVE_SEND"));
+  speechModeFinish.addEventListener("click", () => selectSpeechMode("FINISH_AND_SEND"));
+
+  speechReviewCancel.addEventListener("click", async () => {
+    await cancelPrivateReview();
+    recordingStatus.textContent = "Private review cancelled. Ready to record.";
+    speechSection.dataset.phase = "idle";
+    setStatus(status.textContent);
+    recordStart.focus();
+  });
+
+  speechReviewRecordAgain.addEventListener("click", async () => {
+    await cancelPrivateReview();
+    recordingStatus.textContent = "Ready to record again.";
+    speechSection.dataset.phase = "idle";
+    setStatus(status.textContent);
+    recordStart.click();
+  });
+
+  speechReviewSend.addEventListener("click", async () => {
+    if (!privateTurnId || speechReviewSend.disabled || !connected || !socketOpen()) return;
+    const turnId = privateTurnId;
+    speechReviewSend.disabled = true;
+    recordingStatus.textContent = "Sending translated turn";
+    try {
+      const response = await fetch("/api/rooms/" + roomId + "/turns/" + turnId + "/send", {
+        method: "POST", credentials: "same-origin", headers: csrfHeaders()
+      });
+      if (!response.ok) {
+        recordingStatus.textContent = response.status === 404 || response.status === 409
+          ? "That private review changed or expired. Record again."
+          : "The translated turn could not be sent. Try again.";
+        speechSection.dataset.phase = "error";
+        speechReviewSend.disabled = false;
+        if (response.status === 404 || response.status === 409) resetPrivateReview();
+        return;
+      }
+      resetPrivateReview();
+      recordingStatus.textContent = "Translated turn sent. Creating voice.";
+      speechSection.dataset.phase = "accepted";
+      refreshTurns();
+    } catch {
+      recordingStatus.textContent = "The translated turn could not be sent. Check your connection and try again.";
+      speechSection.dataset.phase = "error";
+      speechReviewSend.disabled = false;
+    }
+  });
+
   recordStart.addEventListener("click", async () => {
     if (busy || !connected || !socketOpen() ||
         status.textContent !== "ACTIVE" || !speechSupported) return;
+    if (privateTurnId) await cancelPrivateReview();
     busy = true;
     speechSection.dataset.phase = "requesting";
     recordingStatus.textContent = "Requesting microphone access";
@@ -473,21 +636,31 @@
         const data = new FormData();
         data.append("clientRequestId", crypto.randomUUID());
         data.append("durationMillis", String(durationMillis));
+        data.append("workflow", speechWorkflow);
         data.append("audio", blob, "turn.webm");
         let accepted = false;
         try {
-          const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
-          const csrfToken = document.querySelector('meta[name="_csrf"]').content;
           const response = await fetch("/api/rooms/" + roomId + "/turns", {
-            method: "POST", credentials: "same-origin", headers: { [csrfHeader]: csrfToken },
+            method: "POST", credentials: "same-origin", headers: csrfHeaders(),
             body: data
           });
-          recordingStatus.textContent = response.ok ? "Speech accepted for processing" :
+          recordingStatus.textContent = response.ok
+            ? speechWorkflow === "FINISH_AND_SEND"
+              ? "Preparing your private transcript and translation"
+              : "Speech accepted for processing"
+            :
             response.status === 429 ? "Too many speech turns. Wait a minute and try again." :
             response.status === 503 ? "Speech processing is busy. Try again shortly." :
             "Speech upload failed. Check room access and recording limits.";
           accepted = response.ok;
-          if (response.ok) refreshTurns();
+          if (response.ok) {
+            const result = await response.json();
+            if (speechWorkflow === "FINISH_AND_SEND") {
+              privateTurnId = result.turnId;
+              const generation = ++reviewGeneration;
+              pollPrivateReview(privateTurnId, generation);
+            } else refreshTurns();
+          }
         } catch {
           recordingStatus.textContent = "Speech upload failed. Check your connection and try again.";
         } finally {

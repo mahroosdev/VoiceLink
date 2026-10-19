@@ -35,6 +35,25 @@ test("room keeps Speak, Total, and Private Preview defaults with explicit Shared
   assert.match(css, /max-width: 390px/);
 });
 
+test("speech Finish and Send is explicit, private by default, bounded, and safely rendered", () => {
+  assert.match(html, /id="speech-mode-live"[^>]*aria-pressed="true"[^>]*>Live Send/);
+  assert.match(html, /id="speech-mode-finish"[^>]*aria-pressed="false"[^>]*>Finish &amp; Send/);
+  assert.match(html, /id="speech-review"[^>]*hidden/);
+  assert.match(html, /id="speech-review-send"[^>]*type="button"/);
+  assert.match(html, /id="speech-review-record-again"[^>]*type="button"/);
+  assert.match(html, /id="speech-review-cancel"[^>]*type="button"/);
+  assert.match(liveScript, /data\.append\("workflow", speechWorkflow\)/);
+  assert.match(liveScript, /attempt >= 80/);
+  assert.match(liveScript, /Private review timed out\. Record again\./);
+  assert.match(liveScript, /method: "DELETE"/);
+  assert.match(liveScript, /\/send"/);
+  assert.match(liveScript, /speechReviewTranscript\.textContent = review\.transcript/);
+  assert.match(liveScript, /speechReviewTranslation\.textContent = review\.translatedText/);
+  assert.doesNotMatch(liveScript, /innerHTML|insertAdjacentHTML|localStorage|sessionStorage/);
+  assert.match(css, /\.speech-mode__button:focus-visible/);
+  assert.match(css, /\.speech-review__actions \.button \{ width: 100%; \}/);
+});
+
 function element() {
   const callbacks = {};
   return {

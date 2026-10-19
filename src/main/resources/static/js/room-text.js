@@ -150,6 +150,7 @@
 
   function selectMode(next) {
     if (next === mode) return;
+    if (next === "type") window.dispatchEvent(new Event("voicelink-speech-cancel-private"));
     if (next === "speak" && privacyMode === "shared") stopSharing("Text sharing stopped in Speak mode.");
     mode = next;
     speakButton.setAttribute("aria-pressed", String(mode === "speak"));

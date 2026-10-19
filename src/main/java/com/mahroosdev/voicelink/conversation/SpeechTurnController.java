@@ -12,11 +12,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -29,14 +32,43 @@ public class SpeechTurnController {
     @PostMapping(path = "/api/rooms/{roomId}/turns", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<SpeechTurnService.Accepted> upload(@AuthenticationPrincipal AccountPrincipal principal,
             @PathVariable UUID roomId, @RequestParam UUID clientRequestId,
-            @RequestParam long durationMillis, @RequestPart("audio") MultipartFile audio) {
+            @RequestParam long durationMillis,
+            @RequestParam(defaultValue = "LIVE_SEND") SpeechTurnService.Workflow workflow,
+            @RequestPart("audio") MultipartFile audio, HttpServletRequest request) {
         try {
-            var accepted = turns.accept(principal.getUserId(), roomId, clientRequestId,
-                    audio.getBytes(), audio.getContentType(), durationMillis);
+            var accepted = turns.accept(principal.getUserId(), sessionId(request),
+                    roomId, clientRequestId, workflow, audio.getBytes(), audio.getContentType(), durationMillis);
             return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(accepted);
         } catch (IOException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid audio upload");
         }
+    }
+
+    @GetMapping("/api/rooms/{roomId}/turns/{turnId}/review")
+    ResponseEntity<SpeechTurnService.Review> review(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID turnId, HttpServletRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(turns.review(principal.getUserId(), sessionId(request), roomId, turnId));
+    }
+
+    @PostMapping("/api/rooms/{roomId}/turns/{turnId}/send")
+    ResponseEntity<SpeechTurnService.Sent> send(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID turnId, HttpServletRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(turns.send(principal.getUserId(), sessionId(request), roomId, turnId));
+    }
+
+    @DeleteMapping("/api/rooms/{roomId}/turns/{turnId}/review")
+    ResponseEntity<Void> cancel(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID turnId, HttpServletRequest request) {
+        turns.cancel(principal.getUserId(), sessionId(request), roomId, turnId);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    private static String sessionId(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        return session.getId();
     }
 
     @GetMapping("/api/rooms/{roomId}/turns/recent")

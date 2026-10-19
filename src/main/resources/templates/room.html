@@ -200,7 +200,12 @@
             <section id="speech-section" class="recording-card" data-phase="idle" aria-labelledby="speech-heading">
               <span class="eyebrow">Your turn to speak</span>
               <h3 id="speech-heading">Record a turn</h3>
-              <p class="recording-card__intro">Speak for up to 15 seconds. Captions and translated audio appear for both people.</p>
+              <div class="speech-mode" role="group" aria-label="Speech sending mode">
+                <button id="speech-mode-live" class="speech-mode__button" type="button" aria-pressed="true">Live Send</button>
+                <button id="speech-mode-finish" class="speech-mode__button" type="button" aria-pressed="false">Finish &amp; Send</button>
+              </div>
+              <p id="speech-mode-help" class="recording-card__intro">Live Send shares captions while your turn is processed.</p>
+              <p class="speech-direction" th:text="|Your direction: ${(room.creator ? room.participants[0].speaking : room.participants[1].speaking) == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
               <div class="recording-controls">
                 <button id="record-start" class="button button--primary recording-controls__main" type="button"
                         th:disabled="${room.status.name() != 'ACTIVE'}">
@@ -211,6 +216,20 @@
                 <output id="recording-timer" class="recording-timer" aria-hidden="true" hidden></output>
               </div>
               <p id="recording-status" class="recording-status" role="status" aria-live="polite">Checking microphone support</p>
+              <section id="speech-review" class="speech-review" aria-labelledby="speech-review-heading" hidden>
+                <div class="speech-review__heading">
+                  <div><span class="eyebrow">Private review</span><h4 id="speech-review-heading">Ready to send</h4></div>
+                  <span id="speech-review-expiry" class="small"></span>
+                </div>
+                <div class="turn-caption"><span class="turn-caption__label">What VoiceLink heard</span><p id="speech-review-transcript"></p></div>
+                <div class="turn-caption turn-caption--translated"><span class="turn-caption__label">Translation</span><p id="speech-review-translation"></p></div>
+                <p class="small muted">Only you can see this review. Send it within two minutes or record again.</p>
+                <div class="speech-review__actions">
+                  <button id="speech-review-send" class="button button--primary" type="button">Send translated turn</button>
+                  <button id="speech-review-record-again" class="button button--secondary" type="button">Record again</button>
+                  <button id="speech-review-cancel" class="button button--quiet" type="button">Cancel</button>
+                </div>
+              </section>
             </section>
             <details id="live-text-section" class="live-text disclosure" aria-labelledby="live-text-heading">
               <summary id="live-text-heading">Untranslated live text</summary>

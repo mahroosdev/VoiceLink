@@ -8,6 +8,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -117,6 +118,104 @@ class SpeechTurnFlowTests {
             Thread.sleep(20);
         }
         throw new AssertionError("Timed out waiting for turn status " + status);
+    }
+
+    private SpeechTurnService.Review awaitReview(UUID userId, String sessionId, UUID roomId,
+                                                 UUID turnId, String status) throws Exception {
+        for (int i = 0; i < 150; i++) {
+            var review = turns.review(userId, sessionId, roomId, turnId);
+            if (status.equals(review.status())) return review;
+            Thread.sleep(20);
+        }
+        throw new AssertionError("Timed out waiting for private review status " + status);
+    }
+
+    @Test void finishAndSendKeepsRecognitionAndTranslationPrivateUntilExplicitSend() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        successProviders("en", "ta");
+        when(hub.hasCurrentConnection(room, a.getId(), "session-a")).thenReturn(true);
+        var accepted = turns.accept(a.getId(), "session-a", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        var review = awaitReview(a.getId(), "session-a", room, accepted.turnId(), "READY_FOR_REVIEW");
+        assertThat(review.transcript()).isEqualTo("Hello Java");
+        assertThat(review.translatedText()).isEqualTo("வணக்கம் Java");
+        assertThat(review.expiresAt()).isNotNull();
+        assertThat(turns.recent(a.getId(), room)).isEmpty();
+        verify(tts, never()).synthesize(any());
+        verify(hub, never()).publishTurn(eq(room), any(), any(), any(), any(), any());
+        textTurns.review(a.getId(), "text-session", room, "Before speech send", 1);
+        var beforeSend = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, times(2)).translate(beforeSend.capture());
+        assertThat(beforeSend.getAllValues().get(1).recentContext()).isEmpty();
+
+        var sent = turns.send(a.getId(), "session-a", room, accepted.turnId());
+        assertThat(sent.duplicate()).isFalse();
+        assertThat(turns.send(a.getId(), "session-a", room, accepted.turnId()).duplicate()).isTrue();
+        await(a.getId(), room, "READY");
+        verify(tts, times(1)).synthesize(any());
+        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+                eq("TURN_ACCEPTED"), any());
+        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSLATION_READY"), any());
+        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+                eq("AUDIO_READY"), any());
+        textTurns.review(a.getId(), "text-session", room, "After speech send", 2);
+        var afterSend = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, times(3)).translate(afterSend.capture());
+        assertThat(afterSend.getAllValues().get(2).recentContext())
+                .extracting(TranslationProvider.ContextTurn::sourceTranscript).containsExactly("Hello Java");
+    }
+
+    @Test void privateSpeechReviewIsSessionBoundAndCancellationPreventsSend() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        successProviders("en", "ta");
+        var accepted = turns.accept(a.getId(), "owner-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(a.getId(), "owner-session", room, accepted.turnId(), "READY_FOR_REVIEW");
+        assertThatThrownBy(() -> turns.review(a.getId(), "other-session", room, accepted.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        turns.cancel(a.getId(), "owner-session", room, accepted.turnId());
+        assertThatThrownBy(() -> turns.send(a.getId(), "owner-session", room, accepted.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        assertThat(turns.recent(a.getId(), room)).isEmpty();
+        verify(tts, never()).synthesize(any());
+        verify(hub, never()).publishTurn(eq(room), any(), any(), any(), any(), any());
+    }
+
+    @Test void changedGlossaryRejectsPrivateSpeechAndPostSendTtsFailureKeepsFinalCaptions() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        var term = glossary.create(a.getId(), room,
+                new RoomGlossaryService.Change("en", "ta", "Java", "Java"));
+        successProviders("en", "ta");
+        when(hub.hasCurrentConnection(room, a.getId(), "session-a")).thenReturn(true);
+        var stale = turns.accept(a.getId(), "session-a", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(a.getId(), "session-a", room, stale.turnId(), "READY_FOR_REVIEW");
+        glossary.update(a.getId(), room, term.id(),
+                new RoomGlossaryService.Change("en", "ta", "Java", "ஜாவா"), term.rowVersion());
+        assertThatThrownBy(() -> turns.send(a.getId(), "session-a", room, stale.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(tts, never()).synthesize(any());
+
+        when(tts.synthesize(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.TIMEOUT));
+        var accepted = turns.accept(a.getId(), "session-a", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(a.getId(), "session-a", room, accepted.turnId(), "READY_FOR_REVIEW");
+        turns.send(a.getId(), "session-a", room, accepted.turnId());
+        var failed = await(a.getId(), room, "FAILED");
+        assertThat(failed.transcript()).isEqualTo("Hello Java");
+        assertThat(failed.translatedText()).isEqualTo("வணக்கம் Java");
+        assertThat(failed.failedStage()).isEqualTo("TTS");
+        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSLATION_READY"), any());
+        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+                eq("TURN_FAILED"), any());
     }
 
     @Test void uploadRequiresAuthenticationCsrfMembershipAndActiveRoom() throws Exception {
