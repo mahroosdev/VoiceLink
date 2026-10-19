@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div th:replace="~{fragments/app-shell :: chrome(${room.status.name() == 'CLOSED' ? 'rooms' : 'conversations'}, 'Conversation', ${email})}"></div>
   <main id="main" class="workspace workspace--conversation room-page">
-    <div id="room-page" th:attr="data-room-id=${room.id}">
+    <div id="room-page" data-live-text-debounce-ms="800" th:attr="data-room-id=${room.id}">
       <a class="room-back" th:if="${room.status.name() != 'CLOSED'}" th:href="@{/app}">← Back to conversations</a>
       <a class="room-back" th:if="${room.status.name() == 'CLOSED'}" th:href="@{/rooms}">← Back to rooms</a>
       <section class="room-header" aria-labelledby="room-heading">
@@ -145,17 +145,29 @@
               <ol id="final-text-events" class="turn-list" aria-label="Recent sent translated text"></ol>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
-            <section id="type-section" class="type-card" aria-labelledby="type-heading" hidden>
-              <span class="eyebrow">Total text translation</span>
-              <h3 id="type-heading">Type a complete message</h3>
-              <p class="type-card__intro">Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.</p>
+            <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-heading" hidden>
+              <div class="type-mode-bar">
+                <div class="type-mode" role="group" aria-label="Text translation mode">
+                  <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="type-composer">Live</button>
+                  <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="type-composer">Total</button>
+                </div>
+                <span id="type-privacy" class="type-privacy" aria-label="Private preview">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                  Private preview
+                </span>
+              </div>
+              <div id="type-composer">
+                <span id="type-eyebrow" class="eyebrow">Total text translation</span>
+                <h3 id="type-heading">Type a complete message</h3>
+                <p id="type-intro" class="type-card__intro">Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.</p>
+              </div>
               <p class="type-direction" th:text="|Your direction: ${(room.creator ? room.participants[0].speaking : room.participants[1].speaking) == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
               <div class="field">
                 <label for="type-source">Your message</label>
                 <textarea id="type-source" rows="4" maxlength="2000" autocomplete="off" aria-describedby="type-limit"></textarea>
                 <p id="type-limit" class="small muted">Up to 1,000 Unicode characters. Review expires after 2 minutes.</p>
               </div>
-              <div class="type-actions">
+              <div id="type-actions" class="type-actions">
                 <button id="type-translate" class="button button--primary" type="button">Translate</button>
               </div>
               <p id="type-status" class="small" role="status" aria-live="polite">Ready to translate.</p>

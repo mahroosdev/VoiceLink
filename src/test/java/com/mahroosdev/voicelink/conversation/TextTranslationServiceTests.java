@@ -111,6 +111,20 @@ class TextTranslationServiceTests {
         verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
     }
 
+    @Test void anotherRoomMemberCannotFinalizeOwnersPrivatePreview() {
+        UUID otherUser = UUID.randomUUID();
+        when(authorizer.authorize(otherUser, roomId)).thenReturn(
+                new RoomLiveAuthorizer.Member(UUID.randomUUID(), RoomStatus.ACTIVE,
+                        "ta", "en", AiServiceProfile.STANDARD));
+        var review = service.review(userId, "session-a", roomId, "Hello", 1);
+        assertThatThrownBy(() -> service.send(otherUser, "session-b", roomId,
+                review.reviewId(), "Hello", 1))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
+        assertThat(context.snapshot(roomId)).isEmpty();
+    }
+
     @Test void newerReviewInvalidatesOlderReview() {
         var first = service.review(userId, "session-a", roomId, "First", 1);
         var second = service.review(userId, "session-a", roomId, "Second", 2);

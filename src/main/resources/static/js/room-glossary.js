@@ -24,6 +24,7 @@
   const editable = form.dataset.canEdit === "true";
   let editing = null;
   let count = 0;
+  let renderedSignature = null;
 
   const roomClosed = () => document.getElementById("room-status").textContent === "CLOSED";
   const languageName = tag => tag === "ta" ? "Tamil" : "English";
@@ -78,6 +79,10 @@
   }
 
   function render(entries) {
+    const nextSignature = JSON.stringify(entries.map(entry => [entry.id, entry.rowVersion,
+      entry.sourceLanguage, entry.targetLanguage, entry.sourceTerm, entry.preferredTerm]));
+    const changed = renderedSignature !== null && renderedSignature !== nextSignature;
+    renderedSignature = nextSignature;
     list.replaceChildren();
     count = entries.length;
     capacity.textContent = count + "/12 terms";
@@ -154,6 +159,7 @@
     setEditable(editable && !roomClosed() && (editing !== null || count < 12));
     if (editable && count === 12 && editing === null)
       status.textContent = "The room glossary is full. Edit or delete a term.";
+    if (changed) window.dispatchEvent(new Event("voicelink-glossary-changed"));
   }
 
   async function send(method, url, body) {
@@ -259,6 +265,7 @@
       if (panel.open) panel.close();
       panel.hidden = true;
       list.replaceChildren();
+      renderedSignature = null;
       capacity.textContent = "";
       clearEdit();
       form.hidden = true;

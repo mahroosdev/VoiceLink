@@ -1270,6 +1270,13 @@ h3 { font-size: 1.1rem; }
 .conversation-mode__button[aria-pressed="true"] { background: #fff; color: var(--vl-primary); box-shadow: 0 1px 6px rgb(12 35 38 / 10%); }
 .conversation-mode__button:focus-visible { outline: 2px solid var(--vl-focus); outline-offset: 2px; }
 .type-card { min-width: 0; padding: clamp(20px, 3vw, 32px); border-top: 1px solid var(--vl-hairline); background: #FCFDFC; }
+.type-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.type-mode { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--vl-border); border-radius: 10px; background: #fff; }
+.type-mode__button { min-width: 76px; min-height: 40px; padding: 7px 14px; border: 0; border-radius: 7px; background: transparent; color: var(--vl-text-secondary); font: inherit; font-weight: 700; cursor: pointer; }
+.type-mode__button[aria-pressed="true"] { background: var(--vl-teal-wash); color: var(--vl-primary); }
+.type-mode__button:focus-visible { outline: 2px solid var(--vl-focus); outline-offset: 2px; }
+.type-privacy { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 10px; border: 1px solid var(--vl-teal-border); border-radius: 999px; color: var(--vl-primary); background: #fff; font-size: .82rem; font-weight: 700; white-space: nowrap; }
+.type-privacy svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .type-card__intro { max-width: 65ch; margin: 8px 0 16px; color: var(--vl-text-secondary); }
 .type-direction { display: inline-block; margin: 0 0 16px; padding: 6px 10px; border-radius: 8px; background: var(--vl-teal-wash); color: var(--vl-primary); font-size: .9rem; font-weight: 700; }
 .type-card .field textarea { display: block; width: 100%; min-height: 120px; padding: 12px 14px; border: 1px solid var(--vl-border); border-radius: 10px; background: #fff; color: var(--vl-text); font: inherit; line-height: 1.5; resize: vertical; overflow-wrap: anywhere; }
@@ -1277,14 +1284,22 @@ h3 { font-size: 1.1rem; }
 .type-card .field textarea:disabled { background: var(--vl-surface-subtle); }
 .type-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .type-review { min-width: 0; margin-top: 20px; padding: 18px; border: 1px solid var(--vl-teal-border); border-radius: 12px; background: #fff; }
+.type-card[data-text-mode="live"] .type-review { box-shadow: 0 10px 28px rgb(12 75 71 / 8%); }
 .type-review h4 { margin: 0 0 16px; color: var(--vl-primary); }
 .type-review p, .text-turn-card p { overflow-wrap: anywhere; white-space: pre-wrap; }
 .type-review .button { margin-top: 18px; }
+#type-status { min-height: 1.5em; margin-top: 12px; color: var(--vl-text-secondary); }
+#type-status[data-state="ready"], #type-status[data-state="sent"] { color: var(--vl-primary); font-weight: 650; }
+#type-status[data-state="error"], #type-status[data-state="rate-limited"] { color: var(--vl-danger); font-weight: 650; }
 .text-turn-card { min-width: 0; }
 .text-turn-card .turn-card__speaker { display: block; margin-bottom: 12px; }
 #final-text-events:empty { display: none; }
 @media (max-width: 390px) {
   .conversation-mode { display: flex; width: 100%; margin: 0; }
   .conversation-mode__button { flex: 1; min-width: 0; }
+  .type-mode-bar { align-items: stretch; flex-direction: column; }
+  .type-mode { display: flex; width: 100%; }
+  .type-mode__button { flex: 1; min-width: 0; min-height: 44px; }
+  .type-privacy { align-self: flex-start; }
   .type-actions .button, .type-review .button { width: 100%; }
 }
