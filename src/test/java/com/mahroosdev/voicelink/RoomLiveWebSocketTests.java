@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -33,6 +34,7 @@ import com.mahroosdev.voicelink.room.RoomParticipantRepository;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomService;
 import com.mahroosdev.voicelink.room.RoomStatus;
+import com.mahroosdev.voicelink.conversation.TextSharingState;
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.junit.jupiter.api.Test;
@@ -70,6 +72,7 @@ class RoomLiveWebSocketTests {
     @Autowired AccountDeletionService accountDeletion;
     @Autowired TestPasswordResetNotifier resetNotifier;
     @Autowired RoomLiveHub liveHub;
+    @Autowired TextSharingState textSharing;
 
     private UserAccount account(String label) {
         return accounts.save(new UserAccount(label, UUID.randomUUID() + "@example.test",
@@ -175,6 +178,58 @@ class RoomLiveWebSocketTests {
         JsonNode later = bSocket.await("TEXT_TRANSLATION_SENT");
         assertThat(later.path("sequence").asLong()).isGreaterThan(receiverEvent.path("sequence").asLong());
         assertThat(later.path("turnId").asText()).isEqualTo(secondId.toString());
+    }
+
+    @Test
+    void sharedDraftUsesOrderedPeerOnlyEventsAndDisconnectClearsWithoutReplay() throws Exception {
+        var a = account("Draft sender");
+        var b = account("Draft receiver");
+        var other = account("Separate receiver");
+        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        UUID otherRoom = rooms.createRoom(other.getId(), "ta", "en");
+        Browser sender = browser(a), receiver = browser(b), separate = browser(other);
+        LiveSocket senderSocket = sender.connect(roomId, sender.base);
+        LiveSocket receiverSocket = receiver.connect(roomId, receiver.base);
+        LiveSocket separateSocket = separate.connect(otherRoom, separate.base);
+        senderSocket.await("ROOM_STATE");
+        receiverSocket.await("ROOM_STATE");
+        separateSocket.await("ROOM_STATE");
+        UUID participant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).getFirst().getId();
+
+        var sharing = textSharing.start(roomId, a.getId(), participant, sender.sessionId(),
+                liveHub::publishDraftClear);
+        var firstLease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
+                sharing.sharingEpoch(), 1, liveHub::publishDraftClear);
+        assertThat(textSharing.publish(firstLease, "வணக்கம்", "en", "ta",
+                liveHub::publishDraft)).isTrue();
+        JsonNode first = receiverSocket.await("TEXT_DRAFT_UPDATED");
+        assertThat(first.path("payload").path("translatedText").asText()).isEqualTo("வணக்கம்");
+        assertThat(first.path("payload").path("provisional").asBoolean()).isTrue();
+        assertThat(first.path("payload").has("originalText")).isFalse();
+        assertThat(first.toString()).doesNotContain(sender.sessionId(), "reviewId", "sharingEpoch");
+        assertThat(senderSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(separateSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
+
+        var secondLease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
+                sharing.sharingEpoch(), 2, liveHub::publishDraftClear);
+        assertThat(textSharing.publish(secondLease, "வணக்கம் நண்பரே", "en", "ta",
+                liveHub::publishDraft)).isTrue();
+        JsonNode second = receiverSocket.await("TEXT_DRAFT_UPDATED");
+        assertThat(second.path("sequence").asLong()).isGreaterThan(first.path("sequence").asLong());
+        assertThat(second.path("turnId").asText()).isEqualTo(first.path("turnId").asText());
+        assertThat(second.path("payload").path("revision").asLong()).isEqualTo(2);
+
+        senderSocket.socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        JsonNode cleared = receiverSocket.await("TEXT_DRAFT_CLEARED");
+        assertThat(cleared.path("sequence").asLong()).isGreaterThan(second.path("sequence").asLong());
+        assertThat(cleared.path("turnId").asText()).isEqualTo(second.path("turnId").asText());
+        assertThat(cleared.path("payload").path("reason").asText()).isEqualTo("DISCONNECTED");
+
+        LiveSocket reconnected = sender.connect(roomId, sender.base);
+        reconnected.await("ROOM_STATE");
+        assertThat(receiverSocket.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(reconnected.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
     }
 
     private static byte[] smallWebm() {
@@ -410,14 +465,22 @@ class RoomLiveWebSocketTests {
         final String base;
         final HttpClient http;
         final ObjectMapper json;
+        final CookieManager cookies;
 
         Browser(int port, ObjectMapper json) {
             this.port = port;
             this.base = "http://localhost:" + port;
+            this.cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
             this.http = HttpClient.newBuilder()
-                    .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL))
+                    .cookieHandler(cookies)
                     .connectTimeout(Duration.ofSeconds(5)).build();
             this.json = json;
+        }
+
+        String sessionId() {
+            return cookies.getCookieStore().getCookies().stream()
+                    .filter(cookie -> "JSESSIONID".equals(cookie.getName()))
+                    .map(HttpCookie::getValue).findFirst().orElseThrow();
         }
 
         void login(String email) throws Exception {

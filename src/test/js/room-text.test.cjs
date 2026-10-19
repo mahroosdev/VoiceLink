@@ -11,20 +11,24 @@ const glossaryScript = fs.readFileSync(path.join(root, "static/js/room-glossary.
 const liveScript = fs.readFileSync(path.join(root, "static/js/room-live.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "static/css/voicelink.css"), "utf8");
 
-test("room keeps Speak and Total defaults with a secondary Live private mode", () => {
+test("room keeps Speak, Total, and Private Preview defaults with explicit Shared Live consent", () => {
   assert.match(html, /id="mode-speak"[^>]*aria-pressed="true"/);
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
   assert.match(html, /data-live-text-debounce-ms="800"/);
-  assert.match(html, /Private preview/);
+  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Preview/);
+  assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
+  assert.match(html, /Your translated drafts will be visible/);
+  assert.match(html, /id="shared-text-draft"[^>]*hidden/);
   assert.match(html, /id="type-section"[^>]*data-text-mode="total"[^>]*hidden/);
   assert.match(html, /Translated — Not sent/);
   assert.match(html, /id="type-send"[^>]*disabled/);
   assert.match(html, /id="speech-section"/);
   assert.match(html, /id="live-text-section"/);
-  assert.doesNotMatch(html, /Shared Live[^<]*selectable/i);
   assert.match(liveScript, /TEXT_TRANSLATION_SENT/);
+  assert.match(liveScript, /TEXT_DRAFT_UPDATED/);
+  assert.match(liveScript, /TEXT_DRAFT_CLEARED/);
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|localStorage|sessionStorage/);
   assert.match(glossaryScript, /voicelink-glossary-changed/);
   assert.match(css, /type-mode__button:focus-visible/);
@@ -38,6 +42,7 @@ function element() {
     children: [], attributes: {}, focused: false,
     addEventListener(name, fn) { callbacks[name] = fn; },
     setAttribute(name, value) { this.attributes[name] = value; },
+    removeAttribute(name) { delete this.attributes[name]; },
     getAttribute(name) { return this.attributes[name]; },
     focus() { this.focused = true; },
     append(...items) { this.children.push(...items); },
@@ -50,9 +55,12 @@ function element() {
 function setup(fetch) {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
     "text-mode-total", "speech-section", "type-section", "type-eyebrow", "type-heading",
-    "type-intro", "type-actions", "type-source", "type-translate", "type-send", "type-status",
+    "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
+    "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
+    "type-translate", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
-    "final-text-events", "turn-announcement"];
+    "final-text-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
+    "shared-text-draft-status", "shared-text-draft-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-page"].dataset.liveTextDebounceMs = "800";
@@ -61,6 +69,8 @@ function setup(fetch) {
   nodes["mode-type"].attributes["aria-pressed"] = "false";
   nodes["text-mode-live"].attributes["aria-pressed"] = "false";
   nodes["text-mode-total"].attributes["aria-pressed"] = "true";
+  nodes["text-privacy-private"].attributes["aria-pressed"] = "true";
+  nodes["text-privacy-shared"].attributes["aria-pressed"] = "false";
   nodes["type-section"].hidden = true;
   const listeners = {};
   const intervals = [];
@@ -75,7 +85,13 @@ function setup(fetch) {
     },
     createElement() { return element(); }
   };
-  const window = { addEventListener(name, fn) { listeners[name] = fn; } };
+  const dispatched = [];
+  class FakeEvent { constructor(type) { this.type = type; } }
+  class FakeCustomEvent extends FakeEvent { constructor(type, options) { super(type); this.detail = options?.detail; } }
+  const window = {
+    addEventListener(name, fn) { listeners[name] = fn; },
+    dispatchEvent(event) { dispatched.push(event); listeners[event.type]?.(event); }
+  };
   class FakeAbortController {
     constructor() { this.signal = { aborted: false }; }
     abort() { this.signal.aborted = true; }
@@ -94,8 +110,9 @@ function setup(fetch) {
     }
   };
   vm.runInNewContext(script, { document, window, fetch, setInterval(fn) { intervals.push(fn); },
-    setTimeout, clearTimeout, AbortController: FakeAbortController, Date });
-  return { nodes, listeners, intervals, timeouts, runTimeouts };
+    setTimeout, clearTimeout, AbortController: FakeAbortController, Event: FakeEvent,
+    CustomEvent: FakeCustomEvent, Date });
+  return { nodes, listeners, intervals, timeouts, runTimeouts, dispatched };
 }
 
 const next = () => new Promise(resolve => setImmediate(resolve));
@@ -188,6 +205,127 @@ test("Tamil IME composition never requests until composition ends and pause elap
   assert.equal(JSON.parse(calls[0].request.body).sourceText, "வணக்கம்");
 });
 
+test("Shared Live requires explicit opt-in and binds translated reviews to its epoch", async () => {
+  const calls = [];
+  const { nodes, runTimeouts } = setup(async (url, request) => {
+    calls.push({ url, request });
+    if (url.endsWith("/sharing"))
+      return response({ sharingEpoch: "epoch-1", expiresAt: "2099-01-01T00:00:00Z" }, true, 201);
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  assert.equal(nodes["type-privacy-controls"].hidden, false);
+  assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
+  nodes["text-privacy-shared"].callbacks.click();
+  await next();
+  assert.equal(calls[0].url, "/api/rooms/room-1/text/sharing");
+  assert.equal(calls[0].request.method, "POST");
+  assert.equal(nodes["text-privacy-shared"].attributes["aria-pressed"], "true");
+  assert.equal(nodes["type-sharing-notice"].hidden, false);
+  assert.match(nodes["type-intro"].textContent, /visible to the other participant/);
+  nodes["type-source"].value = "Hello";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  const review = JSON.parse(calls[1].request.body);
+  assert.equal(review.sharingEpoch, "epoch-1");
+  assert.equal(review.sourceText, "Hello");
+  assert.match(nodes["type-status"].textContent, /Shared live draft updated/);
+});
+
+test("Shared-to-Private stops server sharing and ignores a delayed shared review", async () => {
+  const deferred = [];
+  const calls = [];
+  const { nodes, runTimeouts } = setup((url, request) => {
+    calls.push({ url, request });
+    if (url.endsWith("/sharing"))
+      return Promise.resolve(response({ sharingEpoch: "epoch-2" }, true, 201));
+    if (request.method === "DELETE") return Promise.resolve(response({}, true, 204));
+    return new Promise(resolve => deferred.push(resolve));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["text-privacy-shared"].callbacks.click();
+  await next();
+  nodes["type-source"].value = "Pending";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  assert.equal(deferred.length, 1);
+  nodes["text-privacy-private"].callbacks.click();
+  await next();
+  assert.equal(calls.at(-1).url, "/api/rooms/room-1/text/sharing/epoch-2");
+  assert.equal(calls.at(-1).request.method, "DELETE");
+  assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
+  const body = JSON.parse(calls[1].request.body);
+  deferred[0](response(privateReview("Pending", body.revision)));
+  await next();
+  assert.equal(nodes["type-review"].hidden, true);
+  assert.equal(nodes["type-send"].disabled, true);
+});
+
+test("editing a shared request invalidates its server revision without sending source text", async () => {
+  const calls = [];
+  const deferredReviews = [];
+  const { nodes, runTimeouts } = setup((url, request) => {
+    calls.push({ url, request });
+    if (url.endsWith("/sharing"))
+      return Promise.resolve(response({ sharingEpoch: "epoch-race" }, true, 201));
+    if (url.endsWith("/invalidate")) return Promise.resolve(response({}, true, 204));
+    return new Promise(resolve => deferredReviews.push({ resolve, request }));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["text-privacy-shared"].callbacks.click();
+  await next();
+  nodes["type-source"].value = "First";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  assert.equal(deferredReviews.length, 1);
+
+  nodes["type-source"].value = "Second";
+  nodes["type-source"].callbacks.input();
+  await next();
+  const invalidation = calls.find(call => call.url.endsWith("/invalidate"));
+  assert.ok(invalidation);
+  assert.deepEqual(Object.keys(JSON.parse(invalidation.request.body)), ["revision"]);
+  const stale = JSON.parse(deferredReviews[0].request.body);
+  deferredReviews[0].resolve(response(privateReview("First", stale.revision)));
+  await next();
+  assert.equal(nodes["type-review"].hidden, true);
+
+  runTimeouts(800);
+  await next();
+  assert.equal(deferredReviews.length, 2);
+  const latest = JSON.parse(deferredReviews[1].request.body);
+  assert.equal(latest.sourceText, "Second");
+  assert.equal(latest.revision > JSON.parse(invalidation.request.body).revision, true);
+});
+
+test("clearing Shared Live input requests an authoritative draft clear without provider work", async () => {
+  const calls = [];
+  const { nodes } = setup(async (url, request) => {
+    calls.push({ url, request });
+    if (url.endsWith("/sharing")) return response({ sharingEpoch: "epoch-3" }, true, 201);
+    return response({}, true, 204);
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["text-privacy-shared"].callbacks.click();
+  await next();
+  nodes["type-source"].value = "Draft";
+  nodes["type-source"].callbacks.input();
+  nodes["type-source"].value = "";
+  nodes["type-source"].callbacks.input();
+  await next();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, "/api/rooms/room-1/text/sharing/epoch-3/clear");
+  assert.equal(JSON.parse(calls[1].request.body).revision > 0, true);
+});
+
 test("older and aborted Live responses cannot replace a newer preview", async () => {
   const deferred = [];
   const requests = [];
@@ -270,6 +408,42 @@ test("Live Send uses the reviewed result once and socket echo is deduplicated", 
   assert.equal(nodes["turn-announcement"].textContent, "You sent translated text.");
 });
 
+test("receiver replaces a shared draft, rejects older revisions, and clears it before final text", () => {
+  const { nodes, listeners } = setup(async () => response({}));
+  const update = revision => ({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
+    turnId: "draft-1", senderParticipantId: "person-1", payload: { translatedText: "draft-" + revision,
+      sourceLanguage: "en", targetLanguage: "ta", revision, provisional: true } } });
+  listeners["voicelink-text-draft"](update(2));
+  assert.equal(nodes["shared-text-draft"].hidden, false);
+  assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
+  assert.equal(nodes["shared-text-draft-text"].lang, "ta");
+  listeners["voicelink-text-draft"](update(1));
+  assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
+  listeners["voicelink-final-text"]({ detail: { roomId: "room-1", turnId: "final-1",
+    senderParticipantId: "person-1", payload: { originalText: "Hello",
+      translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
+  assert.equal(nodes["shared-text-draft"].hidden, true);
+  assert.equal(nodes["final-text-events"].childElementCount, 1);
+  assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
+});
+
+test("draft clear and reconnect reset remove provisional content without creating history", () => {
+  const { nodes, listeners } = setup(async () => response({}));
+  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
+    turnId: "draft-2", senderParticipantId: "person-2", payload: { translatedText: "temporary",
+      sourceLanguage: "ta", targetLanguage: "en", revision: 3, provisional: true } } });
+  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_CLEARED", roomId: "room-1",
+    turnId: "draft-2", senderParticipantId: "person-2", payload: { revision: 3 } } });
+  assert.equal(nodes["shared-text-draft"].hidden, true);
+  assert.equal(nodes["final-text-events"].childElementCount, 0);
+  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
+    turnId: "draft-3", senderParticipantId: "person-2", payload: { translatedText: "again",
+      sourceLanguage: "ta", targetLanguage: "en", revision: 4, provisional: true } } });
+  listeners["voicelink-text-draft-reset"]();
+  assert.equal(nodes["shared-text-draft"].hidden, true);
+  assert.equal(nodes["shared-text-draft-text"].textContent, "");
+});
+
 test("rate-limit and provider failures leave Live editable but unsendable", async () => {
   let attempts = 0;
   const { nodes, runTimeouts } = setup(async () => {
@@ -318,6 +492,36 @@ test("glossary changes invalidate a ready review and request a fresh Live previe
   await next();
   assert.equal(calls.length, 2);
   assert.equal(nodes["type-send"].disabled, false);
+});
+
+test("Shared Live clears the old glossary draft before scheduling its replacement", async () => {
+  const calls = [];
+  let finishClear;
+  const { nodes, listeners, timeouts, runTimeouts } = setup(async (url, request) => {
+    calls.push({ url, request });
+    if (url.endsWith("/sharing")) return response({ sharingEpoch: "epoch-glossary" }, true, 201);
+    if (url.endsWith("/clear"))
+      return new Promise(resolve => { finishClear = () => resolve(response({}, true, 204)); });
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision, "review-glossary"));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["text-privacy-shared"].callbacks.click();
+  await next();
+  nodes["type-source"].value = "REST API";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  listeners["voicelink-glossary-changed"]();
+  assert.equal(typeof finishClear, "function");
+  assert.equal(timeouts.size, 0);
+  finishClear();
+  await next();
+  assert.equal(timeouts.size, 1);
+  runTimeouts(800);
+  await next();
+  assert.equal(calls.filter(call => call.url.endsWith("/reviews")).length, 2);
 });
 
 test("expiry and room closure clear and cancel all private state", async () => {

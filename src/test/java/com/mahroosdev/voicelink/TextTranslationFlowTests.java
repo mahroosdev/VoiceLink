@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
@@ -112,6 +113,44 @@ class TextTranslationFlowTests {
         rooms.closeRoom(creator.getId(), roomId);
         mvc.perform(review(roomId, "Hello", 1, creator, session).with(csrf()))
                 .andExpect(status().isConflict());
+    }
+
+    @Test void sharedLiveRequiresCsrfMembershipCurrentSocketAndSessionBoundEpoch() throws Exception {
+        UserAccount creator = account(), joiner = account(), outsider = account();
+        UUID roomId = active(creator, joiner);
+        MockHttpSession session = new MockHttpSession();
+        mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+                        .with(user(principal(creator))))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+                        .with(user(principal(outsider))).with(csrf()))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isConflict());
+
+        when(hub.hasCurrentConnection(roomId, creator.getId(), session.getId())).thenReturn(true);
+        String start = mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID epoch = UUID.fromString(json.readTree(start).path("sharingEpoch").asText());
+        when(hub.publishDraft(any())).thenReturn(true);
+        when(standard.translate(any())).thenReturn(new TranslationProvider.Result(
+                "வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1));
+        mvc.perform(post("/api/rooms/{roomId}/text/reviews", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of(
+                                "sourceText", "Hello", "revision", 1, "sharingEpoch", epoch))))
+                .andExpect(status().isCreated());
+        verify(hub).publishDraft(any());
+
+        mvc.perform(delete("/api/rooms/{roomId}/text/sharing/{epoch}", roomId, epoch)
+                        .session(session).with(user(principal(creator))))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/rooms/{roomId}/text/sharing/{epoch}", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isNoContent());
     }
 
     @Test void oversizedReviewBodyIsRejectedBeforeProviderWork() throws Exception {

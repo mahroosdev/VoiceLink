@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.auth.PasswordResetCompletedEvent;
 import com.mahroosdev.voicelink.auth.AccountDeletedEvent;
+import com.mahroosdev.voicelink.conversation.TextSharingState;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.security.core.Authentication;
@@ -34,11 +35,14 @@ public class RoomLiveHub {
     private final RoomLiveAuthorizer authorizer;
     private final ObjectMapper json;
     private final UserAccountRepository accounts;
+    private final TextSharingState textSharing;
 
-    public RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json, UserAccountRepository accounts) {
+    public RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json, UserAccountRepository accounts,
+                       TextSharingState textSharing) {
         this.authorizer = authorizer;
         this.json = json;
         this.accounts = accounts;
+        this.textSharing = textSharing;
     }
 
     public Connection register(WebSocketSession socket, UUID roomId, UUID userId, HttpSession httpSession) {
@@ -65,7 +69,10 @@ public class RoomLiveHub {
             send(stream, connection, event(stream, roomId, "ROOM_STATE", null, null,
                     Map.of("status", snapshot.status().name(), "participants", snapshot.participants())));
         }
-        if (previous != null) close(previous, REPLACED);
+        if (previous != null) {
+            textSharing.disconnect(roomId, userId, previous.httpSessionId, this::publishDraftClear);
+            close(previous, REPLACED);
+        }
         return connection;
     }
 
@@ -73,6 +80,17 @@ public class RoomLiveHub {
         Stream stream = connection.stream;
         synchronized (stream) {
             stream.members.remove(connection.userId, connection);
+        }
+        textSharing.disconnect(connection.roomId, connection.userId,
+                connection.httpSessionId, this::publishDraftClear);
+    }
+
+    public boolean hasCurrentConnection(UUID roomId, UUID userId, String sessionId) {
+        Stream stream = streams.get(roomId);
+        if (stream == null) return false;
+        synchronized (stream) {
+            Connection connection = stream.members.get(userId);
+            return connection != null && connection.httpSessionId.equals(sessionId) && connection.valid();
         }
     }
 
@@ -152,6 +170,68 @@ public class RoomLiveHub {
         }
     }
 
+    public boolean publishDraft(TextSharingState.DraftUpdate draft) {
+        RoomLiveAuthorizer.Member member;
+        try {
+            member = authorizer.authorize(draft.userId(), draft.roomId());
+        } catch (RuntimeException ex) {
+            return false;
+        }
+        if (member == null || member.status() != RoomStatus.ACTIVE
+                || !member.participantId().equals(draft.participantId())
+                || !member.speaking().equals(draft.sourceLanguage())
+                || !member.listening().equals(draft.targetLanguage())) return false;
+        Stream stream = streams.get(draft.roomId());
+        if (stream == null) return false;
+        synchronized (stream) {
+            Connection sender = stream.members.get(draft.userId());
+            if (stream.closed || sender == null || !sender.httpSessionId.equals(draft.sessionId())
+                    || !sender.valid()) return false;
+            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_UPDATED",
+                    draft.participantId(), draft.draftId(), Map.of(
+                            "translatedText", draft.translatedText(),
+                            "sourceLanguage", draft.sourceLanguage(),
+                            "targetLanguage", draft.targetLanguage(),
+                            "revision", draft.revision(),
+                            "provisional", true,
+                            "expiresAt", draft.expiresAt().toString()));
+            sendToPeers(stream, draft.userId(), event);
+            return true;
+        }
+    }
+
+    public void publishDraftClear(TextSharingState.DraftClear draft) {
+        RoomLiveAuthorizer.Member member;
+        try {
+            member = authorizer.authorize(draft.userId(), draft.roomId());
+        } catch (RuntimeException ex) {
+            return;
+        }
+        if (member == null || member.status() != RoomStatus.ACTIVE
+                || !member.participantId().equals(draft.participantId())) return;
+        Stream stream = streams.get(draft.roomId());
+        if (stream == null) return;
+        synchronized (stream) {
+            if (stream.closed) return;
+            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_CLEARED",
+                    draft.participantId(), draft.draftId(), Map.of(
+                            "revision", draft.revision(), "reason", draft.reason()));
+            sendToPeers(stream, draft.userId(), event);
+        }
+    }
+
+    private void sendToPeers(Stream stream, UUID senderUserId, LiveRoomEvent event) {
+        for (Connection receiver : List.copyOf(stream.members.values())) {
+            if (receiver.userId.equals(senderUserId)) continue;
+            if (!receiver.valid()) {
+                stream.members.remove(receiver.userId, receiver);
+                close(receiver, CloseStatus.POLICY_VIOLATION);
+            } else {
+                send(stream, receiver, event);
+            }
+        }
+    }
+
     private void errorLocked(Connection connection, String code, String message) {
         send(connection.stream, connection,
                 event(connection.stream, connection.roomId, "ERROR", null, null,
@@ -201,36 +281,52 @@ public class RoomLiveHub {
     }
 
     public void revokeHttpSession(String sessionId) {
+        List<Connection> removed = new java.util.ArrayList<>();
         for (Stream stream : streams.values()) {
             synchronized (stream) {
                 for (Connection connection : List.copyOf(stream.members.values())) {
                     if (connection.httpSessionId.equals(sessionId)) {
                         stream.members.remove(connection.userId, connection);
+                        removed.add(connection);
                         close(connection, CloseStatus.POLICY_VIOLATION);
                     }
                 }
             }
         }
+        removed.forEach(connection -> textSharing.disconnect(connection.roomId, connection.userId,
+                connection.httpSessionId, this::publishDraftClear));
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPasswordReset(PasswordResetCompletedEvent reset) {
+        List<Connection> removed = new java.util.ArrayList<>();
         for (Stream stream : streams.values()) {
             synchronized (stream) {
                 Connection connection = stream.members.remove(reset.userId());
-                if (connection != null) close(connection, CloseStatus.POLICY_VIOLATION);
+                if (connection != null) {
+                    removed.add(connection);
+                    close(connection, CloseStatus.POLICY_VIOLATION);
+                }
             }
         }
+        removed.forEach(connection -> textSharing.disconnect(connection.roomId, connection.userId,
+                connection.httpSessionId, this::publishDraftClear));
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAccountDeleted(AccountDeletedEvent deleted) {
+        List<Connection> removed = new java.util.ArrayList<>();
         for (Stream stream : streams.values()) {
             synchronized (stream) {
                 Connection connection = stream.members.remove(deleted.userId());
-                if (connection != null) close(connection, CloseStatus.POLICY_VIOLATION);
+                if (connection != null) {
+                    removed.add(connection);
+                    close(connection, CloseStatus.POLICY_VIOLATION);
+                }
             }
         }
+        removed.forEach(connection -> textSharing.disconnect(connection.roomId, connection.userId,
+                connection.httpSessionId, this::publishDraftClear));
     }
 
     private LiveRoomEvent event(Stream stream, UUID roomId, String type,

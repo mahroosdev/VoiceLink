@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,7 +29,42 @@ public class TextTranslationController {
         if (body == null || body.revision() == null) throw badRequest();
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(
                 service.review(principal.getUserId(), sessionId(request), roomId,
-                        body.sourceText(), body.revision()));
+                        body.sourceText(), body.revision(), body.sharingEpoch()));
+    }
+
+    @PostMapping("/api/rooms/{roomId}/text/sharing")
+    ResponseEntity<TextSharingState.SharingView> startSharing(
+            @AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID roomId,
+            HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(
+                service.startSharing(principal.getUserId(), sessionId(request), roomId));
+    }
+
+    @DeleteMapping("/api/rooms/{roomId}/text/sharing/{epoch}")
+    ResponseEntity<Void> stopSharing(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID epoch, HttpServletRequest request) {
+        service.stopSharing(principal.getUserId(), sessionId(request), roomId, epoch);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    @PostMapping("/api/rooms/{roomId}/text/sharing/{epoch}/clear")
+    ResponseEntity<Void> clearSharedDraft(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID epoch,
+            @RequestBody ClearRequest body, HttpServletRequest request) {
+        if (body == null || body.revision() == null) throw badRequest();
+        service.clearSharedDraft(principal.getUserId(), sessionId(request), roomId,
+                epoch, body.revision());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    @PostMapping("/api/rooms/{roomId}/text/sharing/{epoch}/invalidate")
+    ResponseEntity<Void> invalidateSharedDraft(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID epoch,
+            @RequestBody ClearRequest body, HttpServletRequest request) {
+        if (body == null || body.revision() == null) throw badRequest();
+        service.invalidateSharedDraft(principal.getUserId(), sessionId(request), roomId,
+                epoch, body.revision());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 
     @PostMapping("/api/rooms/{roomId}/text/send")
@@ -55,6 +91,7 @@ public class TextTranslationController {
                 .body(Map.of("error", ex.getReason() == null ? "Request could not be completed." : ex.getReason()));
     }
 
-    public record ReviewRequest(String sourceText, Long revision) {}
+    public record ReviewRequest(String sourceText, Long revision, UUID sharingEpoch) {}
     public record SendRequest(UUID reviewId, String sourceText, Long revision) {}
+    public record ClearRequest(Long revision) {}
 }

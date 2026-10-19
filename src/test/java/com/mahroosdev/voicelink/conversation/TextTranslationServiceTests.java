@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -53,6 +54,7 @@ class TextTranslationServiceTests {
     private final RoomLiveHub hub = mock(RoomLiveHub.class);
     private final TranslationProvider standard = mock(TranslationProvider.class);
     private final SharedConversationContext context = new SharedConversationContext(clock);
+    private TextSharingState sharing;
     private TextTranslationService service;
 
     @BeforeEach void setup() {
@@ -61,10 +63,13 @@ class TextTranslationServiceTests {
         when(glossary.list(userId, roomId)).thenReturn(List.of());
         when(glossary.applicableForTranslation(eq(roomId), eq("en"), eq("ta"), any())).thenReturn(List.of());
         when(resolver.resolve(AiServiceProfile.STANDARD)).thenReturn(new AiProviderBundle(null, standard, null));
+        when(hub.hasCurrentConnection(roomId, userId, "session-a")).thenReturn(true);
+        when(hub.publishDraft(any())).thenReturn(true);
         when(standard.translate(any())).thenReturn(new TranslationProvider.Result(
                 "வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1));
+        sharing = new TextSharingState(clock);
         service = new TextTranslationService(authorizer, glossary, resolver, hub, context,
-                new TextTranslationRateLimiter(8, 40), clock);
+                new TextTranslationRateLimiter(8, 40), sharing, clock);
     }
 
     @Test void privateReviewUsesDirectionGlossaryAndSharedContextWithoutPublishing() {
@@ -123,6 +128,121 @@ class TextTranslationServiceTests {
                         ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
         verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
         assertThat(context.snapshot(roomId)).isEmpty();
+    }
+
+    @Test void sharedReviewRequiresExplicitSessionBoundOptInAndPublishesOnlyProviderTranslation() {
+        var authorization = service.startSharing(userId, "session-a", roomId);
+        var review = service.review(userId, "session-a", roomId, "Raw source", 4,
+                authorization.sharingEpoch());
+        assertThat(review.translatedText()).isEqualTo("வணக்கம்");
+        var update = org.mockito.ArgumentCaptor.forClass(TextSharingState.DraftUpdate.class);
+        verify(hub).publishDraft(update.capture());
+        assertThat(update.getValue().translatedText()).isEqualTo("வணக்கம்");
+        assertThat(update.getValue().sourceLanguage()).isEqualTo("en");
+        assertThat(update.getValue().targetLanguage()).isEqualTo("ta");
+        assertThat(update.getValue().revision()).isEqualTo(4);
+        assertThat(context.snapshot(roomId)).isEmpty();
+        verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test void forgedOrOtherSessionSharingEpochCannotInvokeProvider() {
+        var authorization = service.startSharing(userId, "session-a", roomId);
+        assertThatThrownBy(() -> service.review(userId, "session-b", roomId,
+                "Hello", 1, authorization.sharingEpoch()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        assertThatThrownBy(() -> service.review(userId, "session-a", roomId,
+                "Hello", 1, UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        verify(standard, never()).translate(any());
+    }
+
+    @Test void privateReviewAfterOptInClearsSharingWithoutPublishingDraft() {
+        service.startSharing(userId, "session-a", roomId);
+        var review = service.review(userId, "session-a", roomId, "Private again", 2);
+        assertThat(review.originalText()).isEqualTo("Private again");
+        verify(hub, never()).publishDraft(any());
+        assertThat(context.snapshot(roomId)).isEmpty();
+    }
+
+    @Test void optOutDuringProviderWorkPreventsLateDraftPublication() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(standard.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1);
+        });
+        var authorization = service.startSharing(userId, "session-a", roomId);
+        try (var workers = Executors.newSingleThreadExecutor()) {
+            var pending = workers.submit(() -> service.review(userId, "session-a", roomId,
+                    "Still typing", 3, authorization.sharingEpoch()));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            service.stopSharing(userId, "session-a", roomId, authorization.sharingEpoch());
+            release.countDown();
+            assertThatThrownBy(() -> pending.get(3, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ResponseStatusException.class);
+        }
+        verify(hub, never()).publishDraft(any());
+        verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test void privateProviderWorkDoesNotBecomeShareableAfterLaterOptIn() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(standard.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1);
+        });
+        try (var workers = Executors.newSingleThreadExecutor()) {
+            var privateWork = workers.submit(() -> service.review(
+                    userId, "session-a", roomId, "Private first", 1));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            var authorization = service.startSharing(userId, "session-a", roomId);
+            release.countDown();
+            assertThatThrownBy(() -> privateWork.get(3, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ResponseStatusException.class);
+            assertThat(authorization.sharingEpoch()).isNotNull();
+        }
+        verify(hub, never()).publishDraft(any());
+        assertThat(context.snapshot(roomId)).isEmpty();
+    }
+
+    @Test void roomClosureDuringSharedProviderWorkPreventsLateDraftPublication() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(standard.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1);
+        });
+        var authorization = service.startSharing(userId, "session-a", roomId);
+        try (var workers = Executors.newSingleThreadExecutor()) {
+            var pending = workers.submit(() -> service.review(userId, "session-a", roomId,
+                    "Closing room", 1, authorization.sharingEpoch()));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            service.onClosed(new RoomClosedEvent(roomId));
+            release.countDown();
+            assertThatThrownBy(() -> pending.get(3, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ResponseStatusException.class);
+        }
+        verify(hub, never()).publishDraft(any());
+        verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test void sharedFinalizationClearsDraftBeforePublishingExactlyOneFinalEvent() {
+        var authorization = service.startSharing(userId, "session-a", roomId);
+        var review = service.review(userId, "session-a", roomId, "Hello", 1,
+                authorization.sharingEpoch());
+        var first = service.send(userId, "session-a", roomId, review.reviewId(), "Hello", 1);
+        assertThat(first.duplicate()).isFalse();
+        assertThat(service.send(userId, "session-a", roomId,
+                review.reviewId(), "Hello", 1).duplicate()).isTrue();
+        var ordered = inOrder(hub);
+        ordered.verify(hub).publishDraft(any());
+        ordered.verify(hub).publishDraftClear(any());
+        ordered.verify(hub).publishTurn(eq(roomId), eq(userId), eq(participantId),
+                eq(first.finalId()), eq("TEXT_TRANSLATION_SENT"), any());
+        verify(hub, org.mockito.Mockito.times(1)).publishTurn(any(), any(), any(), any(), any(), any());
+        assertThat(context.snapshot(roomId)).hasSize(1);
     }
 
     @Test void newerReviewInvalidatesOlderReview() {
@@ -225,7 +345,7 @@ class TextTranslationServiceTests {
 
     @Test void rateLimitStopsCallsBeforeProvider() {
         TextTranslationService limited = new TextTranslationService(authorizer, glossary, resolver, hub,
-                context, new TextTranslationRateLimiter(1, 2), clock);
+                context, new TextTranslationRateLimiter(1, 2), new TextSharingState(clock), clock);
         limited.review(userId, "s", roomId, "First", 1);
         assertThatThrownBy(() -> limited.review(userId, "s", roomId, "Second", 2))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
@@ -241,7 +361,7 @@ class TextTranslationServiceTests {
         when(glossary.applicableForTranslation(any(UUID.class), eq("en"), eq("ta"), any()))
                 .thenReturn(List.of());
         TextTranslationService bounded = new TextTranslationService(authorizer, glossary, resolver, hub,
-                context, new TextTranslationRateLimiter(40, 40), clock);
+                context, new TextTranslationRateLimiter(40, 40), new TextSharingState(clock), clock);
         for (int i = 0; i < 32; i++)
             bounded.review(userId, "session-a", UUID.randomUUID(), "Message", i);
         assertThatThrownBy(() -> bounded.review(userId, "session-a", UUID.randomUUID(), "Message", 33))

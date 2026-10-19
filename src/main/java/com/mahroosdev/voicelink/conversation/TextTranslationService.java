@@ -24,7 +24,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Private, bounded reviews; only explicit finalization publishes a text turn. */
+/** Bounded reviews; sharing requires an explicit session-bound lease and Send finalizes a turn. */
 @Service
 public class TextTranslationService {
     private static final int MAX_TEXT_CODE_POINTS = 1000;
@@ -40,29 +40,38 @@ public class TextTranslationService {
     private final RoomLiveHub hub;
     private final SharedConversationContext context;
     private final TextTranslationRateLimiter limiter;
+    private final TextSharingState sharing;
     private final Clock clock;
     private int inFlight;
 
     @Autowired
     public TextTranslationService(RoomLiveAuthorizer authorizer, RoomGlossaryService glossary,
                                   AiProviderResolver providers, RoomLiveHub hub,
-                                  SharedConversationContext context, TextTranslationRateLimiter limiter) {
-        this(authorizer, glossary, providers, hub, context, limiter, Clock.systemUTC());
+                                  SharedConversationContext context, TextTranslationRateLimiter limiter,
+                                  TextSharingState sharing) {
+        this(authorizer, glossary, providers, hub, context, limiter, sharing, Clock.systemUTC());
     }
 
     TextTranslationService(RoomLiveAuthorizer authorizer, RoomGlossaryService glossary,
                            AiProviderResolver providers, RoomLiveHub hub,
-                           SharedConversationContext context, TextTranslationRateLimiter limiter, Clock clock) {
+                           SharedConversationContext context, TextTranslationRateLimiter limiter,
+                           TextSharingState sharing, Clock clock) {
         this.authorizer = authorizer;
         this.glossary = glossary;
         this.providers = providers;
         this.hub = hub;
         this.context = context;
         this.limiter = limiter;
+        this.sharing = sharing;
         this.clock = clock;
     }
 
     public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText, long revision) {
+        return review(userId, sessionId, roomId, sourceText, revision, null);
+    }
+
+    public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText,
+                             long revision, UUID sharingEpoch) {
         validText(sourceText);
         if (revision < 0 || sessionId == null || sessionId.isBlank()) throw badRequest();
         RoomLiveAuthorizer.Member member = active(userId, roomId);
@@ -70,6 +79,7 @@ public class TextTranslationService {
         RoomReviews room;
         UserReviews user;
         long generation;
+        TextSharingState.Lease sharingLease;
         synchronized (this) {
             pruneLocked();
             room = rooms.get(roomId);
@@ -79,6 +89,13 @@ public class TextTranslationService {
                 rooms.put(roomId, room);
             }
             user = room.users.computeIfAbsent(userId, ignored -> new UserReviews());
+            if (sharingEpoch == null) {
+                sharing.stopForPrivate(roomId, userId, hub::publishDraftClear);
+                sharingLease = null;
+            } else {
+                sharingLease = sharing.begin(roomId, userId, member.participantId(), sessionId,
+                        sharingEpoch, revision, hub::publishDraftClear);
+            }
             if (user.inFlight >= MAX_IN_FLIGHT_PER_USER || inFlight >= MAX_IN_FLIGHT) throw busy();
             if (!limiter.tryAcquire(userId)) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Too many text translations. Please wait and try again.");
@@ -108,7 +125,12 @@ public class TextTranslationService {
                 Instant now = clock.instant();
                 Review review = new Review(UUID.randomUUID(), UUID.randomUUID(), sessionId, sourceText,
                         translated, member.speaking(), member.listening(), member.profile(),
-                        revision, glossaryVersion, now, now.plusSeconds(REVIEW_SECONDS));
+                        revision, glossaryVersion, now, now.plusSeconds(REVIEW_SECONDS),
+                        sharingLease == null ? null : sharingLease.epoch(),
+                        sharingLease == null ? null : sharingLease.draftId());
+                if (sharingLease != null && !sharing.publish(sharingLease, translated,
+                        member.speaking(), member.listening(), hub::publishDraft))
+                    throw conflict("Shared Live authorization changed. Enable sharing again.");
                 user.review = review;
                 return view(review);
             }
@@ -157,18 +179,96 @@ public class TextTranslationService {
                     || !member.listening().equals(review.targetLanguage))
                 throw conflict("The room direction changed. Translate again.");
             if (review.sent) return sent(review, true);
+            if (review.sharingEpoch != null && !sharing.current(roomId, userId,
+                    member.participantId(), sessionId, review.sharingEpoch, review.revision)) {
+                user.review = null;
+                throw conflict("Shared Live authorization changed. Translate again.");
+            }
             if (!glossary.list(userId, roomId).equals(review.glossaryVersion)) {
                 user.review = null;
                 throw conflict("The glossary changed. Translate again.");
             }
             requireProviderAvailable(member.profile());
             review.sent = true;
+            if (review.sharingEpoch != null && !sharing.finalized(roomId, userId,
+                    member.participantId(), sessionId, review.sharingEpoch, review.revision,
+                    hub::publishDraftClear)) {
+                review.sent = false;
+                throw conflict("Shared Live authorization changed. Translate again.");
+            }
             context.finalized(roomId, review.sourceLanguage, review.targetLanguage, review.source);
             hub.publishTurn(roomId, userId, member.participantId(), review.finalId,
                     "TEXT_TRANSLATION_SENT", Map.of("originalText", review.source,
                             "translatedText", review.translation, "sourceLanguage", review.sourceLanguage,
                             "targetLanguage", review.targetLanguage, "profile", review.profile.name()));
             return sent(review, false);
+        }
+    }
+
+    public TextSharingState.SharingView startSharing(UUID userId, String sessionId, UUID roomId) {
+        if (sessionId == null || sessionId.isBlank()) throw badRequest();
+        RoomLiveAuthorizer.Member member = active(userId, roomId);
+        if (!hub.hasCurrentConnection(roomId, userId, sessionId))
+            throw conflict("Connect to the live room before enabling Shared Live.");
+        synchronized (this) {
+            pruneLocked();
+            RoomReviews room = rooms.get(roomId);
+            if (room == null) {
+                if (rooms.size() >= MAX_ROOMS) throw busy();
+                room = new RoomReviews();
+                rooms.put(roomId, room);
+            }
+            UserReviews user = room.users.computeIfAbsent(userId, ignored -> new UserReviews());
+            user.generation++;
+            user.review = null;
+            TextSharingState.SharingView view = sharing.start(roomId, userId,
+                    member.participantId(), sessionId, hub::publishDraftClear);
+            if (!hub.hasCurrentConnection(roomId, userId, sessionId)) {
+                sharing.stop(roomId, userId, member.participantId(), sessionId,
+                        view.sharingEpoch(), hub::publishDraftClear);
+                throw conflict("Live connection ended before Shared Live could start.");
+            }
+            return view;
+        }
+    }
+
+    public void stopSharing(UUID userId, String sessionId, UUID roomId, UUID epoch) {
+        RoomLiveAuthorizer.Member member = active(userId, roomId);
+        synchronized (this) {
+            sharing.stop(roomId, userId, member.participantId(), sessionId, epoch,
+                    hub::publishDraftClear);
+            invalidateReviewLocked(roomId, userId);
+        }
+    }
+
+    public void clearSharedDraft(UUID userId, String sessionId, UUID roomId,
+                                 UUID epoch, long revision) {
+        if (revision < 0) throw badRequest();
+        RoomLiveAuthorizer.Member member = active(userId, roomId);
+        synchronized (this) {
+            sharing.clearDraft(roomId, userId, member.participantId(), sessionId,
+                    epoch, revision, hub::publishDraftClear);
+            invalidateReviewLocked(roomId, userId);
+        }
+    }
+
+    public void invalidateSharedDraft(UUID userId, String sessionId, UUID roomId,
+                                      UUID epoch, long revision) {
+        if (revision < 0) throw badRequest();
+        RoomLiveAuthorizer.Member member = active(userId, roomId);
+        synchronized (this) {
+            if (sharing.invalidate(roomId, userId, member.participantId(), sessionId,
+                    epoch, revision, hub::publishDraftClear))
+                invalidateReviewLocked(roomId, userId);
+        }
+    }
+
+    private void invalidateReviewLocked(UUID roomId, UUID userId) {
+        RoomReviews room = rooms.get(roomId);
+        UserReviews user = room == null ? null : room.users.get(userId);
+        if (user != null) {
+            user.generation++;
+            user.review = null;
         }
     }
 
@@ -211,12 +311,16 @@ public class TextTranslationService {
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public synchronized void onClosed(RoomClosedEvent event) { rooms.remove(event.roomId()); }
+    public synchronized void onClosed(RoomClosedEvent event) {
+        rooms.remove(event.roomId());
+        sharing.close(event.roomId());
+    }
 
     @Scheduled(fixedDelay = 60_000)
     public synchronized void prune() { pruneLocked(); }
 
     private void pruneLocked() {
+        sharing.prune(hub::publishDraftClear);
         Instant now = clock.instant();
         rooms.values().forEach(room -> room.users.values().removeIf(user -> {
             if (user.review != null && !now.isBefore(user.review.expiresAt)) user.review = null;
@@ -249,16 +353,19 @@ public class TextTranslationService {
         final AiServiceProfile profile;
         final long revision;
         final List<RoomGlossaryService.EntryView> glossaryVersion;
+        final UUID sharingEpoch, draftId;
         final Instant createdAt, expiresAt;
         boolean sent;
         Review(UUID id, UUID finalId, String sessionId, String source, String translation,
                String sourceLanguage, String targetLanguage, AiServiceProfile profile, long revision,
-               List<RoomGlossaryService.EntryView> glossaryVersion, Instant createdAt, Instant expiresAt) {
+               List<RoomGlossaryService.EntryView> glossaryVersion, Instant createdAt, Instant expiresAt,
+               UUID sharingEpoch, UUID draftId) {
             this.id = id; this.finalId = finalId; this.sessionId = sessionId; this.source = source;
             this.translation = translation; this.sourceLanguage = sourceLanguage;
             this.targetLanguage = targetLanguage; this.profile = profile; this.revision = revision;
             this.glossaryVersion = List.copyOf(glossaryVersion);
             this.createdAt = createdAt; this.expiresAt = expiresAt;
+            this.sharingEpoch = sharingEpoch; this.draftId = draftId;
         }
     }
 }

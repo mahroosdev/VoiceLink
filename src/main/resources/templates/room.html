@@ -142,8 +142,17 @@
               <p class="turns-card__intro">Recent turns are temporary and may disappear after expiry or restart.</p>
               <p id="turn-empty" class="empty-state">No speech captions yet.</p>
               <ol id="speech-events" class="turn-list"></ol>
+              <section id="shared-text-draft" class="shared-text-draft" aria-labelledby="shared-text-draft-heading" hidden>
+                <div class="shared-text-draft__header">
+                  <h4 id="shared-text-draft-heading">Live translation · Draft</h4>
+                  <span>Provisional</span>
+                </div>
+                <p id="shared-text-draft-text"></p>
+                <p id="shared-text-draft-status" class="small">May update until the participant sends or stops sharing.</p>
+              </section>
               <ol id="final-text-events" class="turn-list" aria-label="Recent sent translated text"></ol>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
+              <p id="shared-text-draft-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
             <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-heading" hidden>
               <div class="type-mode-bar">
@@ -151,10 +160,20 @@
                   <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="type-composer">Live</button>
                   <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="type-composer">Total</button>
                 </div>
-                <span id="type-privacy" class="type-privacy" aria-label="Private preview">
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-                  Private preview
-                </span>
+                <div id="type-privacy-controls" class="type-privacy-controls" hidden>
+                  <span class="type-privacy-controls__label">Preview visibility</span>
+                  <div class="type-privacy-mode" role="group" aria-label="Live translation visibility">
+                    <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Preview</button>
+                    <button id="text-privacy-shared" class="type-privacy-mode__button" type="button" aria-pressed="false">Shared Live</button>
+                  </div>
+                </div>
+              </div>
+              <div id="type-sharing-notice" class="type-sharing-notice" hidden>
+                <div>
+                  <strong>Sharing translated drafts</strong>
+                  <p>Your translated drafts will be visible to the other participant until you stop sharing or send the final message.</p>
+                </div>
+                <button id="text-sharing-stop" class="button button--secondary" type="button">Stop sharing</button>
               </div>
               <div id="type-composer">
                 <span id="type-eyebrow" class="eyebrow">Total text translation</span>

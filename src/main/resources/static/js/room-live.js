@@ -310,6 +310,7 @@
       streamId = event.streamId;
       lastSequence = 0;
       seen.clear();
+      window.dispatchEvent(new Event("voicelink-text-draft-reset"));
     }
     if (event.sequence <= lastSequence || seen.has(event.eventId)) return;
     lastSequence = event.sequence;
@@ -323,6 +324,8 @@
       addText(event.payload);
     } else if (event.type === "TEXT_TRANSLATION_SENT") {
       window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
+    } else if (event.type === "TEXT_DRAFT_UPDATED" || event.type === "TEXT_DRAFT_CLEARED") {
+      window.dispatchEvent(new CustomEvent("voicelink-text-draft", { detail: event }));
     } else if (event.type === "ROOM_CLOSED") {
       setStatus("CLOSED");
       window.dispatchEvent(new Event("voicelink-room-state"));
@@ -371,10 +374,12 @@
       setStatus(status.textContent);
       refreshTurns();
       window.dispatchEvent(new Event("voicelink-room-state"));
+      window.dispatchEvent(new Event("voicelink-live-connected"));
     };
     socket.onmessage = message => receive(message.data);
     socket.onclose = async event => {
       connected = false;
+      window.dispatchEvent(new Event("voicelink-text-draft-reset"));
       input.disabled = true;
       send.disabled = true;
       recordStart.disabled = true;
@@ -400,6 +405,10 @@
       setTimeout(connect, delay);
     };
   }
+
+  window.addEventListener("voicelink-force-live-disconnect", () => {
+    if (socketOpen()) socket.close(1000, "Sharing state reset");
+  });
 
   form.addEventListener("submit", event => {
     event.preventDefault();
