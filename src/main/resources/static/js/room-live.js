@@ -84,7 +84,7 @@
     active.hidden = value !== "ACTIVE";
     if (wasWaiting && value === "ACTIVE") active.classList.add("room-state-entered");
     live.hidden = value !== "ACTIVE";
-    speechSection.hidden = value !== "ACTIVE";
+    speechSection.hidden = value !== "ACTIVE" || document.getElementById("mode-type")?.getAttribute("aria-pressed") === "true";
     if (value === "CLOSED" && glossarySection?.open) glossarySection.close();
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
     if (roomDetails) roomDetails.hidden = value === "CLOSED";
@@ -281,6 +281,7 @@
     for (const person of people) {
       participantNames.set(person.participantId, person.displayName);
       const item = make("li", "participant");
+      item.dataset.participantId = person.participantId;
       const avatar = make("span", "participant__avatar", String(person.slot));
       avatar.setAttribute("aria-hidden", "true");
       const details = make("span", "participant__details");
@@ -320,6 +321,8 @@
       window.dispatchEvent(new Event("voicelink-room-state"));
     } else if (event.type === "TEXT_MESSAGE") {
       addText(event.payload);
+    } else if (event.type === "TEXT_TRANSLATION_SENT") {
+      window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
     } else if (event.type === "ROOM_CLOSED") {
       setStatus("CLOSED");
       window.dispatchEvent(new Event("voicelink-room-state"));

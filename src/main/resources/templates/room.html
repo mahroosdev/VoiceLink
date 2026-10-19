@@ -132,13 +132,39 @@
 
           <section id="active-section" th:if="${room.status.name() != 'CLOSED'}" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
             <h2 id="active-heading" class="sr-only">Active conversation</h2>
+            <div class="conversation-mode" role="group" aria-label="Conversation input mode">
+              <button id="mode-speak" class="conversation-mode__button" type="button" aria-pressed="true" aria-controls="speech-section">Speak</button>
+              <button id="mode-type" class="conversation-mode__button" type="button" aria-pressed="false" aria-controls="type-section">Type</button>
+            </div>
             <section class="turns-card" aria-labelledby="turns-heading">
               <span class="eyebrow">Current conversation</span>
               <h3 id="turns-heading">Live captions</h3>
               <p class="turns-card__intro">Recent turns are temporary and may disappear after expiry or restart.</p>
-              <p id="turn-empty" class="empty-state">No live captions yet.</p>
+              <p id="turn-empty" class="empty-state">No speech captions yet.</p>
               <ol id="speech-events" class="turn-list"></ol>
+              <ol id="final-text-events" class="turn-list" aria-label="Recent sent translated text"></ol>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
+            </section>
+            <section id="type-section" class="type-card" aria-labelledby="type-heading" hidden>
+              <span class="eyebrow">Total text translation</span>
+              <h3 id="type-heading">Type a complete message</h3>
+              <p class="type-card__intro">Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.</p>
+              <p class="type-direction" th:text="|Your direction: ${(room.creator ? room.participants[0].speaking : room.participants[1].speaking) == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
+              <div class="field">
+                <label for="type-source">Your message</label>
+                <textarea id="type-source" rows="4" maxlength="2000" autocomplete="off" aria-describedby="type-limit"></textarea>
+                <p id="type-limit" class="small muted">Up to 1,000 Unicode characters. Review expires after 2 minutes.</p>
+              </div>
+              <div class="type-actions">
+                <button id="type-translate" class="button button--primary" type="button">Translate</button>
+              </div>
+              <p id="type-status" class="small" role="status" aria-live="polite">Ready to translate.</p>
+              <section id="type-review" class="type-review" aria-labelledby="type-review-heading" hidden>
+                <h4 id="type-review-heading">Translated — Not sent</h4>
+                <div class="turn-caption"><span class="turn-caption__label">Original</span><p id="type-review-original"></p></div>
+                <div class="turn-caption turn-caption--translated"><span class="turn-caption__label">Translation</span><p id="type-review-translation"></p></div>
+                <button id="type-send" class="button button--primary" type="button" disabled>Send translated message</button>
+              </section>
             </section>
             <section id="speech-section" class="recording-card" data-phase="idle" aria-labelledby="speech-heading">
               <span class="eyebrow">Your turn to speak</span>
@@ -156,9 +182,9 @@
               <p id="recording-status" class="recording-status" role="status" aria-live="polite">Checking microphone support</p>
             </section>
             <details id="live-text-section" class="live-text disclosure" aria-labelledby="live-text-heading">
-              <summary id="live-text-heading">Temporary live text</summary>
+              <summary id="live-text-heading">Untranslated live text</summary>
               <div class="live-text__body">
-                <p>Text is live only. Messages sent while you are disconnected cannot be restored.</p>
+                <p>This sends text as written without translation. Messages sent while you are disconnected cannot be restored.</p>
                 <form id="live-text-form" class="live-text__form">
                   <div class="field">
                     <label for="live-text-input">Text to send</label>
@@ -195,6 +221,7 @@
     </div>
   </main>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
+  <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-text.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}">
     (() => {

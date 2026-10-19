@@ -27,6 +27,7 @@ import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.conversation.SpeechTurnService;
+import com.mahroosdev.voicelink.conversation.TextTranslationService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
@@ -57,6 +58,7 @@ class SpeechTurnFlowTests {
     @Autowired ConversationRoomRepository roomRepository;
     @Autowired UserAccountRepository accounts;
     @Autowired SpeechTurnService turns;
+    @Autowired TextTranslationService textTurns;
     @Autowired ObjectMapper json;
     @Autowired RoomGlossaryService glossary;
     @Autowired RoomGlossaryRepository glossaryEntries;
@@ -362,6 +364,26 @@ class SpeechTurnFlowTests {
         rooms.closeRoom(a.getId(), room);
         assertThatThrownBy(() -> turns.recent(a.getId(), room))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test void speechAndSentTextShareContextInBothDirections() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID room = activeRoom(a, b, "en");
+        successProviders("en", "ta");
+        turns.accept(a.getId(), room, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        await(a.getId(), room, "READY");
+        var review = textTurns.review(a.getId(), "test-session", room, "Typed hello", 1);
+        var beforeSend = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, org.mockito.Mockito.times(2)).translate(beforeSend.capture());
+        assertThat(beforeSend.getAllValues().get(1).recentContext())
+                .extracting(item -> item.sourceTranscript()).containsExactly("Hello Java");
+        textTurns.send(a.getId(), "test-session", room, review.reviewId(), "Typed hello", 1);
+        turns.accept(a.getId(), room, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        await(a.getId(), room, "READY");
+        var afterSend = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+        verify(translation, org.mockito.Mockito.times(3)).translate(afterSend.capture());
+        assertThat(afterSend.getAllValues().get(2).recentContext())
+                .extracting(item -> item.sourceTranscript()).containsExactly("Hello Java", "Typed hello");
     }
 
     @Test void failedStagesDoNotContaminateLaterContextButTtsFailureRemainsEligible() throws Exception {

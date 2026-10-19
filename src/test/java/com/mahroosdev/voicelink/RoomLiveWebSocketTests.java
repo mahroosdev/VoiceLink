@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.BlockingQueue;
@@ -29,6 +30,7 @@ import com.mahroosdev.voicelink.auth.PasswordResetService;
 import com.mahroosdev.voicelink.auth.AccountDeletionService;
 import com.mahroosdev.voicelink.auth.TestPasswordResetNotifier;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
+import com.mahroosdev.voicelink.room.RoomLiveHub;
 import com.mahroosdev.voicelink.room.RoomService;
 import com.mahroosdev.voicelink.room.RoomStatus;
 import com.mahroosdev.voicelink.user.UserAccount;
@@ -67,6 +69,7 @@ class RoomLiveWebSocketTests {
     @Autowired PasswordResetService resets;
     @Autowired AccountDeletionService accountDeletion;
     @Autowired TestPasswordResetNotifier resetNotifier;
+    @Autowired RoomLiveHub liveHub;
 
     private UserAccount account(String label) {
         return accounts.save(new UserAccount(label, UUID.randomUUID() + "@example.test",
@@ -139,6 +142,39 @@ class RoomLiveWebSocketTests {
         assertThat(failed.path("payload").path("code").asText()).isEqualTo("CONFIGURATION");
         assertThat(failed.path("sequence").longValue()).isGreaterThan(acceptedB.path("sequence").longValue());
         assertThat(failed.toString()).doesNotContain("replace-with", "Bearer", "api.groq.com");
+    }
+
+    @Test
+    void finalizedTranslatedTextUsesOrderedRoomIsolatedRealSocketEvents() throws Exception {
+        var a = account("Text sender");
+        var b = account("Text receiver");
+        var other = account("Other room member");
+        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        UUID otherRoom = rooms.createRoom(other.getId(), "ta", "en");
+        Browser first = browser(a), second = browser(b), separate = browser(other);
+        LiveSocket aSocket = first.connect(roomId, first.base);
+        LiveSocket bSocket = second.connect(roomId, second.base);
+        LiveSocket separateSocket = separate.connect(otherRoom, separate.base);
+        aSocket.await("ROOM_STATE");
+        bSocket.await("ROOM_STATE");
+        separateSocket.await("ROOM_STATE");
+        UUID participant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).getFirst().getId();
+        UUID firstId = UUID.randomUUID(), secondId = UUID.randomUUID();
+        Map<String, String> payload = Map.of("originalText", "Hello", "translatedText", "வணக்கம்",
+                "sourceLanguage", "en", "targetLanguage", "ta", "profile", "STANDARD");
+        liveHub.publishTurn(roomId, a.getId(), participant, firstId, "TEXT_TRANSLATION_SENT", payload);
+        JsonNode senderEvent = aSocket.await("TEXT_TRANSLATION_SENT");
+        JsonNode receiverEvent = bSocket.await("TEXT_TRANSLATION_SENT");
+        assertThat(senderEvent.path("eventId").asText()).isEqualTo(receiverEvent.path("eventId").asText());
+        assertThat(receiverEvent.path("turnId").asText()).isEqualTo(firstId.toString());
+        assertThat(receiverEvent.path("senderParticipantId").asText()).isEqualTo(participant.toString());
+        assertThat(receiverEvent.path("payload").path("translatedText").asText()).isEqualTo("வணக்கம்");
+        assertThat(separateSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
+        liveHub.publishTurn(roomId, a.getId(), participant, secondId, "TEXT_TRANSLATION_SENT", payload);
+        JsonNode later = bSocket.await("TEXT_TRANSLATION_SENT");
+        assertThat(later.path("sequence").asLong()).isGreaterThan(receiverEvent.path("sequence").asLong());
+        assertThat(later.path("turnId").asText()).isEqualTo(secondId.toString());
     }
 
     private static byte[] smallWebm() {

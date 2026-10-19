@@ -23,19 +23,21 @@ public class GlossaryRequestSizeFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String method = request.getMethod();
         return !("POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method))
-                || !request.getRequestURI().matches("/api/rooms/[^/]+/glossary(?:/[^/]+)?");
+                || !request.getRequestURI().matches(
+                        "/api/rooms/[^/]+/(?:glossary(?:/[^/]+)?|text/(?:reviews|send))");
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         response.setHeader("Cache-Control", "no-store");
-        if (request.getContentLengthLong() > MAX_JSON_BYTES) {
+        int limit = request.getRequestURI().contains("/text/") ? 8192 : MAX_JSON_BYTES;
+        if (request.getContentLengthLong() > limit) {
             response.sendError(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
             return;
         }
-        byte[] body = request.getInputStream().readNBytes(MAX_JSON_BYTES + 1);
-        if (body.length > MAX_JSON_BYTES) {
+        byte[] body = request.getInputStream().readNBytes(limit + 1);
+        if (body.length > limit) {
             response.sendError(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
             return;
         }

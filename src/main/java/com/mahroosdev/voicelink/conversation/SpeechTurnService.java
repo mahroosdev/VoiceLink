@@ -56,6 +56,7 @@ public class SpeechTurnService {
     private final RoomGlossaryService glossary;
     private final SpeechTurnRateLimiter rateLimiter;
     private final SpeechTurnMetrics metrics;
+    private final SharedConversationContext sharedContext;
     private final Clock clock;
     private long storedAudioBytes;
 
@@ -63,14 +64,23 @@ public class SpeechTurnService {
     public SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                              AiProviderResolver providers, AudioTurnValidator validator,
                              RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
-                             SpeechTurnMetrics metrics) {
-        this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics, Clock.systemUTC());
+                             SpeechTurnMetrics metrics, SharedConversationContext sharedContext) {
+        this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics,
+                sharedContext, Clock.systemUTC());
     }
 
     SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                       AiProviderResolver providers, AudioTurnValidator validator,
                       RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
                       SpeechTurnMetrics metrics, Clock clock) {
+        this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics,
+                new SharedConversationContext(clock), clock);
+    }
+
+    SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
+                      AiProviderResolver providers, AudioTurnValidator validator,
+                      RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
+                      SpeechTurnMetrics metrics, SharedConversationContext sharedContext, Clock clock) {
         this.authorizer = authorizer;
         this.hub = hub;
         this.providers = providers;
@@ -78,6 +88,7 @@ public class SpeechTurnService {
         this.glossary = glossary;
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
+        this.sharedContext = sharedContext;
         this.clock = clock;
     }
 
@@ -190,7 +201,7 @@ public class SpeechTurnService {
                             "sourceLanguage", turn.source));
             requireTime(deadline);
             stage = "TRANSLATION";
-            List<TranslationProvider.ContextTurn> context = contextFor(turn);
+            List<TranslationProvider.ContextTurn> context = sharedContext.snapshot(turn.roomId);
             List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
                     turn.roomId, turn.source, turn.target, turn.transcript);
             if (!stillActive(turn)) return;
@@ -213,6 +224,7 @@ public class SpeechTurnService {
                 turn.status = "TRANSLATED";
             }
             if (!stillActive(turn)) return;
+            sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
             hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
                     Map.of("turnIndex", turn.index, "translatedText", turn.translation,
                             "targetLanguage", turn.target));
@@ -271,17 +283,6 @@ public class SpeechTurnService {
     private static Map<String, ?> failurePayload(Turn turn, String message) {
         return Map.of("turnIndex", turn.index, "stage", turn.failedStage,
                 "code", turn.errorCode, "message", message);
-    }
-
-    private List<TranslationProvider.ContextTurn> contextFor(Turn current) {
-        synchronized (this) {
-            RoomQueue room = states.get(current.roomId);
-            if (room == null || room.closed) return List.of();
-            List<RecentContext.Candidate> prior = room.recent.stream().map(turn ->
-                    new RecentContext.Candidate(turn.index, turn.acceptedAt, turn.source,
-                            turn.target, turn.transcript, turn.translationSucceeded)).toList();
-            return RecentContext.select(prior, current.index, clock.instant());
-        }
     }
 
     private boolean stillActive(Turn turn) {
