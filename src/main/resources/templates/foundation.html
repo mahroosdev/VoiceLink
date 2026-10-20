@@ -6,13 +6,13 @@
   <title>VoiceLink | Speak across languages</title>
   <link rel="stylesheet" th:href="@{/css/voicelink.css}">
 </head>
-<body class="public-shell">
+<body class="public-shell public-shell--home">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="container site-header__inner">
       <a class="brand" th:href="@{/}" aria-label="VoiceLink home">
         <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M14 7H9a6 6 0 0 0-6 6v5a6 6 0 0 0 6 6h2l3 4v-4M22 7h5a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6h-2l-3 4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="17" r="3" fill="currentColor"/></svg></span>
-        <span>VoiceLink</span>
+        <span class="brand-name">VoiceLink</span>
       </a>
       <nav class="header-actions" aria-label="Account">
         <a th:href="@{/login}">Sign in</a>
@@ -20,14 +20,78 @@
       </nav>
     </div>
   </header>
-  <main id="main" class="container">
-    <section class="public-hero" aria-labelledby="hero-heading">
-      <span class="eyebrow">Private translated conversations</span>
-      <h1 id="hero-heading">A clearer way to speak across languages.</h1>
-      <p>VoiceLink helps two people speak in their own languages, follow live captions, and hear translated voice.</p>
-      <div class="row">
-        <a class="button button--primary" th:href="@{/register}">Get started</a>
-        <a class="button button--secondary" th:href="@{/login}">Sign in</a>
+  <main id="main" class="home-main">
+    <section class="home-hero container" aria-labelledby="hero-heading">
+      <div class="home-hero__copy">
+        <span class="eyebrow">VoiceLink conversations</span>
+        <h1 id="hero-heading">A clearer way to speak across languages.</h1>
+        <p>Have private, two-person English ↔ Tamil conversations using speech or text, with translated captions and generated voice for each completed turn.</p>
+        <a class="button button--primary home-hero__action" th:href="@{/register}">Get started</a>
+      </div>
+
+      <aside class="home-preview" aria-label="Illustrative English to Tamil conversation preview">
+        <div class="home-preview__header">
+          <div>
+            <span class="home-preview__kicker">Illustrative preview</span>
+            <strong>English → Tamil</strong>
+          </div>
+          <span class="home-preview__privacy">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.5 8V6.5a4.5 4.5 0 0 1 9 0V8M4 8h12v9H4V8Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Private room
+          </span>
+        </div>
+        <div class="home-preview__conversation">
+          <article class="home-preview__message home-preview__message--source">
+            <div class="home-preview__message-label">
+              <span class="home-preview__icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><rect x="7" y="2.5" width="6" height="10" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 9.5a5.2 5.2 0 0 0 10.4 0M10 14.7v2.8M7.5 17.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <span>English · Speech</span>
+            </div>
+            <p>Could you share the project update?</p>
+          </article>
+          <div class="home-preview__translation" aria-hidden="true">
+            <span></span>
+            <svg viewBox="0 0 24 24" fill="none"><path d="m8 7-3 3 3 3M5 10h10a4 4 0 0 1 4 4v1M16 17l3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span></span>
+          </div>
+          <article class="home-preview__message home-preview__message--translated" lang="ta">
+            <div class="home-preview__message-label">
+              <span class="home-preview__icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M3 4.5h14v9H8l-3.5 3v-3H3v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+              <span>தமிழ் · மொழிபெயர்க்கப்பட்ட உரை</span>
+            </div>
+            <p>திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?</p>
+          </article>
+        </div>
+        <div class="home-preview__voice">
+          <span class="home-preview__voice-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M3 8h3l4-3.5v11L6 12H3V8ZM13.5 7a4 4 0 0 1 0 6M15.8 4.8a7 7 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span>Translated voice ready</span>
+          <span class="home-preview__wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="home-benefits" aria-labelledby="benefits-heading">
+      <div class="container">
+        <div class="home-benefits__heading">
+          <span class="eyebrow">Made for focused conversations</span>
+          <h2 id="benefits-heading">Simple tools for a clear two-person exchange.</h2>
+        </div>
+        <div class="home-benefits__grid">
+          <article class="home-benefit">
+            <span class="home-benefit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 19a5 5 0 0 1 10 0M12 19a5 5 0 0 1 9 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <h3>Private two-person rooms</h3>
+            <p>Invite one other person to a focused conversation protected by authenticated room access.</p>
+          </article>
+          <article class="home-benefit">
+            <span class="home-benefit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M9 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2l3 3v-3h2M14 7h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2l-3 2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>Speak or type</h3>
+            <p>Communicate in English or Tamil through short speech turns or text messages.</p>
+          </article>
+          <article class="home-benefit">
+            <span class="home-benefit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16v11H9l-4 3v-3H4V5ZM8 9h8M8 12h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>Read and listen</h3>
+            <p>Follow translated captions and play generated voice after each completed turn.</p>
+          </article>
+        </div>
       </div>
     </section>
   </main>

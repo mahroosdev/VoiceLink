@@ -3,6 +3,7 @@ package com.mahroosdev.voicelink;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
@@ -79,6 +80,10 @@ class UiRenderingTests {
                 "overflow-y: auto;", "overscroll-behavior-y: contain;",
                 "@media (min-width: 900px) and (max-height: 359px)",
                 ".authenticated-shell--about .application-sidebar { overflow-y: auto; }");
+        assertThat(css).contains(".public-shell--home", ".home-hero {",
+                ".home-preview {", ".home-benefits__grid {",
+                "@media (max-width: 799px)", "@media (max-width: 359px)",
+                ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -141,8 +146,19 @@ class UiRenderingTests {
 
         String landing = mvc.perform(get("/"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(landing).contains("Private translated conversations")
-                .doesNotContain("English ↔ Tamil", "English and Tamil");
+        assertThat(landing).contains("class=\"public-shell public-shell--home\"",
+                "A clearer way to speak across languages.",
+                "private, two-person English ↔ Tamil conversations",
+                "href=\"/register\">Get started</a>",
+                "href=\"/register\">Create account</a>",
+                "aria-label=\"Illustrative English to Tamil conversation preview\"",
+                "Illustrative preview", "English → Tamil",
+                "திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
+                "Private two-person rooms", "Speak or type", "Read and listen");
+        assertThat(Pattern.compile("href=\"/login\"[^>]*>Sign in</a>")
+                .matcher(landing).results().count()).isEqualTo(1);
+        assertThat(landing).doesNotContain("simultaneous interpretation", "always listening",
+                "real-time interpreter");
 
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -162,6 +178,28 @@ class UiRenderingTests {
                 "VOICELINK_PREMIUM_GEMINI_API_KEY");
         assertThat(index.indexOf("Premium is not available on this server.") - index.indexOf("value=\"PREMIUM\""))
                 .isBetween(0, 1000);
+    }
+
+    @Test
+    void roomCreationScriptIsAvailableOnlyToAuthenticatedUsers() throws Exception {
+        mvc.perform(get("/js/room-create.js"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/login"));
+
+        AccountPrincipal owner = principal("Room creator");
+        var script = mvc.perform(get("/js/room-create.js").with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        assertThat(script.getContentType()).contains("javascript");
+        assertThat(script.getContentAsString()).contains("premium-cost-saver",
+                "input[name=\"profile\"]", "premiumControls.hidden = !premiumSelected")
+                .doesNotContain("innerHTML", "localStorage", "sessionStorage");
+
+        mvc.perform(get("/app"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/login"));
+        mvc.perform(get("/js/room-live.js"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/login"));
     }
 
     @Test

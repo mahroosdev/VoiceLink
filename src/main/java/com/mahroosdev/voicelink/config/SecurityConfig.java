@@ -38,6 +38,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/favicon.ico").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/password-reset.js").permitAll()
                 .requestMatchers(HttpMethod.GET, "/js/password-visibility.js").permitAll()
+                .requestMatchers(HttpMethod.GET, "/js/room-create.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-live.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-text.js").authenticated()
                 .requestMatchers(HttpMethod.GET, "/js/room-glossary.js").authenticated()
