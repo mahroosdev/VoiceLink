@@ -16,5 +16,13 @@ public interface TranslationProvider {
                        String sourceTranscript) {}
     record GlossaryTerm(String sourceLanguage, String targetLanguage,
                         String sourceTerm, String preferredTerm) {}
-    record Result(String translatedText, String providerId, String serviceId, long elapsedMillis) {}
+    record Result(String translatedText, String providerId, String serviceId, long elapsedMillis,
+                  Usage usage) {
+        public Result(String translatedText, String providerId, String serviceId, long elapsedMillis) {
+            this(translatedText, providerId, serviceId, elapsedMillis, Usage.UNKNOWN);
+        }
+    }
+    record Usage(long inputTokens, long outputTokens, long thinkingTokens, long totalTokens) {
+        public static final Usage UNKNOWN = new Usage(-1, -1, -1, -1);
+    }
 }

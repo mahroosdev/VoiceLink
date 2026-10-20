@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.inOrder;
@@ -53,6 +54,7 @@ class TextTranslationServiceTests {
     private final AiProviderResolver resolver = mock(AiProviderResolver.class);
     private final RoomLiveHub hub = mock(RoomLiveHub.class);
     private final TranslationProvider standard = mock(TranslationProvider.class);
+    private final TranslationProvider premium = mock(TranslationProvider.class);
     private final SharedConversationContext context = new SharedConversationContext(clock);
     private TextSharingState sharing;
     private TextTranslationService service;
@@ -63,13 +65,74 @@ class TextTranslationServiceTests {
         when(glossary.list(userId, roomId)).thenReturn(List.of());
         when(glossary.applicableForTranslation(eq(roomId), eq("en"), eq("ta"), any())).thenReturn(List.of());
         when(resolver.resolve(AiServiceProfile.STANDARD)).thenReturn(new AiProviderBundle(null, standard, null));
+        when(resolver.resolve(AiServiceProfile.PREMIUM)).thenReturn(new AiProviderBundle(null, premium, null));
         when(hub.hasCurrentConnection(roomId, userId, "session-a")).thenReturn(true);
         when(hub.publishDraft(any())).thenReturn(true);
         when(standard.translate(any())).thenReturn(new TranslationProvider.Result(
                 "வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1));
+        when(premium.translate(any())).thenReturn(new TranslationProvider.Result(
+                "வணக்கம்", "GEMINI", "gemini-3.8-flash", 1));
         sharing = new TextSharingState(clock);
         service = new TextTranslationService(authorizer, glossary, resolver, hub, context,
                 new TextTranslationRateLimiter(8, 40), sharing, clock);
+    }
+
+    @Test void premiumPrivateTotalReviewRoutesOnlyToPremiumAndDuplicateReviewIsReused() {
+        when(authorizer.authorize(userId, roomId)).thenReturn(
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE,
+                        "en", "ta", AiServiceProfile.PREMIUM, true));
+        var first = service.review(userId, "session-a", roomId, "Hello", 1);
+        var duplicate = service.review(userId, "session-a", roomId, "Hello", 1);
+        assertThat(duplicate.reviewId()).isEqualTo(first.reviewId());
+        assertThat(service.send(userId, "session-a", roomId, first.reviewId(), "Hello", 1).profile())
+                .isEqualTo("PREMIUM");
+        verify(premium).translate(any());
+        verify(standard, never()).translate(any());
+    }
+
+    @Test void completedReviewIsNotReusedAfterGlossaryChanges() {
+        var changed = new RoomGlossaryService.EntryView(UUID.randomUUID(), "en", "ta",
+                "API", "ஏபிஐ", 0);
+        when(glossary.list(userId, roomId)).thenReturn(List.of(), List.of(), List.of(changed), List.of(changed));
+        var first = service.review(userId, "session-a", roomId, "Hello", 1);
+        var refreshed = service.review(userId, "session-a", roomId, "Hello", 1);
+        assertThat(refreshed.reviewId()).isNotEqualTo(first.reviewId());
+        verify(standard, times(2)).translate(any());
+    }
+
+    @Test void premiumSharedLiveKeepsExplicitConsentAndPremiumRouting() {
+        when(authorizer.authorize(userId, roomId)).thenReturn(
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE,
+                        "en", "ta", AiServiceProfile.PREMIUM, false));
+        var sharing = service.startSharing(userId, "session-a", roomId);
+        var review = service.review(userId, "session-a", roomId, "Hello", 1,
+                sharing.sharingEpoch());
+        assertThat(review.profile()).isEqualTo("PREMIUM");
+        verify(premium).translate(any());
+        verify(hub).publishDraft(any());
+        verify(standard, never()).translate(any());
+    }
+
+    @Test void concurrentDuplicatePremiumPreviewNeverStartsASecondPaidTranslation() throws Exception {
+        when(authorizer.authorize(userId, roomId)).thenReturn(
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE,
+                        "en", "ta", AiServiceProfile.PREMIUM, true));
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(premium.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.8-flash", 1);
+        });
+        try (var worker = Executors.newSingleThreadExecutor()) {
+            var first = worker.submit(() -> service.review(userId, "session-a", roomId, "Hello", 1));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> service.review(userId, "session-a", roomId, "Hello", 1))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+            release.countDown();
+            assertThat(first.get(3, TimeUnit.SECONDS).profile()).isEqualTo("PREMIUM");
+        }
+        verify(premium).translate(any());
     }
 
     @Test void privateReviewUsesDirectionGlossaryAndSharedContextWithoutPublishing() {

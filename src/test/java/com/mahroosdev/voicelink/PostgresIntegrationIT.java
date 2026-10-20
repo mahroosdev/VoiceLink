@@ -87,7 +87,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(6);
+        assertThat(version).isEqualTo(7);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -178,6 +178,31 @@ class PostgresIntegrationIT {
                 .isEqualTo(AiServiceProfile.PREMIUM);
         assertThat(roomRepository.findById(standard).orElseThrow().getServiceProfile())
                 .isEqualTo(AiServiceProfile.STANDARD);
+    }
+
+    @Test
+    void v7DefaultsExistingRoomsToCostSaverOnAndConstrainsStandardRows() {
+        UserAccount creator = account("Cost saver migration creator");
+        UUID standard = rooms.createRoom(creator.getId(), "en", "ta");
+        assertThat(jdbc.queryForObject(
+                "SELECT premium_cost_saver_enabled FROM conversation_rooms WHERE id = ?",
+                Boolean.class, standard)).isTrue();
+
+        UUID legacyShape = UUID.randomUUID();
+        jdbc.update("INSERT INTO conversation_rooms "
+                + "(id, join_code, status, created_by_user_id, created_at, updated_at, invite_expires_at) "
+                + "VALUES (?, ?, 'WAITING', ?, now(), now(), now() + interval '1 day')",
+                legacyShape, "TVWXYZ23456789AB", creator.getId());
+        assertThat(jdbc.queryForObject(
+                "SELECT premium_cost_saver_enabled FROM conversation_rooms WHERE id = ?",
+                Boolean.class, legacyShape)).isTrue();
+
+        jdbc.update("UPDATE conversation_rooms SET service_profile = 'PREMIUM', "
+                + "premium_cost_saver_enabled = FALSE WHERE id = ?", legacyShape);
+        assertThat(roomRepository.findById(legacyShape).orElseThrow().isPremiumCostSaverEnabled()).isFalse();
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE conversation_rooms SET service_profile = 'STANDARD' WHERE id = ?", legacyShape))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test

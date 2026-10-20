@@ -439,6 +439,14 @@ h3 { font-size: 1.1rem; }
 .profile-option__text small { color: var(--vl-text-secondary); font-size: .875rem; }
 .profile-option__title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .profile-options legend { font-weight: 700; }
+.cost-saver-fieldset { margin-top: 16px; padding: 16px; border: 1px solid #D8D1F3; border-radius: var(--vl-radius-medium); background: var(--vl-premium-soft); }
+.cost-saver-fieldset[hidden] { display: none; }
+.cost-saver-fieldset legend { padding: 0 6px; font-weight: 800; color: var(--vl-premium); }
+.cost-saver-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.cost-saver-options label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--vl-hairline); border-radius: var(--vl-radius-small); background: var(--vl-surface); cursor: pointer; }
+.cost-saver-options label:has(input:focus-visible) { outline: 3px solid var(--vl-focus); outline-offset: 2px; }
+.cost-saver-options input { width: 20px; height: 20px; flex: none; accent-color: var(--vl-premium); }
+@media (max-width: 479px) { .cost-saver-options { grid-template-columns: 1fr; } }
 .profile-fieldset { margin: 20px 0 0; padding: 0; border: 0; }
 .profile-fieldset legend { padding: 0; font-weight: 700; }
 .room-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 14px; padding: 0; list-style: none; }

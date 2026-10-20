@@ -11,10 +11,14 @@ public class CreateRoomForm {
 
     private String profile = "STANDARD";
 
+    private String premiumCostSaver = "ON";
+
     public String getSpeaking() { return speaking; }
     public void setSpeaking(String speaking) { this.speaking = speaking; }
     public String getListening() { return listening; }
     public void setListening(String listening) { this.listening = listening; }
     public String getProfile() { return profile; }
     public void setProfile(String profile) { this.profile = profile; }
+    public String getPremiumCostSaver() { return premiumCostSaver; }
+    public void setPremiumCostSaver(String premiumCostSaver) { this.premiumCostSaver = premiumCostSaver; }
 }

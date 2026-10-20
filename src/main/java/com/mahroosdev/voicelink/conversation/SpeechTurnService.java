@@ -19,6 +19,7 @@ import com.mahroosdev.voicelink.ai.StandardProfile;
 import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import com.mahroosdev.voicelink.ai.AiProviderBundle;
 import com.mahroosdev.voicelink.ai.AiProviderResolver;
+import com.mahroosdev.voicelink.ai.PremiumUsageGuard;
 import com.mahroosdev.voicelink.ai.stt.SpeechToTextProvider;
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
@@ -60,6 +61,7 @@ public class SpeechTurnService {
     private final SpeechTurnRateLimiter rateLimiter;
     private final SpeechTurnMetrics metrics;
     private final SharedConversationContext sharedContext;
+    private final PremiumUsageGuard premiumUsage;
     private final Clock clock;
     private long storedAudioBytes;
 
@@ -67,9 +69,10 @@ public class SpeechTurnService {
     public SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                              AiProviderResolver providers, AudioTurnValidator validator,
                              RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
-                             SpeechTurnMetrics metrics, SharedConversationContext sharedContext) {
+                             SpeechTurnMetrics metrics, SharedConversationContext sharedContext,
+                             PremiumUsageGuard premiumUsage) {
         this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics,
-                sharedContext, Clock.systemUTC());
+                sharedContext, premiumUsage, Clock.systemUTC());
     }
 
     SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
@@ -77,13 +80,22 @@ public class SpeechTurnService {
                       RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
                       SpeechTurnMetrics metrics, Clock clock) {
         this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics,
-                new SharedConversationContext(clock), clock);
+                new SharedConversationContext(clock), PremiumUsageGuard.unlimitedForTests(), clock);
     }
 
     SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
                       AiProviderResolver providers, AudioTurnValidator validator,
                       RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
                       SpeechTurnMetrics metrics, SharedConversationContext sharedContext, Clock clock) {
+        this(authorizer, hub, providers, validator, glossary, rateLimiter, metrics,
+                sharedContext, PremiumUsageGuard.unlimitedForTests(), clock);
+    }
+
+    SpeechTurnService(RoomLiveAuthorizer authorizer, RoomLiveHub hub,
+                      AiProviderResolver providers, AudioTurnValidator validator,
+                      RoomGlossaryService glossary, SpeechTurnRateLimiter rateLimiter,
+                      SpeechTurnMetrics metrics, SharedConversationContext sharedContext,
+                      PremiumUsageGuard premiumUsage, Clock clock) {
         this.authorizer = authorizer;
         this.hub = hub;
         this.providers = providers;
@@ -92,6 +104,7 @@ public class SpeechTurnService {
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
         this.sharedContext = sharedContext;
+        this.premiumUsage = premiumUsage;
         this.clock = clock;
     }
 
@@ -130,7 +143,7 @@ public class SpeechTurnService {
             }
             Turn turn = new Turn(roomId, userId, member.participantId(), sessionId, clientRequestId,
                     ++room.nextIndex, member.speaking(), member.listening(), member.profile(),
-                    workflow, bytes.clone(), clock.instant());
+                    member.premiumCostSaverEnabled(), workflow, bytes.clone(), clock.instant());
             metrics.count(turn.profile, "accepted");
             room.queue.add(new Work(turn, WorkKind.PROCESS));
             room.recent.add(turn);
@@ -234,12 +247,17 @@ public class SpeechTurnService {
             requirePaidStage(turn);
             stageStarted = System.nanoTime();
             TranslationProvider.Result translated;
-            try {
+            try (PremiumUsageGuard.Permit permit = premiumUsage.acquire(turn.profile, turn.userId, turn.roomId,
+                    PremiumUsageGuard.Operation.TRANSLATION, turn.premiumCostSaverEnabled, false)) {
                 translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
                         turn.transcript, turn.source, turn.target, context, terms));
+                permit.success();
             } finally {
                 metrics.duration(turn.profile, "translation", stageStarted);
             }
+            premiumUsage.recordTranslationUsage(turn.profile, turn.premiumCostSaverEnabled,
+                    translated.usage().inputTokens(), translated.usage().outputTokens(),
+                    translated.usage().thinkingTokens());
             if (translated.translatedText() == null || translated.translatedText().isBlank()
                     || translated.translatedText().codePointCount(0, translated.translatedText().length()) > 6000) {
                 throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
@@ -298,8 +316,10 @@ public class SpeechTurnService {
         requirePaidStage(turn);
         long stageStarted = System.nanoTime();
         TextToSpeechProvider.Result spoken;
-        try {
+        try (PremiumUsageGuard.Permit permit = premiumUsage.acquire(turn.profile, turn.userId, turn.roomId,
+                PremiumUsageGuard.Operation.TTS, turn.premiumCostSaverEnabled, false)) {
             spoken = bundle.tts().synthesize(new TextToSpeechProvider.Input(turn.translation, turn.target));
+            permit.success();
         } finally {
             metrics.duration(turn.profile, "tts", stageStarted);
         }
@@ -649,6 +669,7 @@ public class SpeechTurnService {
         final String source;
         final String target;
         final AiServiceProfile profile;
+        final boolean premiumCostSaverEnabled;
         final Workflow workflow;
         final Instant acceptedAt;
         final long receivedNanos = System.nanoTime();
@@ -668,7 +689,8 @@ public class SpeechTurnService {
         boolean cancelled;
 
         Turn(UUID roomId, UUID userId, UUID participantId, String sessionId, UUID clientRequestId,
-             long index, String source, String target, AiServiceProfile profile, Workflow workflow,
+             long index, String source, String target, AiServiceProfile profile,
+             boolean premiumCostSaverEnabled, Workflow workflow,
              byte[] rawAudio, Instant acceptedAt) {
             this.roomId = roomId;
             this.userId = userId;
@@ -679,6 +701,7 @@ public class SpeechTurnService {
             this.source = source;
             this.target = target;
             this.profile = profile;
+            this.premiumCostSaverEnabled = premiumCostSaverEnabled;
             this.workflow = workflow;
             this.rawAudio = rawAudio;
             this.acceptedAt = acceptedAt;

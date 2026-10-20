@@ -51,7 +51,16 @@ public class RoomController {
             return index(principal, model);
         }
         try {
-            UUID id = rooms.createRoom(principal.getUserId(), form.getSpeaking(), form.getListening(), profile);
+            boolean costSaver = true;
+            if (profile == AiServiceProfile.PREMIUM) {
+                if (!"ON".equals(form.getPremiumCostSaver()) && !"OFF".equals(form.getPremiumCostSaver())) {
+                    errors.rejectValue("premiumCostSaver", "room.costSaver", "Choose API Cost Saver ON or OFF.");
+                    return index(principal, model);
+                }
+                costSaver = "ON".equals(form.getPremiumCostSaver());
+            }
+            UUID id = rooms.createRoom(principal.getUserId(), form.getSpeaking(), form.getListening(), profile,
+                    costSaver);
             return "redirect:/rooms/" + id;
         } catch (PremiumUnavailableException ex) {
             errors.rejectValue("profile", "room.premium", "Premium profile is not currently available.");

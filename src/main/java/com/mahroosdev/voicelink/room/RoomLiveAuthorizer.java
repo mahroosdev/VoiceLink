@@ -32,7 +32,8 @@ public class RoomLiveAuthorizer {
                 .findFirst().orElseThrow(() ->
                         new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         return new Member(participant.getId(), room.getStatus(), participant.getSpeakingLanguageTag(),
-                participant.getListeningLanguageTag(), room.getServiceProfile());
+                participant.getListeningLanguageTag(), room.getServiceProfile(),
+                room.isPremiumCostSaverEnabled());
     }
 
     @Transactional(readOnly = true)
@@ -47,7 +48,12 @@ public class RoomLiveAuthorizer {
     }
 
     public record Member(UUID participantId, RoomStatus status, String speaking, String listening,
-                         AiServiceProfile profile) {}
+                         AiServiceProfile profile, boolean premiumCostSaverEnabled) {
+        public Member(UUID participantId, RoomStatus status, String speaking, String listening,
+                      AiServiceProfile profile) {
+            this(participantId, status, speaking, listening, profile, true);
+        }
+    }
     public record Participant(UUID participantId, String displayName, short slot,
                               String speaking, String listening) {}
     public record Snapshot(RoomStatus status, List<Participant> participants) {}

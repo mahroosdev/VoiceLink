@@ -26,6 +26,9 @@ Each gate requires its own scope and review before implementation. This document
 | 10A | Railway production deployment readiness in repository | PASS by offline evidence: 93 fast tests, clean package, and 5 PostgreSQL 17.11 integrations; no cloud resources or provider calls |
 | 10B | Owner-controlled Railway deployment | NOT STARTED; requires separate authorization and actual account/billing/network review |
 | Final integrated QA | Complete deferred browser, two-user, microphone, English↔Tamil Standard provider, and deployed smoke checks | NOT STARTED |
+| H | Advanced speech feasibility and Premium cost-control architecture audit | COMPLETE; progressive speech deferred and working baseline preserved |
+| I | Operational Premium profile and room-scoped API Cost Saver | IMPLEMENTED OFFLINE; paid live validation and production activation pending |
+| J | Full application QA, documentation, and campus submission | NOT STARTED |
 
 Later gate boundaries may be revised during planning. No paid AI service or production deployment is part of Gate 1.
 
@@ -46,6 +49,8 @@ STANDARD remains Groq `whisper-large-v3` speech recognition → Gemini `gemini-3
 Premium uses a separate billed Gemini project and API key from Standard and is disabled by default with `VOICELINK_PREMIUM_ENABLED=false`. A paid call requires a stored PREMIUM room profile, server-side enablement, and configured Premium credentials. There is no automatic fallback between profiles. The creator selects STANDARD or PREMIUM when creating a room; the choice is immutable and visible to both members. Gate 7B uses an `AiServiceProfile`/provider-bundle resolver with one shared speech, context, and glossary pipeline rather than duplicating `SpeechTurnService`.
 
 Flyway V4 adds `service_profile` to `conversation_rooms`, defaults existing rooms to STANDARD, and constrains values to STANDARD or PREMIUM. The dedicated Gate 7B authorization was granted and its offline implementation passed. Paid project creation and live/paid Premium validation remain deferred until later integrated testing.
+
+Gate I adds the immutable room-level API Cost Saver choice through Flyway V7. It defaults to ON, applies only to Premium rooms, and is visible to both participants. ON uses a 1,500 ms browser and server paid-preview interval; OFF uses 800 ms. Both modes retain the same Premium models, translation quality policy, hard paid-operation limits, idempotency, and no-fallback rule. Content-free instance-local request and provider-token metrics distinguish translation and TTS. These controls do not prove actual charges or guarantee a spending cap, and they require a shared store before unrestricted multi-replica use. Premium remains disabled in production pending separately authorized billed-key setup and limited live validation.
 
 ## Gate 8A approved Professional UI/UX architecture
 

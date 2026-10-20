@@ -16,7 +16,7 @@ test("room keeps Speak, Total, and Private Preview defaults with explicit Shared
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
-  assert.match(html, /data-live-text-debounce-ms="800"/);
+  assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
   assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Preview/);
   assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
   assert.match(html, /Your translated drafts will be visible/);
@@ -71,7 +71,7 @@ function element() {
   };
 }
 
-function setup(fetch) {
+function setup(fetch, debounce = "800") {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
     "text-mode-total", "speech-section", "type-section", "type-eyebrow", "type-heading",
     "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
@@ -82,7 +82,7 @@ function setup(fetch) {
     "shared-text-draft-status", "shared-text-draft-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
-  nodes["room-page"].dataset.liveTextDebounceMs = "800";
+  nodes["room-page"].dataset.liveTextDebounceMs = debounce;
   nodes["room-status"].textContent = "ACTIVE";
   nodes["mode-speak"].attributes["aria-pressed"] = "true";
   nodes["mode-type"].attributes["aria-pressed"] = "false";
@@ -197,6 +197,25 @@ test("Live waits 800ms, collapses rapid typing, and does not repeat unchanged te
   assert.equal(nodes["type-source"].focused, true);
   nodes["type-source"].callbacks.input();
   runTimeouts(800);
+  await next();
+  assert.equal(calls.length, 1);
+});
+
+test("Premium Cost Saver ON uses the server-rendered 1500ms live debounce", async () => {
+  const calls = [];
+  const { nodes, timeouts, runTimeouts } = setup(async (url, request) => {
+    calls.push({ url, request });
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision));
+  }, "1500");
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Hello";
+  nodes["type-source"].callbacks.input();
+  assert.equal([...timeouts.values()][0].delay, 1500);
+  runTimeouts(800);
+  assert.equal(calls.length, 0);
+  runTimeouts(1500);
   await next();
   assert.equal(calls.length, 1);
 });

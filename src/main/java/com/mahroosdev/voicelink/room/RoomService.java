@@ -47,6 +47,12 @@ public class RoomService {
 
     @Transactional
     public UUID createRoom(UUID userId, String speaking, String listening, AiServiceProfile profile) {
+        return createRoom(userId, speaking, listening, profile, true);
+    }
+
+    @Transactional
+    public UUID createRoom(UUID userId, String speaking, String listening, AiServiceProfile profile,
+                           boolean premiumCostSaverEnabled) {
         var direction = languages.validate(speaking, listening);
         if (profile == null) throw new IllegalArgumentException("Invalid profile");
         if (profile == AiServiceProfile.PREMIUM && !premium.available()) {
@@ -54,7 +60,8 @@ public class RoomService {
         }
         UserAccount creator = accounts.findById(userId).orElseThrow(this::notFound);
         Instant now = Instant.now();
-        ConversationRoom room = rooms.saveAndFlush(new ConversationRoom(RoomCode.generate(), creator, now, profile));
+        ConversationRoom room = rooms.saveAndFlush(new ConversationRoom(RoomCode.generate(), creator, now, profile,
+                premiumCostSaverEnabled));
         participants.saveAndFlush(new RoomParticipant(room, creator, (short) 1,
                 direction.speaking(), direction.listening(), now));
         return room.getId();
@@ -93,7 +100,8 @@ public class RoomService {
         Instant now = Instant.now();
         return participants.findByUser_IdAndRemovedAtIsNullOrderByJoinedAtDesc(userId).stream()
                 .map(p -> new RoomSummary(p.getRoom().getId(), p.getRoom().getStatus(),
-                        p.getRoom().getServiceProfile(), p.getSpeakingLanguageTag(),
+                        p.getRoom().getServiceProfile(), p.getRoom().isPremiumCostSaverEnabled(),
+                        p.getSpeakingLanguageTag(),
                         p.getListeningLanguageTag(),
                         p.getRoom().getCreatedAt(), p.getRoom().getStatus() == RoomStatus.WAITING
                                 && !now.isBefore(p.getRoom().getInviteExpiresAt())))
@@ -113,7 +121,8 @@ public class RoomService {
                 && !Instant.now().isBefore(room.getInviteExpiresAt());
         String inviteCode = creator && room.getStatus() == RoomStatus.WAITING && !expired
                 ? RoomCode.display(room.getJoinCode()) : null;
-        return new RoomView(roomId, room.getStatus(), room.getServiceProfile(), members, creator, expired,
+        return new RoomView(roomId, room.getStatus(), room.getServiceProfile(),
+                room.isPremiumCostSaverEnabled(), members, creator, expired,
                 room.getInviteExpiresAt(), inviteCode);
     }
 
@@ -147,10 +156,12 @@ public class RoomService {
     }
 
     public record RoomSummary(UUID id, RoomStatus status, AiServiceProfile profile,
+                              boolean premiumCostSaverEnabled,
                               String speaking, String listening,
                               Instant createdAt, boolean inviteExpired) {}
     public record ParticipantView(String displayName, short slot, String speaking, String listening) {}
     public record RoomView(UUID id, RoomStatus status, AiServiceProfile profile,
+                           boolean premiumCostSaverEnabled,
                            List<ParticipantView> participants,
                            boolean creator, boolean inviteExpired, Instant inviteExpiresAt, String inviteCode) {}
 }

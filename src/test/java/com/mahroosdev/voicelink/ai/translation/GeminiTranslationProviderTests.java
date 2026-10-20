@@ -130,6 +130,18 @@ class GeminiTranslationProviderTests {
         }
     }
 
+    @Test void readsOnlyNumericProviderUsageMetadataWithoutRequiringIt() {
+        String measured = "{\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":5,"
+                + "\"thoughtsTokenCount\":2,\"totalTokenCount\":19}}";
+        assertThat(GeminiTranslationProvider.parseUsage(json, measured))
+                .isEqualTo(new TranslationProvider.Usage(12, 5, 2, 19));
+        assertThat(GeminiTranslationProvider.parseUsage(json, "{}"))
+                .isEqualTo(TranslationProvider.Usage.UNKNOWN);
+        assertThat(GeminiTranslationProvider.parseUsage(json,
+                "{\"usageMetadata\":{\"promptTokenCount\":\"private text\"}}"))
+                .isEqualTo(new TranslationProvider.Usage(-1, -1, -1, -1));
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void mapsAuthRateLimitTimeoutAndProviderFailureWithoutResponseOrKeyLeakage() throws Exception {

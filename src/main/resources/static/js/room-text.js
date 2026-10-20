@@ -5,7 +5,7 @@
   if (!page) return;
   const roomId = page.dataset.roomId;
   const configuredDebounce = Number(page.dataset.liveTextDebounceMs);
-  const LIVE_DEBOUNCE_MS = configuredDebounce >= 700 && configuredDebounce <= 900
+  const LIVE_DEBOUNCE_MS = configuredDebounce >= 700 && configuredDebounce <= 2000
     ? configuredDebounce : 800;
   const roomStatus = document.getElementById("room-status");
   const speakButton = document.getElementById("mode-speak");

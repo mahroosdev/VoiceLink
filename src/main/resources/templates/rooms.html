@@ -71,6 +71,17 @@
             <p class="field-help" th:if="${!premiumAvailable}">Premium is not available on this server.</p>
             <p id="profile-error" class="field-error" th:if="${#fields.hasErrors('profile')}" th:errors="*{profile}" role="alert"></p>
           </fieldset>
+          <fieldset id="premium-cost-saver" class="cost-saver-fieldset"
+                    th:hidden="${createRoomForm.profile != 'PREMIUM'}"
+                    th:attr="aria-describedby=${#fields.hasErrors('premiumCostSaver') ? 'cost-saver-help cost-saver-error' : 'cost-saver-help'}">
+            <legend>API Cost Saver</legend>
+            <p id="cost-saver-help" class="field-help">ON uses a longer paid preview interval. OFF makes previews more responsive while all hard limits remain active. Translation and voice models stay the same.</p>
+            <div class="cost-saver-options" role="radiogroup" aria-label="API Cost Saver setting">
+              <label><input type="radio" th:field="*{premiumCostSaver}" value="ON"> <span><strong>ON</strong> · fewer repeated paid previews</span></label>
+              <label><input type="radio" th:field="*{premiumCostSaver}" value="OFF"> <span><strong>OFF</strong> · shorter paid preview delay</span></label>
+            </div>
+            <p id="cost-saver-error" class="field-error" th:if="${#fields.hasErrors('premiumCostSaver')}" th:errors="*{premiumCostSaver}" role="alert"></p>
+          </fieldset>
           <p class="form-privacy small muted">Recent captions and generated audio are temporary. <a th:href="@{/about#privacy}">How data is used</a></p>
           <div class="form-actions"><button class="button button--primary" type="submit">Create conversation</button></div>
         </form>
@@ -122,5 +133,6 @@
       </ul>
     </section>
   </main>
+  <script th:src="@{/js/room-create.js}" defer></script>
 </body>
 </html>

@@ -10,6 +10,7 @@ import java.util.UUID;
 import com.mahroosdev.voicelink.ai.AiProviderResolver;
 import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import com.mahroosdev.voicelink.ai.ProviderFailure;
+import com.mahroosdev.voicelink.ai.PremiumUsageGuard;
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.RoomClosedEvent;
@@ -41,6 +42,7 @@ public class TextTranslationService {
     private final SharedConversationContext context;
     private final TextTranslationRateLimiter limiter;
     private final TextSharingState sharing;
+    private final PremiumUsageGuard premiumUsage;
     private final Clock clock;
     private int inFlight;
 
@@ -48,14 +50,23 @@ public class TextTranslationService {
     public TextTranslationService(RoomLiveAuthorizer authorizer, RoomGlossaryService glossary,
                                   AiProviderResolver providers, RoomLiveHub hub,
                                   SharedConversationContext context, TextTranslationRateLimiter limiter,
-                                  TextSharingState sharing) {
-        this(authorizer, glossary, providers, hub, context, limiter, sharing, Clock.systemUTC());
+                                  TextSharingState sharing, PremiumUsageGuard premiumUsage) {
+        this(authorizer, glossary, providers, hub, context, limiter, sharing, premiumUsage,
+                Clock.systemUTC());
     }
 
     TextTranslationService(RoomLiveAuthorizer authorizer, RoomGlossaryService glossary,
                            AiProviderResolver providers, RoomLiveHub hub,
                            SharedConversationContext context, TextTranslationRateLimiter limiter,
                            TextSharingState sharing, Clock clock) {
+        this(authorizer, glossary, providers, hub, context, limiter, sharing,
+                PremiumUsageGuard.unlimitedForTests(), clock);
+    }
+
+    TextTranslationService(RoomLiveAuthorizer authorizer, RoomGlossaryService glossary,
+                           AiProviderResolver providers, RoomLiveHub hub,
+                           SharedConversationContext context, TextTranslationRateLimiter limiter,
+                           TextSharingState sharing, PremiumUsageGuard premiumUsage, Clock clock) {
         this.authorizer = authorizer;
         this.glossary = glossary;
         this.providers = providers;
@@ -63,6 +74,7 @@ public class TextTranslationService {
         this.context = context;
         this.limiter = limiter;
         this.sharing = sharing;
+        this.premiumUsage = premiumUsage;
         this.clock = clock;
     }
 
@@ -76,6 +88,7 @@ public class TextTranslationService {
         if (revision < 0 || sessionId == null || sessionId.isBlank()) throw badRequest();
         RoomLiveAuthorizer.Member member = active(userId, roomId);
         requireProviderAvailable(member.profile());
+        List<RoomGlossaryService.EntryView> glossaryVersion = glossary.list(userId, roomId);
         RoomReviews room;
         UserReviews user;
         long generation;
@@ -96,22 +109,47 @@ public class TextTranslationService {
                 sharingLease = sharing.begin(roomId, userId, member.participantId(), sessionId,
                         sharingEpoch, revision, hub::publishDraftClear);
             }
+            Review existing = user.review;
+            UUID activeSharingEpoch = sharingLease == null ? null : sharingLease.epoch();
+            if (existing != null && existing.sessionId.equals(sessionId)
+                    && existing.source.equals(sourceText) && existing.revision == revision
+                    && existing.profile == member.profile()
+                    && existing.sourceLanguage.equals(member.speaking())
+                    && existing.targetLanguage.equals(member.listening())
+                    && existing.glossaryVersion.equals(glossaryVersion)
+                    && java.util.Objects.equals(existing.sharingEpoch, activeSharingEpoch)
+                    && clock.instant().isBefore(existing.expiresAt)) {
+                return view(existing);
+            }
+            PendingReview pending = user.pending;
+            if (pending != null && pending.sessionId.equals(sessionId)
+                    && pending.source.equals(sourceText) && pending.revision == revision
+                    && java.util.Objects.equals(pending.sharingEpoch, activeSharingEpoch)) {
+                throw conflict("This translation is already in progress.");
+            }
             if (user.inFlight >= MAX_IN_FLIGHT_PER_USER || inFlight >= MAX_IN_FLIGHT) throw busy();
             if (!limiter.tryAcquire(userId)) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Too many text translations. Please wait and try again.");
             generation = ++user.generation;
+            user.pending = new PendingReview(generation, sessionId, sourceText, revision, activeSharingEpoch);
             user.review = null;
             user.inFlight++;
             inFlight++;
         }
         try {
-            List<RoomGlossaryService.EntryView> glossaryVersion = glossary.list(userId, roomId);
             List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
                     roomId, member.speaking(), member.listening(), sourceText);
             List<TranslationProvider.ContextTurn> prior = context.snapshot(roomId);
-            TranslationProvider.Result result = providers.resolve(member.profile()).translation().translate(
-                    new TranslationProvider.TranslationRequest(sourceText, member.speaking(),
-                            member.listening(), prior, terms));
+            TranslationProvider.Result result;
+            try (PremiumUsageGuard.Permit permit = premiumUsage.acquire(member.profile(), userId, roomId,
+                    PremiumUsageGuard.Operation.TRANSLATION, member.premiumCostSaverEnabled(), true)) {
+                result = providers.resolve(member.profile()).translation().translate(
+                        new TranslationProvider.TranslationRequest(sourceText, member.speaking(),
+                                member.listening(), prior, terms));
+                permit.success();
+            }
+            premiumUsage.recordTranslationUsage(member.profile(), member.premiumCostSaverEnabled(),
+                    result.usage().inputTokens(), result.usage().outputTokens(), result.usage().thinkingTokens());
             String translated = result.translatedText();
             if (translated == null || translated.isBlank()
                     || translated.codePointCount(0, translated.length()) > 6000)
@@ -155,6 +193,7 @@ public class TextTranslationService {
             synchronized (this) {
                 user.inFlight--;
                 inFlight--;
+                if (user.pending != null && user.pending.generation == generation) user.pending = null;
             }
         }
     }
@@ -346,7 +385,9 @@ public class TextTranslationService {
     public record SentView(UUID finalId, String originalText, String translatedText,
                            String sourceLanguage, String targetLanguage, String profile, boolean duplicate) {}
     private static final class RoomReviews { final Map<UUID, UserReviews> users = new HashMap<>(); }
-    private static final class UserReviews { long generation; int inFlight; Review review; }
+    private static final class UserReviews { long generation; int inFlight; Review review; PendingReview pending; }
+    private record PendingReview(long generation, String sessionId, String source,
+                                 long revision, UUID sharingEpoch) {}
     private static final class Review {
         final UUID id, finalId;
         final String sessionId, source, translation, sourceLanguage, targetLanguage;

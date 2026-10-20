@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div th:replace="~{fragments/app-shell :: chrome(${room.status.name() == 'CLOSED' ? 'rooms' : 'conversations'}, 'Conversation', ${email})}"></div>
   <main id="main" class="workspace workspace--conversation room-page">
-    <div id="room-page" data-live-text-debounce-ms="800" th:attr="data-room-id=${room.id}">
+    <div id="room-page" th:attr="data-room-id=${room.id},data-live-text-debounce-ms=${room.profile.name() == 'PREMIUM' && room.premiumCostSaverEnabled ? 1500 : 800}">
       <a class="room-back" th:if="${room.status.name() != 'CLOSED'}" th:href="@{/app}">← Back to conversations</a>
       <a class="room-back" th:if="${room.status.name() == 'CLOSED'}" th:href="@{/rooms}">← Back to rooms</a>
       <section class="room-header" aria-labelledby="room-heading">
@@ -26,6 +26,8 @@
                   th:text="${room.status}" role="status"></span>
             <span class="badge" th:classappend="${room.profile.name() == 'PREMIUM' ? 'badge--premium' : 'badge--standard'}"
                   th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span>
+            <span class="badge badge--premium" th:if="${room.profile.name() == 'PREMIUM'}"
+                  th:text="|API Cost Saver ${room.premiumCostSaverEnabled ? 'ON' : 'OFF'}|"></span>
           </div>
         </div>
         <div class="room-header__meta">
@@ -52,6 +54,9 @@
           <div class="room-details__body">
             <p><strong>Language pair:</strong> English ↔ Tamil</p>
             <p><strong>Service profile:</strong> <span th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span></p>
+            <p th:if="${room.profile.name() == 'PREMIUM'}"><strong>API Cost Saver:</strong>
+              <span th:text="${room.premiumCostSaverEnabled ? 'ON' : 'OFF'}"></span>
+              <span> · This setting is fixed for this room.</span></p>
             <p>Groq processes speech. Gemini translates and generates voice. Recent captions and audio here are temporary.</p>
             <p>During development, use non-sensitive conversation content. Relevant room terms may be sent to Gemini.</p>
             <form id="close-room-form" class="room-close" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">

@@ -48,3 +48,14 @@ voicelink:
   premium:
     enabled: ${VOICELINK_PREMIUM_ENABLED:false}
     gemini-key: ${VOICELINK_PREMIUM_GEMINI_API_KEY:}
+    cost-saver:
+      preview-minimum-interval-on-ms: ${VOICELINK_PREMIUM_COST_SAVER_ON_PREVIEW_INTERVAL_MS:1500}
+      preview-minimum-interval-off-ms: ${VOICELINK_PREMIUM_COST_SAVER_OFF_PREVIEW_INTERVAL_MS:800}
+    limits:
+      translation-per-user-per-minute: ${VOICELINK_PREMIUM_TRANSLATIONS_PER_USER_PER_MINUTE:8}
+      translation-per-room-per-minute: ${VOICELINK_PREMIUM_TRANSLATIONS_PER_ROOM_PER_MINUTE:16}
+      translation-per-instance-per-minute: ${VOICELINK_PREMIUM_TRANSLATIONS_PER_INSTANCE_PER_MINUTE:40}
+      tts-per-user-per-minute: ${VOICELINK_PREMIUM_TTS_PER_USER_PER_MINUTE:6}
+      tts-per-room-per-minute: ${VOICELINK_PREMIUM_TTS_PER_ROOM_PER_MINUTE:12}
+      tts-per-instance-per-minute: ${VOICELINK_PREMIUM_TTS_PER_INSTANCE_PER_MINUTE:24}
+      max-concurrent-operations: ${VOICELINK_PREMIUM_MAX_CONCURRENT_OPERATIONS:2}

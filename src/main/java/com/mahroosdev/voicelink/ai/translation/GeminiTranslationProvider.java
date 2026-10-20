@@ -85,8 +85,8 @@ public class GeminiTranslationProvider implements TranslationProvider {
             String response = ProviderHttp.send(client == null ? ProviderHttp.client() : client,
                     request, HttpResponse.BodyHandlers.ofString()).body();
             return new Result(parseTranslation(json, response), StandardProfile.TRANSLATION_PROVIDER,
-                    model,
-                    Duration.ofNanos(System.nanoTime() - start).toMillis());
+                    model, Duration.ofNanos(System.nanoTime() - start).toMillis(),
+                    parseUsage(json, response));
         } catch (ProviderFailure ex) {
             throw ex;
         } catch (Exception ex) {
@@ -167,5 +167,24 @@ public class GeminiTranslationProvider implements TranslationProvider {
         } catch (Exception ex) {
             throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
         }
+    }
+
+    static Usage parseUsage(ObjectMapper json, String response) {
+        try {
+            JsonNode usage = json.readTree(response).path("usageMetadata");
+            if (!usage.isObject()) return Usage.UNKNOWN;
+            return new Usage(nonNegativeOrUnknown(usage, "promptTokenCount"),
+                    nonNegativeOrUnknown(usage, "candidatesTokenCount"),
+                    nonNegativeOrUnknown(usage, "thoughtsTokenCount"),
+                    nonNegativeOrUnknown(usage, "totalTokenCount"));
+        } catch (RuntimeException ex) {
+            return Usage.UNKNOWN;
+        }
+    }
+
+    private static long nonNegativeOrUnknown(JsonNode usage, String field) {
+        JsonNode value = usage.path(field);
+        return value.isIntegralNumber() && value.canConvertToLong() && value.asLong() >= 0
+                ? value.asLong() : -1;
     }
 }
