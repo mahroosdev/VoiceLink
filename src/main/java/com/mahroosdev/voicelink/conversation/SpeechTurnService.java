@@ -1,7 +1,8 @@
 package com.mahroosdev.voicelink.conversation;
 
-import java.time.Instant;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -41,6 +42,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SpeechTurnService {
+    private static final long PIPELINE_SECONDS = 45;
+    private static final Duration TRANSLATION_CEILING = Duration.ofSeconds(15);
+    private static final Duration TTS_TIMEOUT_RESERVE = Duration.ofSeconds(15);
+    private static final Duration STAGE_HANDOFF_RESERVE = Duration.ofMillis(250);
+    private static final Duration MINIMUM_TRANSLATION_BUDGET = Duration.ofSeconds(1);
     private static final int MAX_ROOMS = 32;
     private static final int MAX_PENDING_PER_ROOM = 4;
     private static final int MAX_RECENT = 16;
@@ -207,7 +213,7 @@ public class SpeechTurnService {
     }
 
     private void process(Turn turn) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PIPELINE_SECONDS);
         String stage = "STT";
         try {
             if (!stillActive(turn)) return;
@@ -249,8 +255,10 @@ public class SpeechTurnService {
             TranslationProvider.Result translated;
             try (PremiumUsageGuard.Permit permit = premiumUsage.acquire(turn.profile, turn.userId, turn.roomId,
                     PremiumUsageGuard.Operation.TRANSLATION, turn.premiumCostSaverEnabled, false)) {
+                Duration translationBudget = translationBudget(deadline - System.nanoTime(),
+                        turn.workflow == Workflow.LIVE_SEND);
                 translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
-                        turn.transcript, turn.source, turn.target, context, terms));
+                        turn.transcript, turn.source, turn.target, context, terms, translationBudget));
                 permit.success();
             } finally {
                 metrics.duration(turn.profile, "translation", stageStarted);
@@ -312,7 +320,7 @@ public class SpeechTurnService {
     }
 
     private void synthesize(Turn turn, AiProviderBundle bundle, long deadline) {
-        requireTime(deadline);
+        requireRemaining(deadline, TTS_TIMEOUT_RESERVE);
         requirePaidStage(turn);
         long stageStarted = System.nanoTime();
         TextToSpeechProvider.Result spoken;
@@ -590,6 +598,18 @@ public class SpeechTurnService {
 
     private static void requireTime(long deadline) {
         if (System.nanoTime() > deadline) throw new ProviderFailure(ProviderFailure.Code.TIMEOUT);
+    }
+
+    static Duration translationBudget(long remainingNanos, boolean reserveTts) {
+        long reserved = STAGE_HANDOFF_RESERVE.toNanos()
+                + (reserveTts ? TTS_TIMEOUT_RESERVE.toNanos() : 0);
+        long available = remainingNanos - reserved;
+        if (available < MINIMUM_TRANSLATION_BUDGET.toNanos()) throw ProviderFailure.localTimeout();
+        return Duration.ofNanos(Math.min(available, TRANSLATION_CEILING.toNanos()));
+    }
+
+    private static void requireRemaining(long deadline, Duration required) {
+        if (deadline - System.nanoTime() < required.toNanos()) throw ProviderFailure.localTimeout();
     }
 
     private static ResponseStatusException badRequest() {

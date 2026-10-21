@@ -25,6 +25,7 @@
   const stopSharingButton = document.getElementById("text-sharing-stop");
   const source = document.getElementById("type-source");
   const translate = document.getElementById("type-translate");
+  const retry = document.getElementById("type-retry");
   const send = document.getElementById("type-send");
   const status = document.getElementById("type-status");
   const reviewSection = document.getElementById("type-review");
@@ -57,9 +58,12 @@
   let sharedInvalidation = Promise.resolve();
   let receivedDraft = null;
   let debounceTimer = null;
-  let activeController = null;
   let lastInputValue = source.value;
-  let lastAutomaticSource = null;
+  let lastAutomaticKey = null;
+  let pendingLive = false;
+  let requestSequence = 0;
+  let activeRequest = 0;
+  let retryRequest = null;
 
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
@@ -89,10 +93,13 @@
       clearTimeout(debounceTimer);
       debounceTimer = null;
     }
-    if (activeController) {
-      activeController.abort();
-      activeController = null;
-    }
+    pendingLive = false;
+  }
+
+  function clearRetry() {
+    retryRequest = null;
+    retry.hidden = true;
+    retry.disabled = true;
   }
 
   function current(expectedTextMode = textMode) {
@@ -116,6 +123,7 @@
     sharingNotice.hidden = textMode !== "live" || privacyMode !== "shared";
     source.disabled = !available || sending || sharingChanging;
     translate.disabled = !available || textMode !== "total" || translating || sending;
+    retry.disabled = !available || translating || sending || !retryRequest;
     send.disabled = !available || sending || translating || !review || review.revision !== revision
       || review.originalText !== source.value || Date.now() >= Date.parse(review.expiresAt);
   }
@@ -123,8 +131,8 @@
   function invalidate(message, state = "idle") {
     revision++;
     cancelPending();
-    translating = false;
-    lastAutomaticSource = null;
+    lastAutomaticKey = null;
+    clearRetry();
     clearReview();
     if (message) setStatus(message, state);
     update();
@@ -314,19 +322,44 @@
     }
   }
 
-  async function translateCurrent(requestMode) {
+  function retryAllowed(response, result) {
+    return ["TIMED_OUT", "TEMPORARILY_UNAVAILABLE", "CONNECTION_PROBLEM",
+      "RESPONSE_INVALID"].includes(result?.code)
+      || response === null;
+  }
+
+  function offerRetry(request, response, result) {
+    if (!retryAllowed(response, result)) return;
+    retryRequest = request;
+    retry.hidden = false;
+    retry.disabled = false;
+  }
+
+  async function translateCurrent(requestMode, savedRequest = null) {
     if (!current(requestMode) || translating || sending || composing) return;
-    const text = source.value;
+    const text = savedRequest?.text ?? source.value;
     if (!validSource(text)) {
       setStatus(text.trim() ? "Use no more than 1,000 Unicode characters."
         : (requestMode === "live" ? "Waiting for input." : "Enter 1 to 1,000 characters before translating."),
       text.trim() ? "error" : "idle");
       return;
     }
-    invalidate();
-    const requestRevision = revision;
-    const requestPrivacy = privacyMode;
-    const requestSharingEpoch = sharingEpoch;
+    if (savedRequest) {
+      if (source.value !== savedRequest.text || revision !== savedRequest.revision
+          || privacyMode !== savedRequest.privacy || sharingEpoch !== savedRequest.sharingEpoch) {
+        clearRetry();
+        setStatus("The message or sharing mode changed. Translate the current message instead.", "error");
+        update();
+        return;
+      }
+      clearReview();
+      clearRetry();
+    } else invalidate();
+    const requestRevision = savedRequest?.revision ?? revision;
+    const requestPrivacy = savedRequest?.privacy ?? privacyMode;
+    const requestSharingEpoch = savedRequest?.sharingEpoch ?? sharingEpoch;
+    const request = { mode: requestMode, text, revision: requestRevision,
+      privacy: requestPrivacy, sharingEpoch: requestSharingEpoch };
     if (requestMode === "live" && requestPrivacy === "shared" && !requestSharingEpoch) {
       setStatus("Enable Shared Live again before translating.", "error");
       return;
@@ -338,9 +371,10 @@
       sharedServerCurrent = true;
     }
     translating = true;
-    if (requestMode === "live") lastAutomaticSource = text;
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    activeController = controller;
+    pendingLive = false;
+    if (requestMode === "live") lastAutomaticKey = requestRevision + "\n" + text;
+    const requestId = ++requestSequence;
+    activeRequest = requestId;
     setStatus(requestMode === "live" ? (requestPrivacy === "shared"
       ? "Updating the shared translated draft…" : "Creating your private live preview…")
       : "Translating for private review…", "translating");
@@ -348,12 +382,13 @@
     try {
       const { response, result } = await post("reviews",
         { sourceText: text, revision: requestRevision,
-          ...(requestSharingEpoch ? { sharingEpoch: requestSharingEpoch } : {}) }, controller?.signal);
+          ...(requestSharingEpoch ? { sharingEpoch: requestSharingEpoch } : {}) });
       if (requestRevision !== revision || !current(requestMode) || source.value !== text
           || requestPrivacy !== privacyMode || requestSharingEpoch !== sharingEpoch) return;
       if (!response.ok) {
         setStatus(messageFor(response, result, "Translation could not finish. Try again."),
           response.status === 429 ? "rate-limited" : "error");
+        offerRetry(request, response, result);
         return;
       }
       if (result.originalText !== text || result.revision !== requestRevision || !result.reviewId) {
@@ -372,12 +407,22 @@
         : "Translated — Not sent. Review before sending.", "ready");
       if (requestMode === "total") send.focus();
     } catch (error) {
-      if (requestRevision === revision && error?.name !== "AbortError")
-        setStatus("Connection failed. Try translating again.", "error");
+      if (requestRevision === revision && current(requestMode)) {
+        setStatus("Connection problem. Your message remains here; check your internet connection and try again.", "error");
+        offerRetry(request, null, {});
+      }
     } finally {
-      if (activeController === controller) activeController = null;
-      if (requestRevision === revision) translating = false;
+      if (activeRequest === requestId) {
+        activeRequest = 0;
+        translating = false;
+      }
       update();
+      if (current("live") && !composing && !sending
+          && (pendingLive || (source.value.trim()
+            && lastAutomaticKey !== revision + "\n" + source.value))) {
+        pendingLive = false;
+        scheduleLive();
+      }
     }
   }
 
@@ -394,12 +439,17 @@
       setStatus("Use no more than 1,000 Unicode characters.", "error");
       return;
     }
-    if (text === lastAutomaticSource) return;
+    if (revision + "\n" + text === lastAutomaticKey) return;
     setStatus("Waiting for typing to pause…", "waiting");
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      if (current("live") && !composing && source.value === text && text !== lastAutomaticSource)
-        translateCurrent("live");
+      if (current("live") && !composing && source.value === text
+          && revision + "\n" + text !== lastAutomaticKey) {
+        if (translating) {
+          pendingLive = true;
+          setStatus("Latest message queued. Translation will update after the current request finishes.", "waiting");
+        } else translateCurrent("live");
+      }
     }, LIVE_DEBOUNCE_MS);
   }
 
@@ -478,6 +528,11 @@
   });
   source.addEventListener("input", sourceChanged);
   translate.addEventListener("click", () => translateCurrent("total"));
+  retry.addEventListener("click", () => {
+    if (!retryRequest || translating || sending) return;
+    const request = retryRequest;
+    translateCurrent(request.mode, request);
+  });
 
   send.addEventListener("click", async () => {
     if (!current() || sending || translating || !review || review.revision !== revision

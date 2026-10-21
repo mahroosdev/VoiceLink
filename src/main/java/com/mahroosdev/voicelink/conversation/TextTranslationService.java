@@ -128,8 +128,7 @@ public class TextTranslationService {
                 throw conflict("This translation is already in progress.");
             }
             if (user.inFlight >= MAX_IN_FLIGHT_PER_USER || inFlight >= MAX_IN_FLIGHT) throw busy();
-            if (!limiter.tryAcquire(userId)) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    "Too many text translations. Please wait and try again.");
+            if (!limiter.tryAcquire(userId)) throw busy();
             generation = ++user.generation;
             user.pending = new PendingReview(generation, sessionId, sourceText, revision, activeSharingEpoch);
             user.review = null;
@@ -177,18 +176,30 @@ public class TextTranslationService {
                     || failure.code() == ProviderFailure.Code.QUOTA ? HttpStatus.TOO_MANY_REQUESTS
                     : failure.code() == ProviderFailure.Code.TIMEOUT ? HttpStatus.GATEWAY_TIMEOUT
                     : HttpStatus.SERVICE_UNAVAILABLE;
-            throw new ResponseStatusException(status, switch (failure.code()) {
-                case QUOTA -> "Translation quota is unavailable. Try again later.";
-                case RATE_LIMIT -> "Translation is busy. Please try again later.";
-                case TIMEOUT -> "Translation timed out. Please try again.";
+            TextTranslationFailureException.SafeCode safeCode = switch (failure.outcome()) {
+                case PROVIDER_HTTP_429, PROVIDER_QUOTA, LOCAL_RATE_LIMIT ->
+                        TextTranslationFailureException.SafeCode.RATE_LIMITED;
+                case PROVIDER_HTTP_408, LOCAL_TIMEOUT -> TextTranslationFailureException.SafeCode.TIMED_OUT;
+                case NETWORK_IO -> TextTranslationFailureException.SafeCode.CONNECTION_PROBLEM;
+                case INVALID_RESPONSE_STRUCTURE, SAFETY_OR_NONSTANDARD_FINISH ->
+                        TextTranslationFailureException.SafeCode.RESPONSE_INVALID;
+                case CONFIGURATION -> TextTranslationFailureException.SafeCode.CONFIGURATION;
+                default -> TextTranslationFailureException.SafeCode.TEMPORARILY_UNAVAILABLE;
+            };
+            throw new TextTranslationFailureException(status, safeCode, switch (safeCode) {
+                case RATE_LIMITED -> "Too many translation requests. Your message remains here; wait and try again.";
+                case TIMED_OUT -> "Translation took too long. Your message remains here; try again.";
+                case CONNECTION_PROBLEM -> "Translation could not reach the service. Your message remains here; try again.";
+                case RESPONSE_INVALID -> "The translation response could not be processed. Your message remains here; try again.";
                 case CONFIGURATION -> "Translation is not configured for this room.";
-                default -> "Translation is temporarily unavailable. Please try again.";
+                case TEMPORARILY_UNAVAILABLE -> "Translation is temporarily unavailable. Your message remains here; try again.";
             });
         } catch (ResponseStatusException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Translation is temporarily unavailable. Please try again.");
+            throw new TextTranslationFailureException(HttpStatus.SERVICE_UNAVAILABLE,
+                    TextTranslationFailureException.SafeCode.TEMPORARILY_UNAVAILABLE,
+                    "Translation is temporarily unavailable. Your message remains here; try again.");
         } finally {
             synchronized (this) {
                 user.inFlight--;
@@ -372,8 +383,9 @@ public class TextTranslationService {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid text translation request.");
     }
     private static ResponseStatusException busy() {
-        return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                "Text translation is busy. Please wait and try again.");
+        return new TextTranslationFailureException(HttpStatus.TOO_MANY_REQUESTS,
+                TextTranslationFailureException.SafeCode.RATE_LIMITED,
+                "Too many translation requests. Your message remains here; wait and try again.");
     }
     private static ResponseStatusException conflict(String message) {
         return new ResponseStatusException(HttpStatus.CONFLICT, message);

@@ -1,5 +1,6 @@
 package com.mahroosdev.voicelink.conversation;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -87,8 +88,13 @@ public class TextTranslationController {
 
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<Map<String, String>> error(ResponseStatusException ex) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("error", ex.getReason() == null ? "Request could not be completed." : ex.getReason());
+        if (ex instanceof TextTranslationFailureException failure) {
+            body.put("code", failure.safeCode().name());
+        }
         return ResponseEntity.status(ex.getStatusCode()).cacheControl(CacheControl.noStore())
-                .body(Map.of("error", ex.getReason() == null ? "Request could not be completed." : ex.getReason()));
+                .body(body);
     }
 
     public record ReviewRequest(String sourceText, Long revision, UUID sharingEpoch) {}

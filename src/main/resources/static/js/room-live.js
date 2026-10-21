@@ -176,7 +176,7 @@
         : "Recognizing speech privately.";
       if (review.status === "FAILED") {
         resetPrivateReview();
-        recordingStatus.textContent = failureText(review.failedStage);
+        recordingStatus.textContent = failureText(review.failedStage, review.errorCode);
         speechSection.dataset.phase = "error";
         return;
       }
@@ -314,10 +314,25 @@
     parts.playback.append(label, player);
   }
 
-  function failureText(stage) {
-    if (stage === "STT") return "Speech recognition failed. Try another turn.";
-    if (stage === "TRANSLATION") return "Translation failed. Try another turn.";
-    if (stage === "TTS") return "Voice generation failed. Captions are still available.";
+  function failureText(stage, code) {
+    if (stage === "STT") {
+      if (code === "TIMEOUT") return "Speech recognition took too long. Try another turn.";
+      if (code === "RATE_LIMIT" || code === "QUOTA")
+        return "Speech recognition is busy or limited. Wait and try another turn.";
+      return "Speech recognition failed. Check your connection and try another turn.";
+    }
+    if (stage === "TRANSLATION") {
+      if (code === "TIMEOUT") return "Translation took too long. The recognized caption remains available.";
+      if (code === "RATE_LIMIT" || code === "QUOTA")
+        return "Translation is busy or limited. The recognized caption remains available.";
+      if (code === "INVALID_RESPONSE")
+        return "The translation response could not be processed. The recognized caption remains available.";
+      return "Translation is temporarily unavailable. The recognized caption remains available.";
+    }
+    if (stage === "TTS") {
+      if (code === "TIMEOUT") return "Audio generation took too long. Captions are still available.";
+      return "Audio generation failed. Captions are still available.";
+    }
     return "Speech processing could not finish. Try another turn.";
   }
 
@@ -343,7 +358,7 @@
       parts.row.dataset.phase = "ready";
     }
     if (event.type === "TURN_FAILED") {
-      parts.progress.textContent = failureText(payload.stage);
+      parts.progress.textContent = failureText(payload.stage, payload.code);
       parts.progress.dataset.failed = "true";
       parts.row.dataset.phase = "error";
     }
@@ -365,7 +380,7 @@
         if (turn.translatedText) showCaption(parts, "target", turn.targetLanguage, turn.translatedText);
         if (turn.audioAvailable) showAudio(parts,
           "/api/rooms/" + roomId + "/turns/" + turn.turnId + "/audio");
-        parts.progress.textContent = turn.status === "FAILED" ? failureText(turn.failedStage) :
+        parts.progress.textContent = turn.status === "FAILED" ? failureText(turn.failedStage, turn.errorCode) :
           turn.status === "READY" ? "Audio ready" :
           turn.status === "TRANSLATED" ? "Creating voice" :
           turn.status === "TRANSCRIBED" ? "Translating" : "Recognizing speech";

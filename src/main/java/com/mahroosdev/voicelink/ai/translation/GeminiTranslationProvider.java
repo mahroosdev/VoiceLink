@@ -8,8 +8,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
+import com.mahroosdev.voicelink.ai.AiOperationDiagnostics;
+import com.mahroosdev.voicelink.ai.AiServiceProfile;
 import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.ai.ProviderHttp;
 import com.mahroosdev.voicelink.ai.StandardProfile;
@@ -25,36 +31,66 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 @Primary
 public class GeminiTranslationProvider implements TranslationProvider {
+    private static final Duration MINIMUM_RETRY_BUDGET = Duration.ofSeconds(2);
+    private static final Duration RETRY_SUPPRESSION_AFTER_FAILURE = Duration.ofSeconds(30);
     private final URI endpoint;
     private final Supplier<String> keySource;
     private final String model;
+    private final AiServiceProfile profile;
     private final boolean lowThinking;
     private final ObjectMapper json;
     private final HttpClient client;
+    private final Duration configuredTimeout;
+    private final AiOperationDiagnostics diagnostics;
+    private final AtomicBoolean retryProbeInFlight = new AtomicBoolean();
+    private final AtomicLong retrySuppressedUntilNanos = new AtomicLong();
 
     @Autowired
-    public GeminiTranslationProvider(StandardProviderSettings settings, ObjectMapper json) {
-        this(settings, json, null);
+    public GeminiTranslationProvider(StandardProviderSettings settings,
+            TranslationReliabilitySettings reliability, AiOperationDiagnostics diagnostics,
+            ObjectMapper json) {
+        this(settings::geminiKey, StandardProfile.TRANSLATION_SERVICE, AiServiceProfile.STANDARD,
+                false, reliability.timeout(), diagnostics, json, null);
     }
 
     GeminiTranslationProvider(StandardProviderSettings settings, ObjectMapper json, HttpClient client) {
-        this(settings::geminiKey, StandardProfile.TRANSLATION_SERVICE, false, json, client);
+        this(settings::geminiKey, StandardProfile.TRANSLATION_SERVICE, AiServiceProfile.STANDARD,
+                false, TranslationReliabilitySettings.MAXIMUM_TIMEOUT,
+                AiOperationDiagnostics.noop(), json, client);
     }
 
-    public static GeminiTranslationProvider premium(PremiumProviderSettings settings, ObjectMapper json) {
+    GeminiTranslationProvider(StandardProviderSettings settings, ObjectMapper json) {
+        this(settings, json, null);
+    }
+
+    public static GeminiTranslationProvider premium(PremiumProviderSettings settings,
+            TranslationReliabilitySettings reliability, AiOperationDiagnostics diagnostics,
+            ObjectMapper json) {
         return new GeminiTranslationProvider(settings::geminiKey,
-                PremiumProfile.TRANSLATION_SERVICE, true, json, null);
+                PremiumProfile.TRANSLATION_SERVICE, AiServiceProfile.PREMIUM, true,
+                reliability.timeout(), diagnostics, json, null);
     }
 
     GeminiTranslationProvider(Supplier<String> keySource, String model, boolean lowThinking,
                               ObjectMapper json, HttpClient client) {
+        this(keySource, model, lowThinking ? AiServiceProfile.PREMIUM : AiServiceProfile.STANDARD,
+                lowThinking, TranslationReliabilitySettings.MAXIMUM_TIMEOUT,
+                AiOperationDiagnostics.noop(), json, client);
+    }
+
+    GeminiTranslationProvider(Supplier<String> keySource, String model, AiServiceProfile profile,
+                              boolean lowThinking, Duration configuredTimeout,
+                              AiOperationDiagnostics diagnostics, ObjectMapper json, HttpClient client) {
         this.keySource = keySource;
         this.model = model;
+        this.profile = profile;
         this.lowThinking = lowThinking;
         this.endpoint = URI.create("https://generativelanguage.googleapis.com/v1beta/models/"
                 + model + ":generateContent");
         this.json = json;
         this.client = client;
+        this.configuredTimeout = configuredTimeout;
+        this.diagnostics = diagnostics;
     }
 
     @Override
@@ -74,24 +110,90 @@ public class GeminiTranslationProvider implements TranslationProvider {
                         || turn.sourceTranscript().codePointCount(0, turn.sourceTranscript().length()) > 400)) {
             throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
         }
-        String key = keySource.get();
-        long start = System.nanoTime();
+        long operationStarted = System.nanoTime();
+        Duration operationTimeout = effectiveTimeout(input.timeout());
+        long deadline = operationStarted + operationTimeout.toNanos();
+        String key;
         try {
-            HttpRequest request = HttpRequest.newBuilder(endpoint)
-                    .timeout(Duration.ofSeconds(10))
-                    .header("x-goog-api-key", key)
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(json, input, lowThinking))).build();
-            String response = ProviderHttp.send(client == null ? ProviderHttp.client() : client,
-                    request, HttpResponse.BodyHandlers.ofString()).body();
-            return new Result(parseTranslation(json, response), StandardProfile.TRANSLATION_PROVIDER,
-                    model, Duration.ofNanos(System.nanoTime() - start).toMillis(),
-                    parseUsage(json, response));
+            key = keySource.get();
         } catch (ProviderFailure ex) {
+            recordFailure(ex, 1, operationStarted);
             throw ex;
-        } catch (Exception ex) {
-            throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
         }
+        boolean retryPermit = false;
+        try {
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                long attemptStarted = System.nanoTime();
+                try {
+                    Duration remaining = remaining(deadline);
+                    HttpRequest request = HttpRequest.newBuilder(endpoint)
+                            .timeout(remaining)
+                            .header("x-goog-api-key", key)
+                            .header("Content-Type", "application/json; charset=UTF-8")
+                            .POST(HttpRequest.BodyPublishers.ofString(requestBody(json, input, lowThinking))).build();
+                    String response = ProviderHttp.send(client == null ? ProviderHttp.client() : client,
+                            request, HttpResponse.BodyHandlers.ofString()).body();
+                    String translated = parseTranslation(json, response);
+                    diagnostics.record("TRANSLATION", profile, StandardProfile.TRANSLATION_PROVIDER, model,
+                            "SUCCESS", ProviderFailure.Origin.PROVIDER, attempt,
+                            System.nanoTime() - attemptStarted);
+                    return new Result(translated, StandardProfile.TRANSLATION_PROVIDER,
+                            model, Duration.ofNanos(System.nanoTime() - operationStarted).toMillis(),
+                            parseUsage(json, response));
+                } catch (ProviderFailure ex) {
+                    recordFailure(ex, attempt, attemptStarted);
+                    if (attempt == 2) {
+                        if (ex.retryable()) retrySuppressedUntilNanos.set(
+                                System.nanoTime() + RETRY_SUPPRESSION_AFTER_FAILURE.toNanos());
+                        throw ex;
+                    }
+                    if (!ex.retryable() || remainingNanos(deadline) <= MINIMUM_RETRY_BUDGET.toNanos()
+                            || System.nanoTime() < retrySuppressedUntilNanos.get()
+                            || !retryProbeInFlight.compareAndSet(false, true)) throw ex;
+                    retryPermit = true;
+                    boundedRetryPause(deadline);
+                } catch (RuntimeException ex) {
+                    ProviderFailure failure = ProviderFailure.unexpectedRuntime();
+                    recordFailure(failure, attempt, attemptStarted);
+                    throw failure;
+                }
+            }
+        } finally {
+            if (retryPermit) retryProbeInFlight.set(false);
+        }
+        throw ProviderFailure.unexpectedRuntime();
+    }
+
+    private Duration effectiveTimeout(Duration requested) {
+        if (requested == null || requested.compareTo(configuredTimeout) > 0) return configuredTimeout;
+        return requested;
+    }
+
+    private static Duration remaining(long deadline) {
+        long nanos = remainingNanos(deadline);
+        if (nanos <= 0) throw ProviderFailure.localTimeout();
+        return Duration.ofNanos(nanos);
+    }
+
+    private static long remainingNanos(long deadline) {
+        return deadline - System.nanoTime();
+    }
+
+    private static void boundedRetryPause(long deadline) {
+        long millis = ThreadLocalRandom.current().nextLong(50, 151);
+        if (remainingNanos(deadline) <= TimeUnit.MILLISECONDS.toNanos(millis)
+                + MINIMUM_RETRY_BUDGET.toNanos()) throw ProviderFailure.localTimeout();
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw ProviderFailure.requestCancelled();
+        }
+    }
+
+    private void recordFailure(ProviderFailure failure, int attempt, long started) {
+        diagnostics.record("TRANSLATION", profile, StandardProfile.TRANSLATION_PROVIDER, model,
+                failure.outcome().name(), failure.origin(), attempt, System.nanoTime() - started);
     }
 
     static String requestBody(ObjectMapper json, TranslationRequest input) {
@@ -144,28 +246,27 @@ public class GeminiTranslationProvider implements TranslationProvider {
     static String parseTranslation(ObjectMapper json, String response) {
         try {
             JsonNode candidates = json.readTree(response).path("candidates");
-            if (!candidates.isArray() || candidates.size() != 1
-                    || !"STOP".equals(candidates.get(0).path("finishReason").asText())) {
-                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
-            }
+            if (!candidates.isArray() || candidates.size() != 1) throw ProviderFailure.invalidResponse();
+            if (!"STOP".equals(candidates.get(0).path("finishReason").asText()))
+                throw ProviderFailure.nonstandardFinish();
             JsonNode parts = candidates.get(0).path("content").path("parts");
             if (!parts.isArray() || parts.size() != 1) {
-                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+                throw ProviderFailure.invalidResponse();
             }
             JsonNode translated = json.readTree(parts.get(0).path("text").asText(""));
             JsonNode value = translated.path("translation");
             if (!translated.isObject() || translated.size() != 1 || !value.isTextual()) {
-                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+                throw ProviderFailure.invalidResponse();
             }
             String text = value.asText().strip();
             if (text.isEmpty() || text.codePointCount(0, text.length()) > 6000) {
-                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+                throw ProviderFailure.invalidResponse();
             }
             return text;
         } catch (ProviderFailure ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+            throw ProviderFailure.invalidResponse();
         }
     }
 

@@ -33,6 +33,8 @@ management:
       show-details: never
 
 voicelink:
+  translation:
+    timeout: ${VOICELINK_TRANSLATION_TIMEOUT:15s}
   speech:
     max-turns-per-user-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_USER_PER_MINUTE:12}
     max-turns-per-instance-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_INSTANCE_PER_MINUTE:60}

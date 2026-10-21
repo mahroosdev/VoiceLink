@@ -9,10 +9,12 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import java.util.UUID;
 
 import com.mahroosdev.voicelink.ai.translation.TranslationProvider;
+import com.mahroosdev.voicelink.ai.ProviderFailure;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
@@ -159,6 +161,20 @@ class TextTranslationFlowTests {
         mvc.perform(review(roomId, "x".repeat(9_000), 1, creator, new MockHttpSession()).with(csrf()))
                 .andExpect(status().is(413));
         org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
+    }
+
+    @Test void timeoutReturnsOnlySafeClassificationAndKeepsPrivateContentOutOfTheError() throws Exception {
+        UserAccount creator = account(), joiner = account();
+        UUID roomId = active(creator, joiner);
+        when(standard.translate(any())).thenThrow(ProviderFailure.localTimeout());
+        mvc.perform(review(roomId, "SENSITIVE_CANARY_MESSAGE", 9, creator,
+                        new MockHttpSession()).with(csrf()))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.code").value("TIMED_OUT"))
+                .andExpect(jsonPath("$.error").value(
+                        "Translation took too long. Your message remains here; try again."))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .doesNotContain("SENSITIVE_CANARY_MESSAGE"));
     }
 
     private record Input(String sourceText, long revision) {}

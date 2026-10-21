@@ -23,6 +23,7 @@ test("room keeps Speak, Total, and Private Preview defaults with explicit Shared
   assert.match(html, /id="shared-text-draft"[^>]*hidden/);
   assert.match(html, /id="type-section"[^>]*data-text-mode="total"[^>]*hidden/);
   assert.match(html, /Translated — Not sent/);
+  assert.match(html, /id="type-retry"[^>]*type="button"[^>]*hidden/);
   assert.match(html, /id="type-send"[^>]*disabled/);
   assert.match(html, /id="speech-section"/);
   assert.match(html, /id="live-text-section"/);
@@ -45,6 +46,8 @@ test("speech Finish and Send is explicit, private by default, bounded, and safel
   assert.match(liveScript, /data\.append\("workflow", speechWorkflow\)/);
   assert.match(liveScript, /attempt >= 80/);
   assert.match(liveScript, /Private review timed out\. Record again\./);
+  assert.match(liveScript, /Translation took too long\. The recognized caption remains available\./);
+  assert.match(liveScript, /Audio generation failed\. Captions are still available\./);
   assert.match(liveScript, /method: "DELETE"/);
   assert.match(liveScript, /\/send"/);
   assert.match(liveScript, /speechReviewTranscript\.textContent = review\.transcript/);
@@ -76,7 +79,7 @@ function setup(fetch, debounce = "800") {
     "text-mode-total", "speech-section", "type-section", "type-eyebrow", "type-heading",
     "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
-    "type-translate", "type-send", "type-status",
+    "type-translate", "type-retry", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
     "final-text-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
     "shared-text-draft-status", "shared-text-draft-announcement"];
@@ -364,7 +367,7 @@ test("clearing Shared Live input requests an authoritative draft clear without p
   assert.equal(JSON.parse(calls[1].request.body).revision > 0, true);
 });
 
-test("older and aborted Live responses cannot replace a newer preview", async () => {
+test("Live coalesces edits behind one request and only the latest pending text is translated", async () => {
   const deferred = [];
   const requests = [];
   const { nodes, runTimeouts } = setup((url, request) => {
@@ -379,21 +382,24 @@ test("older and aborted Live responses cannot replace a newer preview", async ()
   assert.equal(deferred.length, 1);
   nodes["type-source"].value = "Second";
   nodes["type-source"].callbacks.input();
-  assert.equal(requests[0].signal.aborted, true);
+  runTimeouts(800);
+  assert.equal(deferred.length, 1);
+  assert.match(nodes["type-status"].textContent, /Latest message queued/);
+  const oldBody = JSON.parse(requests[0].body);
+  deferred[0](response(privateReview("First", oldBody.revision, "review-old")));
+  await next();
+  assert.equal(nodes["type-review"].hidden, true);
   runTimeouts(800);
   assert.equal(deferred.length, 2);
   const newerBody = JSON.parse(requests[1].body);
+  assert.equal(newerBody.sourceText, "Second");
   deferred[1](response(privateReview("Second", newerBody.revision, "review-new")));
-  await next();
-  assert.equal(nodes["type-review-original"].textContent, "Second");
-  const oldBody = JSON.parse(requests[0].body);
-  deferred[0](response(privateReview("First", oldBody.revision, "review-old")));
   await next();
   assert.equal(nodes["type-review-original"].textContent, "Second");
   assert.equal(nodes["type-send"].disabled, false);
 });
 
-test("mode switching aborts Live work and restores the existing Total workflow", async () => {
+test("mode switching marks Live work stale and waits for it before restoring Total translation", async () => {
   let resolve;
   let request;
   const { nodes, runTimeouts } = setup((url, options) => {
@@ -406,13 +412,14 @@ test("mode switching aborts Live work and restores the existing Total workflow",
   nodes["type-source"].callbacks.input();
   runTimeouts(800);
   nodes["text-mode-total"].callbacks.click();
-  assert.equal(request.signal.aborted, true);
   assert.equal(nodes["type-actions"].hidden, false);
+  assert.equal(nodes["type-translate"].disabled, true);
   assert.equal(nodes["type-send"].disabled, true);
   const body = JSON.parse(request.body);
   resolve(response(privateReview("Pending", body.revision)));
   await next();
   assert.equal(nodes["type-review"].hidden, true);
+  assert.equal(nodes["type-translate"].disabled, false);
   assert.match(nodes["type-status"].textContent, /Total mode selected/);
 });
 
@@ -509,6 +516,41 @@ test("rate-limit and provider failures leave Live editable but unsendable", asyn
   assert.equal(nodes["type-send"].disabled, true);
 });
 
+test("Retry preserves unchanged failed text and revision while repeated clicks stay single-flight", async () => {
+  const calls = [];
+  let finishRetry;
+  const { nodes, runTimeouts } = setup(async (url, request) => {
+    calls.push({ url, request });
+    const body = JSON.parse(request.body);
+    if (calls.length === 1) return response({
+      code: "TIMED_OUT",
+      error: "Translation took too long. Your message remains here; try again."
+    }, false, 504);
+    return new Promise(resolve => {
+      finishRetry = () => resolve(response(privateReview(body.sourceText, body.revision, "review-retry")));
+    });
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Keep this message";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  assert.equal(nodes["type-retry"].hidden, false);
+  assert.match(nodes["type-status"].textContent, /message remains here/);
+  const first = JSON.parse(calls[0].request.body);
+  nodes["type-retry"].callbacks.click();
+  nodes["type-retry"].callbacks.click();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[1].request.body), first);
+  assert.equal(nodes["type-retry"].disabled, true);
+  finishRetry();
+  await next();
+  assert.equal(nodes["type-review-original"].textContent, "Keep this message");
+  assert.equal(nodes["type-send"].disabled, false);
+  assert.equal(nodes["type-retry"].hidden, true);
+});
+
 test("glossary changes invalidate a ready review and request a fresh Live preview", async () => {
   const calls = [];
   const { nodes, listeners, runTimeouts } = setup(async (url, request) => {
@@ -562,7 +604,7 @@ test("Shared Live clears the old glossary draft before scheduling its replacemen
   assert.equal(calls.filter(call => call.url.endsWith("/reviews")).length, 2);
 });
 
-test("expiry and room closure clear and cancel all private state", async () => {
+test("expiry and room closure clear private state and make pending responses stale", async () => {
   let pendingRequest;
   const { nodes, listeners, intervals, runTimeouts } = setup((url, request) => {
     pendingRequest = request;
@@ -583,7 +625,7 @@ test("expiry and room closure clear and cancel all private state", async () => {
   runTimeouts(800);
   nodes["room-status"].textContent = "CLOSED";
   listeners["voicelink-room-state"]();
-  assert.equal(pendingRequest.signal.aborted, true);
+  assert.equal(pendingRequest.signal, undefined);
   assert.equal(nodes["type-section"].hidden, true);
   assert.equal(nodes["final-text-events"].childElementCount, 0);
 });
