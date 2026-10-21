@@ -173,17 +173,40 @@ test("server current marker keeps identical names distinct and attributes untran
   assert.equal(h.nodes["participants-list"].children[0].dataset.role, "You");
   assert.equal(h.nodes["participants-list"].children[1].dataset.role, "Partner");
   assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
-    /You speak: English\nYou hear: Tamil/);
+    /You speak: English\nPartner receives: Tamil/);
   assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
-    /Partner speaks: Tamil\nPartner hears: English/);
+    /Partner speaks: Tamil\nYou receive: English/);
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 2, eventId: "event-2",
-    roomId: "room-1", type: "TEXT_MESSAGE", senderParticipantId: "person-2",
+    roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
+      { participantId: "person-1", displayName: "Same Name", slot: 1,
+        speaking: "en", listening: "ta", current: false },
+      { participantId: "person-2", displayName: "Same Name", slot: 2,
+        speaking: "ta", listening: "en", current: true }
+    ] } });
+  assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
+    /Partner speaks: English\nYou receive: Tamil/);
+  assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
+    /You speak: Tamil\nPartner receives: English/);
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 3, eventId: "event-3",
+    roomId: "room-1", type: "TEXT_MESSAGE", senderParticipantId: "person-1",
     payload: { text: "<b>safe text</b>" } });
   const message = h.nodes["conversation-events"].children[0];
   assert.equal(message.dataset.senderRole, "Partner");
   assert.equal(message.children[1].children[1].textContent, "<b>safe text</b>");
   assert.equal(h.nodes["turn-announcement"].textContent,
     "Partner sent an untranslated message.");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 4, eventId: "event-4",
+    roomId: "room-1", type: "TURN_ACCEPTED", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, sourceLanguage: "en", targetLanguage: "ta" } });
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
+    roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "பாதுகாப்பான உரை" } });
+  assert.equal(h.nodes["conversation-events"].children.length, 2);
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.senderRole, "Partner");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
+    roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "duplicate" } });
+  assert.equal(h.nodes["conversation-events"].children.length, 2);
 });
 
 test("explicit speech Send is single-action and mode change cancels an unsent review", async () => {

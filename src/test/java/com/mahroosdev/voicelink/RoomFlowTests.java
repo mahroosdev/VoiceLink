@@ -186,8 +186,12 @@ class RoomFlowTests {
         assertThat(creatorView.participants()).extracting("displayName").containsOnly("Same Name");
         assertThat(creatorView.participants()).filteredOn("current", true).singleElement()
                 .extracting("speaking", "listening").containsExactly("en", "ta");
+        assertThat(creatorView.participants()).filteredOn("current", false).singleElement()
+                .extracting("speaking", "listening").containsExactly("ta", "en");
         assertThat(joinerView.participants()).filteredOn("current", true).singleElement()
                 .extracting("speaking", "listening").containsExactly("ta", "en");
+        assertThat(joinerView.participants()).filteredOn("current", false).singleElement()
+                .extracting("speaking", "listening").containsExactly("en", "ta");
         assertThat(creatorView.currentParticipant().participantId())
                 .isNotEqualTo(joinerView.currentParticipant().participantId());
     }
@@ -297,7 +301,7 @@ class RoomFlowTests {
         mvc.perform(get(redirect).with(user(principal(creator))))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Waiting for a guest")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("and hear")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("and you will receive")));
         mvc.perform(post("/rooms/join").with(user(principal(joiner))).with(csrf()).param("joinCode", code))
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))

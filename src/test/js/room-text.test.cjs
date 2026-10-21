@@ -30,6 +30,9 @@ test("room keeps Speak, Total Translation, and Private Live defaults with explic
   assert.match(liveScript, /TEXT_TRANSLATION_SENT/);
   assert.match(liveScript, /TEXT_DRAFT_UPDATED/);
   assert.match(liveScript, /TEXT_DRAFT_CLEARED/);
+  assert.equal((html.match(/id="conversation-events"/g) || []).length, 1);
+  assert.match(liveScript, /getElementById\("conversation-events"\)/);
+  assert.match(script, /getElementById\("conversation-events"\)/);
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|localStorage|sessionStorage/);
   assert.match(glossaryScript, /voicelink-glossary-changed/);
   assert.match(css, /type-mode__button:focus-visible/);
@@ -85,7 +88,7 @@ function setup(fetch, debounce = "800") {
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
     "type-translate", "type-retry", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
-    "conversation-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
+    "conversation-events", "turn-empty", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
     "shared-text-draft-status", "shared-text-draft-heading", "shared-text-draft-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
@@ -464,6 +467,7 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
       sourceLanguage: "en", targetLanguage: "ta", revision, provisional: true } } });
   listeners["voicelink-text-draft"](update(2));
   assert.equal(nodes["shared-text-draft"].hidden, false);
+  assert.equal(nodes["turn-empty"].hidden, true);
   assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
   assert.equal(nodes["shared-text-draft-text"].lang, "ta");
   listeners["voicelink-text-draft"](update(1));
@@ -473,6 +477,7 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
       translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
   assert.equal(nodes["conversation-events"].childElementCount, 1);
+  assert.equal(nodes["turn-empty"].hidden, true);
   assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
 });
 
@@ -485,6 +490,7 @@ test("draft clear and reconnect reset remove provisional content without creatin
     turnId: "draft-2", senderParticipantId: "person-2", payload: { revision: 3 } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
   assert.equal(nodes["conversation-events"].childElementCount, 0);
+  assert.equal(nodes["turn-empty"].hidden, false);
   listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
     turnId: "draft-3", senderParticipantId: "person-2", payload: { translatedText: "again",
       sourceLanguage: "ta", targetLanguage: "en", revision: 4, provisional: true } } });

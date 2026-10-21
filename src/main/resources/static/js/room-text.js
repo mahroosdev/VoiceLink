@@ -86,6 +86,7 @@
     sharedDraft.hidden = true;
     sharedDraftText.textContent = "";
     sharedDraftText.removeAttribute?.("lang");
+    if (turnEmpty) turnEmpty.hidden = finalEvents.childElementCount !== 0;
     if (existed && message && sharedDraftAnnouncement)
       sharedDraftAnnouncement.textContent = message;
   }
@@ -480,6 +481,7 @@
     const row = document.createElement("li");
     row.className = "turn-card text-turn-card turn-card--" + sender.toLowerCase();
     row.dataset.senderRole = sender;
+    row.dataset.timelineKind = "text";
     const heading = document.createElement("strong");
     heading.className = "turn-card__speaker";
     heading.textContent = sender + " · Sent translated text";
@@ -504,7 +506,8 @@
     row.append(heading, sourceBlock, targetBlock);
     finalEvents.append(row);
     if (turnEmpty) turnEmpty.hidden = true;
-    while (finalEvents.childElementCount > 16) finalEvents.firstElementChild.remove();
+    const textRows = [...finalEvents.children].filter(item => item.dataset.timelineKind === "text");
+    while (textRows.length > 16) textRows.shift().remove();
     if (announcement) announcement.textContent = sender + " sent translated text.";
   }
 

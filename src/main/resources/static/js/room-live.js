@@ -242,6 +242,7 @@
     const role = participantRoles.get(senderId) || "Participant";
     const row = make("li", "turn-card turn-card--" + role.toLowerCase());
     row.dataset.index = String(turnIndex);
+    row.dataset.timelineKind = "speech";
     if (senderId) row.dataset.senderId = senderId;
     const top = make("div", "turn-card__top");
     const meta = make("div", "turn-card__meta");
@@ -406,7 +407,8 @@
           turnRows.delete(turnId);
         }
       }
-      turnEmpty.hidden = turnRows.size !== 0;
+      turnEmpty.hidden = speechEvents.childElementCount !== 0
+        || document.getElementById("shared-text-draft")?.hidden === false;
     } catch {
       // The live connection can remain available if the snapshot request fails.
     }
@@ -429,7 +431,8 @@
       const name = make("strong", "", role);
       const direction = make("small", "",
         role + " speak" + (role === "Partner" ? "s" : "") + ": " + languageName(person.speaking) +
-        "\n" + role + " hear" + (role === "Partner" ? "s" : "") + ": " + languageName(person.listening));
+        "\n" + (role === "You" ? "Partner receives: " : "You receive: ")
+        + languageName(person.listening));
       const account = make("span", "participant__account-name", "Account: " + person.displayName);
       details.append(name, direction, account);
       item.append(avatar, details);
@@ -447,6 +450,7 @@
     const row = make("li", "turn-card text-turn-card untranslated-turn turn-card--" + role.toLowerCase());
     row.dataset.senderId = event.senderParticipantId || "";
     row.dataset.senderRole = role;
+    row.dataset.timelineKind = "text";
     const heading = make("strong", "turn-card__speaker", role + " · Untranslated message");
     const caption = make("div", "turn-caption");
     const label = make("span", "turn-caption__label", "Original text");
@@ -454,7 +458,8 @@
     caption.append(label, content);
     row.append(heading, caption);
     events.append(row);
-    while (events.childElementCount > 16) events.firstElementChild.remove();
+    const textRows = [...events.children].filter(item => item.dataset.timelineKind === "text");
+    while (textRows.length > 16) textRows.shift().remove();
     turnEmpty.hidden = true;
     turnAnnouncement.textContent = role + " sent an untranslated message.";
   }

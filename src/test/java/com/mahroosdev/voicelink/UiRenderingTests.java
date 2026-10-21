@@ -305,7 +305,8 @@ class UiRenderingTests {
                 "id=\"room-details\"", "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard",
                 "class=\"waiting-card__code-row\"", "Back to conversations",
                 "id=\"glossary-open\"", "id=\"glossary-add\"", "id=\"glossary-close\"",
-                "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden");
+                "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden",
+                "Your partner will speak <span>Tamil</span>, and you will receive <span>English</span>.");
         assertThat(waiting).doesNotContain("class=\"room-sidebar\"");
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
@@ -319,10 +320,18 @@ class UiRenderingTests {
         assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
                 "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-dialog\"",
                 "id=\"room-details\"", "data-role=\"You\"", "data-role=\"Partner\"",
-                "You speak: ", "You hear: ", "Partner speaks: ", "Partner hears: ",
+                "You speak: ", "Partner receives: ", "Partner speaks: ", "You receive: ",
+                "You speak: </span><span>Tamil", "Partner receives: </span><span>English",
+                "Partner speaks: </span><span>English", "You receive: </span><span>Tamil",
                 "Total Translation", "Live Translation", "Private Live", "Shared Live",
                 "Record and send the translated turn.")
-                .doesNotContain("Low latency", "Recent History", "Delete account");
+                .doesNotContain("You hear: ", "Partner hears: ",
+                        "Low latency", "Recent History", "Delete account");
+        String ownerActive = mvc.perform(get(path).with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(ownerActive).contains("You speak: </span><span>English",
+                "Partner receives: </span><span>Tamil", "Partner speaks: </span><span>Tamil",
+                "You receive: </span><span>English");
         var ids = Pattern.compile(" id=\"([^\"]+)\"").matcher(active).results()
                 .map(match -> match.group(1)).toList();
         assertThat(ids).doesNotHaveDuplicates();

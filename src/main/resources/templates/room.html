@@ -42,7 +42,7 @@
               <span class="participant__avatar" aria-hidden="true" th:text="${person.current ? 'Y' : 'P'}"></span>
               <span class="participant__details"><strong th:text="${person.current ? 'You' : 'Partner'}"></strong>
                 <small><span th:text="${person.current ? 'You speak: ' : 'Partner speaks: '}"></span><span th:text="${person.speaking == 'en' ? 'English' : 'Tamil'}"></span><br>
-                  <span th:text="${person.current ? 'You hear: ' : 'Partner hears: '}"></span><span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
+                  <span th:text="${person.current ? 'Partner receives: ' : 'You receive: '}"></span><span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
                 <span class="participant__account-name" th:text="|Account: ${person.displayName}|"></span>
               </span>
             </li>
@@ -134,7 +134,7 @@
                 <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
                     th:text="${room.inviteExpiresAt}"></time>.</p>
               </div>
-              <p class="waiting-card__direction">Your partner will speak <span th:text="${room.currentParticipant.listening == 'en' ? 'English' : 'Tamil'}"></span> and hear <span th:text="${room.currentParticipant.speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+              <p class="waiting-card__direction">Your partner will speak <span th:text="${room.currentParticipant.listening == 'en' ? 'English' : 'Tamil'}"></span>, and you will receive <span th:text="${room.currentParticipant.speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
             </div>
           </section>
 
