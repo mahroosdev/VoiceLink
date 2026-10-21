@@ -83,7 +83,13 @@ class UiRenderingTests {
         assertThat(css).contains(".public-shell--home", ".home-hero {",
                 ".home-preview {", ".home-benefits__grid {",
                 "@media (max-width: 799px)", "@media (max-width: 359px)",
-                ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;");
+                ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;",
+                "@media (hover: hover) and (pointer: fine)",
+                ".home-preview:hover { transform: translateY(-2px);",
+                ".home-benefit:hover { transform: translateY(-2px);",
+                ".public-shell--home .header-actions a:focus-visible",
+                ".home-hero__action:hover:not(:disabled):not([aria-disabled=\"true\"])",
+                "transition-duration: 200ms;", "transition: none !important;");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -153,8 +159,12 @@ class UiRenderingTests {
                 "href=\"/register\">Create account</a>",
                 "aria-label=\"Illustrative English to Tamil conversation preview\"",
                 "Illustrative preview", "English → Tamil",
-                "திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
+                "English · Speech", "Tamil · Translated text",
+                "Could you share the project update?",
+                "project update-ஐ share பண்ண முடியுமா?",
                 "Private two-person rooms", "Speak or type", "Read and listen");
+        assertThat(landing).doesNotContain("திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
+                "தமிழ் · மொழிபெயர்க்கப்பட்ட உரை");
         assertThat(Pattern.compile("href=\"/login\"[^>]*>Sign in</a>")
                 .matcher(landing).results().count()).isEqualTo(1);
         assertThat(landing).doesNotContain("simultaneous interpretation", "always listening",
