@@ -37,10 +37,13 @@
         <section class="room-participants" aria-labelledby="members-heading">
           <h2 id="members-heading" class="sr-only">Participants and languages</h2>
           <ul id="participants-list" class="participant-grid">
-            <li class="participant" th:each="person : ${room.participants}">
-              <span class="participant__avatar" aria-hidden="true" th:text="${person.slot}"></span>
-              <span class="participant__details"><strong th:text="${person.displayName}"></strong>
-                <small>Speaks <span th:text="${person.speaking == 'en' ? 'English' : 'Tamil'}"></span> · Hears <span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
+            <li class="participant" th:each="person : ${room.participants}"
+                th:attr="data-participant-id=${person.participantId},data-role=${person.current ? 'You' : 'Partner'},data-current=${person.current}">
+              <span class="participant__avatar" aria-hidden="true" th:text="${person.current ? 'Y' : 'P'}"></span>
+              <span class="participant__details"><strong th:text="${person.current ? 'You' : 'Partner'}"></strong>
+                <small><span th:text="${person.current ? 'You speak: ' : 'Partner speaks: '}"></span><span th:text="${person.speaking == 'en' ? 'English' : 'Tamil'}"></span><br>
+                  <span th:text="${person.current ? 'You hear: ' : 'Partner hears: '}"></span><span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
+                <span class="participant__account-name" th:text="|Account: ${person.displayName}|"></span>
               </span>
             </li>
           </ul>
@@ -131,44 +134,43 @@
                 <p class="invite-expiry">Invite expires <time id="invite-expiry" th:attr="datetime=${room.inviteExpiresAt}"
                     th:text="${room.inviteExpiresAt}"></time>.</p>
               </div>
-              <p class="waiting-card__direction">Your guest will speak <span th:text="${room.participants[0].listening == 'en' ? 'English' : 'Tamil'}"></span> and receive <span th:text="${room.participants[0].speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
+              <p class="waiting-card__direction">Your partner will speak <span th:text="${room.currentParticipant.listening == 'en' ? 'English' : 'Tamil'}"></span> and hear <span th:text="${room.currentParticipant.speaking == 'en' ? 'English' : 'Tamil'}"></span>.</p>
             </div>
           </section>
 
           <section id="active-section" th:if="${room.status.name() != 'CLOSED'}" th:hidden="${room.status.name() != 'ACTIVE'}" aria-labelledby="active-heading">
             <h2 id="active-heading" class="sr-only">Active conversation</h2>
-            <div class="conversation-mode" role="group" aria-label="Conversation input mode">
-              <button id="mode-speak" class="conversation-mode__button" type="button" aria-pressed="true" aria-controls="speech-section">Speak</button>
-              <button id="mode-type" class="conversation-mode__button" type="button" aria-pressed="false" aria-controls="type-section">Type</button>
+            <div class="conversation-mode" role="group" aria-label="Choose how to communicate">
+              <button id="mode-speak" class="conversation-mode__button" type="button" aria-pressed="true" aria-controls="speech-section"><strong>Speak</strong><span>Record a translated turn</span></button>
+              <button id="mode-type" class="conversation-mode__button" type="button" aria-pressed="false" aria-controls="type-section"><strong>Type</strong><span>Write and translate text</span></button>
             </div>
             <section class="turns-card" aria-labelledby="turns-heading">
               <span class="eyebrow">Current conversation</span>
-              <h3 id="turns-heading">Live captions</h3>
-              <p class="turns-card__intro">Recent turns are temporary and may disappear after expiry or restart.</p>
-              <p id="turn-empty" class="empty-state">No speech captions yet.</p>
-              <ol id="speech-events" class="turn-list"></ol>
+              <h3 id="turns-heading">Conversation</h3>
+              <p class="turns-card__intro">Recent captions, messages, and audio are temporary and may disappear after expiry or restart.</p>
+              <p id="turn-empty" class="empty-state">No conversation activity yet.</p>
               <section id="shared-text-draft" class="shared-text-draft" aria-labelledby="shared-text-draft-heading" hidden>
                 <div class="shared-text-draft__header">
-                  <h4 id="shared-text-draft-heading">Live translation · Draft</h4>
+                  <h4 id="shared-text-draft-heading">Partner · Live translation draft</h4>
                   <span>Provisional</span>
                 </div>
                 <p id="shared-text-draft-text"></p>
                 <p id="shared-text-draft-status" class="small">May update until the participant sends or stops sharing.</p>
               </section>
-              <ol id="final-text-events" class="turn-list" aria-label="Recent sent translated text"></ol>
+              <ol id="conversation-events" class="turn-list live-events" aria-label="Recent conversation activity"></ol>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
               <p id="shared-text-draft-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
             <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-heading" hidden>
               <div class="type-mode-bar">
                 <div class="type-mode" role="group" aria-label="Text translation mode">
-                  <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="type-composer">Live</button>
-                  <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="type-composer">Total</button>
+                  <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="type-composer">Total Translation</button>
+                  <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="type-composer">Live Translation</button>
                 </div>
                 <div id="type-privacy-controls" class="type-privacy-controls" hidden>
                   <span class="type-privacy-controls__label">Preview visibility</span>
                   <div class="type-privacy-mode" role="group" aria-label="Live translation visibility">
-                    <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Preview</button>
+                    <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Live</button>
                     <button id="text-privacy-shared" class="type-privacy-mode__button" type="button" aria-pressed="false">Shared Live</button>
                   </div>
                 </div>
@@ -185,7 +187,7 @@
                 <h3 id="type-heading">Type a complete message</h3>
                 <p id="type-intro" class="type-card__intro">Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.</p>
               </div>
-              <p class="type-direction" th:text="|Your direction: ${(room.creator ? room.participants[0].speaking : room.participants[1].speaking) == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
+              <p class="type-direction" th:text="|Your direction: ${room.currentParticipant.speaking == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
               <div class="field">
                 <label for="type-source">Your message</label>
                 <textarea id="type-source" rows="4" maxlength="2000" autocomplete="off" aria-describedby="type-limit"></textarea>
@@ -209,11 +211,11 @@
               <span class="eyebrow">Your turn to speak</span>
               <h3 id="speech-heading">Record a turn</h3>
               <div class="speech-mode" role="group" aria-label="Speech sending mode">
-                <button id="speech-mode-live" class="speech-mode__button" type="button" aria-pressed="true">Live Send</button>
-                <button id="speech-mode-finish" class="speech-mode__button" type="button" aria-pressed="false">Finish &amp; Send</button>
+                <button id="speech-mode-live" class="speech-mode__button" type="button" aria-pressed="true" aria-describedby="speech-mode-help">Live Send</button>
+                <button id="speech-mode-finish" class="speech-mode__button" type="button" aria-pressed="false" aria-describedby="speech-mode-help">Finish &amp; Send</button>
               </div>
-              <p id="speech-mode-help" class="recording-card__intro">Live Send shares captions while your turn is processed.</p>
-              <p class="speech-direction" th:text="|Your direction: ${(room.creator ? room.participants[0].speaking : room.participants[1].speaking) == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
+              <p id="speech-mode-help" class="recording-card__intro">Record and send the translated turn.</p>
+              <p class="speech-direction" th:text="|Your direction: ${room.currentParticipant.speaking == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
               <div class="recording-controls">
                 <button id="record-start" class="button button--primary recording-controls__main" type="button"
                         th:disabled="${room.status.name() != 'ACTIVE'}">
@@ -252,7 +254,6 @@
                   <button id="live-send" class="button button--secondary" type="submit"
                           th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
                 </form>
-                <ul id="live-events" class="live-events" aria-live="polite"></ul>
               </div>
             </details>
           </section>

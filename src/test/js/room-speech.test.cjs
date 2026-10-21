@@ -36,9 +36,9 @@ function node() {
 function setup(fetchImpl, microphoneError) {
   const ids = ["room-page", "room-status", "connection-state", "participants-list",
     "waiting-section", "active-section", "live-text-section", "closed-notice",
-    "live-text-form", "live-text-input", "live-send", "live-events", "speech-section",
+    "live-text-form", "live-text-input", "live-send", "conversation-events", "speech-section",
     "glossary-section", "room-details", "record-start", "record-stop", "recording-status",
-    "recording-timer", "speech-events", "turn-empty", "turn-announcement", "mode-type",
+    "recording-timer", "turn-empty", "turn-announcement", "mode-type",
     "speech-mode-live", "speech-mode-finish", "speech-mode-help", "speech-review",
     "speech-review-transcript", "speech-review-translation", "speech-review-expiry",
     "speech-review-send", "speech-review-record-again", "speech-review-cancel"];
@@ -112,7 +112,8 @@ function setup(fetchImpl, microphoneError) {
     performance: { now: () => now }, setTimeout, clearTimeout, setInterval: () => 1,
     clearInterval: () => {} });
   FakeSocket.latest.onopen();
-  return { nodes, listeners, timers, runTimer, recorder: () => FakeRecorder.instances.at(-1),
+  return { nodes, listeners, timers, runTimer, socket: FakeSocket.latest,
+    recorder: () => FakeRecorder.instances.at(-1),
     advance(ms) { now += ms; } };
 }
 
@@ -145,7 +146,7 @@ test("Finish and Send records a complete clip and renders only the private serve
     return response([]);
   });
   h.nodes["speech-mode-finish"].callbacks.click();
-  assert.match(h.nodes["speech-mode-help"].textContent, /keeps recognition and translation private/);
+  assert.equal(h.nodes["speech-mode-help"].textContent, "Review your speech before sending.");
   await finishRecording(h);
   assert.equal(h.nodes["speech-review"].hidden, true);
   assert.match(h.nodes["recording-status"].textContent, /Recognizing speech privately/);
@@ -155,8 +156,34 @@ test("Finish and Send records a complete clip and renders only the private serve
   assert.equal(h.nodes["speech-review-transcript"].textContent, "<hello>");
   assert.equal(h.nodes["speech-review-translation"].textContent, "வணக்கம்");
   assert.equal(h.nodes["speech-review-send"].focused, true);
-  assert.equal(h.nodes["speech-events"].children.length, 0);
+  assert.equal(h.nodes["conversation-events"].children.length, 0);
   assert.equal(calls.filter(call => call.url.endsWith("/turns")).length, 1);
+});
+
+test("server current marker keeps identical names distinct and attributes untranslated text", async () => {
+  const h = setup(async () => response([]));
+  const receive = event => h.socket.onmessage({ data: JSON.stringify(event) });
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 1, eventId: "event-1",
+    roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
+      { participantId: "person-1", displayName: "Same Name", slot: 1,
+        speaking: "en", listening: "ta", current: true },
+      { participantId: "person-2", displayName: "Same Name", slot: 2,
+        speaking: "ta", listening: "en", current: false }
+    ] } });
+  assert.equal(h.nodes["participants-list"].children[0].dataset.role, "You");
+  assert.equal(h.nodes["participants-list"].children[1].dataset.role, "Partner");
+  assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
+    /You speak: English\nYou hear: Tamil/);
+  assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
+    /Partner speaks: Tamil\nPartner hears: English/);
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 2, eventId: "event-2",
+    roomId: "room-1", type: "TEXT_MESSAGE", senderParticipantId: "person-2",
+    payload: { text: "<b>safe text</b>" } });
+  const message = h.nodes["conversation-events"].children[0];
+  assert.equal(message.dataset.senderRole, "Partner");
+  assert.equal(message.children[1].children[1].textContent, "<b>safe text</b>");
+  assert.equal(h.nodes["turn-announcement"].textContent,
+    "Partner sent an untranslated message.");
 });
 
 test("explicit speech Send is single-action and mode change cancels an unsent review", async () => {

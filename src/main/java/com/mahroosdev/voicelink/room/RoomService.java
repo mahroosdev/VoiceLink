@@ -113,16 +113,19 @@ public class RoomService {
         access.requireMember(userId, roomId);
         ConversationRoom room = rooms.findById(roomId).orElseThrow(this::notFound);
         List<ParticipantView> members = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).stream()
-                .map(p -> new ParticipantView(p.getUser().getDisplayName(), p.getParticipantSlot(),
-                        p.getSpeakingLanguageTag(), p.getListeningLanguageTag()))
+                .map(p -> new ParticipantView(p.getId(), p.getUser().getDisplayName(), p.getParticipantSlot(),
+                        p.getSpeakingLanguageTag(), p.getListeningLanguageTag(),
+                        p.getUser().getId().equals(userId)))
                 .toList();
+        ParticipantView currentParticipant = members.stream().filter(ParticipantView::current)
+                .findFirst().orElseThrow(this::notFound);
         boolean creator = room.getCreatedBy().getId().equals(userId);
         boolean expired = room.getStatus() == RoomStatus.WAITING
                 && !Instant.now().isBefore(room.getInviteExpiresAt());
         String inviteCode = creator && room.getStatus() == RoomStatus.WAITING && !expired
                 ? RoomCode.display(room.getJoinCode()) : null;
         return new RoomView(roomId, room.getStatus(), room.getServiceProfile(),
-                room.isPremiumCostSaverEnabled(), members, creator, expired,
+                room.isPremiumCostSaverEnabled(), members, currentParticipant, creator, expired,
                 room.getInviteExpiresAt(), inviteCode);
     }
 
@@ -159,9 +162,11 @@ public class RoomService {
                               boolean premiumCostSaverEnabled,
                               String speaking, String listening,
                               Instant createdAt, boolean inviteExpired) {}
-    public record ParticipantView(String displayName, short slot, String speaking, String listening) {}
+    public record ParticipantView(UUID participantId, String displayName, short slot,
+                                  String speaking, String listening, boolean current) {}
     public record RoomView(UUID id, RoomStatus status, AiServiceProfile profile,
                            boolean premiumCostSaverEnabled,
                            List<ParticipantView> participants,
+                           ParticipantView currentParticipant,
                            boolean creator, boolean inviteExpired, Instant inviteExpiresAt, String inviteCode) {}
 }

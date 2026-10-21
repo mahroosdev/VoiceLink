@@ -11,13 +11,13 @@ const glossaryScript = fs.readFileSync(path.join(root, "static/js/room-glossary.
 const liveScript = fs.readFileSync(path.join(root, "static/js/room-live.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "static/css/voicelink.css"), "utf8");
 
-test("room keeps Speak, Total, and Private Preview defaults with explicit Shared Live consent", () => {
+test("room keeps Speak, Total Translation, and Private Live defaults with explicit Shared Live consent", () => {
   assert.match(html, /id="mode-speak"[^>]*aria-pressed="true"/);
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
   assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
-  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Preview/);
+  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Live/);
   assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
   assert.match(html, /Your translated drafts will be visible/);
   assert.match(html, /id="shared-text-draft"[^>]*hidden/);
@@ -34,6 +34,10 @@ test("room keeps Speak, Total, and Private Preview defaults with explicit Shared
   assert.match(glossaryScript, /voicelink-glossary-changed/);
   assert.match(css, /type-mode__button:focus-visible/);
   assert.match(css, /max-width: 390px/);
+  assert.match(css, /Gate J5A: server-attributed two-person conversation workspace/);
+  assert.match(css, /recording-card\[data-phase="listening"\] #record-stop \{ position: static/);
+  assert.match(css, /@media \(max-width: 359px\)[\s\S]*\.speech-mode, \.type-mode \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.turn-card \{ transition: none !important; \}/);
 });
 
 test("speech Finish and Send is explicit, private by default, bounded, and safely rendered", () => {
@@ -81,8 +85,8 @@ function setup(fetch, debounce = "800") {
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
     "type-translate", "type-retry", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
-    "final-text-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
-    "shared-text-draft-status", "shared-text-draft-announcement"];
+    "conversation-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
+    "shared-text-draft-status", "shared-text-draft-heading", "shared-text-draft-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-page"].dataset.liveTextDebounceMs = debounce;
@@ -444,12 +448,12 @@ test("Live Send uses the reviewed result once and socket echo is deduplicated", 
   nodes["type-send"].callbacks.click();
   await next();
   assert.equal(calls.length, 2);
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
-  assert.equal(nodes["final-text-events"].children[0].children[1].children[1].textContent, "<unsafe>");
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].children[0].children[1].children[1].textContent, "<unsafe>");
   listeners["voicelink-final-text"]({ detail: { roomId: "room-1", turnId: "final-1",
     senderParticipantId: "person-1", payload: { originalText: "<unsafe>",
       translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
   assert.equal(nodes["turn-announcement"].textContent, "You sent translated text.");
 });
 
@@ -468,7 +472,7 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
     senderParticipantId: "person-1", payload: { originalText: "Hello",
       translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
   assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
 });
 
@@ -480,7 +484,7 @@ test("draft clear and reconnect reset remove provisional content without creatin
   listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_CLEARED", roomId: "room-1",
     turnId: "draft-2", senderParticipantId: "person-2", payload: { revision: 3 } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 0);
+  assert.equal(nodes["conversation-events"].childElementCount, 0);
   listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
     turnId: "draft-3", senderParticipantId: "person-2", payload: { translatedText: "again",
       sourceLanguage: "ta", targetLanguage: "en", revision: 4, provisional: true } } });
@@ -627,5 +631,5 @@ test("expiry and room closure clear private state and make pending responses sta
   listeners["voicelink-room-state"]();
   assert.equal(pendingRequest.signal, undefined);
   assert.equal(nodes["type-section"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 0);
+  assert.equal(nodes["conversation-events"].childElementCount, 0);
 });

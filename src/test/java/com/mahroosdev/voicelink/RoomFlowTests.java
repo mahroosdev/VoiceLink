@@ -175,6 +175,24 @@ class RoomFlowTests {
     }
 
     @Test
+    void roomViewDerivesYouPartnerAndDirectionsFromAuthenticatedMembershipEvenWhenNamesMatch() {
+        UserAccount creator = account("Same Name");
+        UserAccount joiner = account("Same Name");
+        UUID id = service.createRoom(creator.getId(), "en", "ta");
+        service.joinRoom(joiner.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+
+        var creatorView = service.getRoomForMember(creator.getId(), id);
+        var joinerView = service.getRoomForMember(joiner.getId(), id);
+        assertThat(creatorView.participants()).extracting("displayName").containsOnly("Same Name");
+        assertThat(creatorView.participants()).filteredOn("current", true).singleElement()
+                .extracting("speaking", "listening").containsExactly("en", "ta");
+        assertThat(joinerView.participants()).filteredOn("current", true).singleElement()
+                .extracting("speaking", "listening").containsExactly("ta", "en");
+        assertThat(creatorView.currentParticipant().participantId())
+                .isNotEqualTo(joinerView.currentParticipant().participantId());
+    }
+
+    @Test
     void closeRequiresMembershipAndCannotReopen() {
         UserAccount creator = account("Creator");
         UserAccount joiner = account("Joiner");
@@ -279,12 +297,12 @@ class RoomFlowTests {
         mvc.perform(get(redirect).with(user(principal(creator))))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Waiting for a guest")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("and receive")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("and hear")));
         mvc.perform(post("/rooms/join").with(user(principal(joiner))).with(csrf()).param("joinCode", code))
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("Live captions")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("No conversation activity yet")));
         mvc.perform(post(redirect + "/close").with(user(principal(outsider))).with(csrf()))
                 .andExpect(status().isNotFound());
         mvc.perform(post(redirect + "/close").with(user(principal(joiner))).with(csrf()))

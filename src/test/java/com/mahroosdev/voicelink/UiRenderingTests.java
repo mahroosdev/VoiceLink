@@ -311,20 +311,23 @@ class UiRenderingTests {
         rooms.joinRoom(guest.getUserId(), code.group(1));
         String active = mvc.perform(get(path).with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(active).contains("Live captions", "id=\"record-start\"",
-                "id=\"record-stop\"", "id=\"recording-status\"", "id=\"speech-events\"",
+        assertThat(active).contains("Conversation", "id=\"record-start\"",
+                "id=\"record-stop\"", "id=\"recording-status\"", "id=\"conversation-events\"",
                 "id=\"turn-announcement\"", "id=\"glossary-form\"", "id=\"live-text-form\"",
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
         assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
                 "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-dialog\"",
-                "id=\"room-details\"")
+                "id=\"room-details\"", "data-role=\"You\"", "data-role=\"Partner\"",
+                "You speak: ", "You hear: ", "Partner speaks: ", "Partner hears: ",
+                "Total Translation", "Live Translation", "Private Live", "Shared Live",
+                "Record and send the translated turn.")
                 .doesNotContain("Low latency", "Recent History", "Delete account");
         var ids = Pattern.compile(" id=\"([^\"]+)\"").matcher(active).results()
                 .map(match -> match.group(1)).toList();
         assertThat(ids).doesNotHaveDuplicates();
         assertThat(active).containsPattern("(?s)<details id=\"room-details\".*?<form id=\"close-room-form\"");
-        assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
+        assertThat(active.indexOf("id=\"conversation-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(roomScript).contains("speechSection.dataset.phase = \"listening\"",

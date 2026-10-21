@@ -15,7 +15,7 @@
   const form = document.getElementById("live-text-form");
   const input = document.getElementById("live-text-input");
   const send = document.getElementById("live-send");
-  const events = document.getElementById("live-events");
+  const events = document.getElementById("conversation-events");
   const speechSection = document.getElementById("speech-section");
   const glossarySection = document.getElementById("glossary-section");
   const roomToolBar = document.querySelector(".room-tool-bar");
@@ -36,7 +36,7 @@
   const speechReviewCancel = document.getElementById("speech-review-cancel");
   const recordingStatus = document.getElementById("recording-status");
   const recordingTimer = document.getElementById("recording-timer");
-  const speechEvents = document.getElementById("speech-events");
+  const speechEvents = document.getElementById("conversation-events");
   const turnEmpty = document.getElementById("turn-empty");
   const turnAnnouncement = document.getElementById("turn-announcement");
   const inviteCode = document.getElementById("invite-code");
@@ -47,7 +47,7 @@
   const speechSupported = !!(navigator.mediaDevices?.getUserMedia &&
     window.MediaRecorder?.isTypeSupported(speechType));
   const turnRows = new Map();
-  const participantNames = new Map();
+  const participantRoles = new Map();
 
   let recorder;
   let microphone;
@@ -125,8 +125,8 @@
     speechModeLive.setAttribute("aria-pressed", String(workflow === "LIVE_SEND"));
     speechModeFinish.setAttribute("aria-pressed", String(workflow === "FINISH_AND_SEND"));
     speechModeHelp.textContent = workflow === "LIVE_SEND"
-      ? "Live Send shares captions while your turn is processed."
-      : "Finish & Send keeps recognition and translation private until you review and send.";
+      ? "Record and send the translated turn."
+      : "Review your speech before sending.";
     recordingStatus.textContent = workflow === "LIVE_SEND"
       ? "Ready for Live Send. Speak for up to 15 seconds."
       : "Ready for private review. Speak for up to 15 seconds.";
@@ -235,16 +235,18 @@
       const existing = turnRows.get(turnId);
       if (senderId) {
         existing.row.dataset.senderId = senderId;
-        existing.speaker.textContent = participantNames.get(senderId) || "Participant";
+        applySender(existing, senderId);
       }
       return existing;
     }
-    const row = make("li", "turn-card");
+    const role = participantRoles.get(senderId) || "Participant";
+    const row = make("li", "turn-card turn-card--" + role.toLowerCase());
     row.dataset.index = String(turnIndex);
     if (senderId) row.dataset.senderId = senderId;
     const top = make("div", "turn-card__top");
     const meta = make("div", "turn-card__meta");
-    const speaker = make("strong", "turn-card__speaker", participantNames.get(senderId) || "Participant");
+    row.dataset.senderRole = role;
+    const speaker = make("strong", "turn-card__speaker", role);
     const index = make("span", "turn-card__index", "Turn " + turnIndex);
     const progress = make("span", "turn-card__status", "Processing");
     meta.append(speaker, index);
@@ -284,6 +286,14 @@
       turnRows.delete(oldestId);
     }
     return parts;
+  }
+
+  function applySender(parts, senderId) {
+    const role = participantRoles.get(senderId) || "Participant";
+    parts.speaker.textContent = role;
+    parts.row.dataset.senderRole = role;
+    parts.row.classList.toggle("turn-card--you", role === "You");
+    parts.row.classList.toggle("turn-card--partner", role === "Partner");
   }
 
   function showCaption(parts, kind, language, textValue) {
@@ -405,28 +415,48 @@
   function showParticipants(people) {
     if (!Array.isArray(people)) return;
     members.replaceChildren();
-    participantNames.clear();
+    participantRoles.clear();
     for (const person of people) {
-      participantNames.set(person.participantId, person.displayName);
+      const role = person.current === true ? "You" : "Partner";
+      participantRoles.set(person.participantId, role);
       const item = make("li", "participant");
       item.dataset.participantId = person.participantId;
-      const avatar = make("span", "participant__avatar", String(person.slot));
+      item.dataset.role = role;
+      item.dataset.current = String(person.current === true);
+      const avatar = make("span", "participant__avatar", role === "You" ? "Y" : "P");
       avatar.setAttribute("aria-hidden", "true");
       const details = make("span", "participant__details");
-      const name = make("strong", "", person.displayName);
+      const name = make("strong", "", role);
       const direction = make("small", "",
-        "Speaks " + languageName(person.speaking) + " · Hears " + languageName(person.listening));
-      details.append(name, direction);
+        role + " speak" + (role === "Partner" ? "s" : "") + ": " + languageName(person.speaking) +
+        "\n" + role + " hear" + (role === "Partner" ? "s" : "") + ": " + languageName(person.listening));
+      const account = make("span", "participant__account-name", "Account: " + person.displayName);
+      details.append(name, direction, account);
       item.append(avatar, details);
       members.append(item);
     }
     for (const parts of turnRows.values()) {
-      parts.speaker.textContent = participantNames.get(parts.row.dataset.senderId) || "Participant";
+      applySender(parts, parts.row.dataset.senderId);
     }
   }
 
-  function addText(payload) {
-    events.append(make("li", "", payload.text));
+  function addText(event) {
+    const payload = event.payload || {};
+    if (typeof payload.text !== "string") return;
+    const role = participantRoles.get(event.senderParticipantId) || "Participant";
+    const row = make("li", "turn-card text-turn-card untranslated-turn turn-card--" + role.toLowerCase());
+    row.dataset.senderId = event.senderParticipantId || "";
+    row.dataset.senderRole = role;
+    const heading = make("strong", "turn-card__speaker", role + " · Untranslated message");
+    const caption = make("div", "turn-caption");
+    const label = make("span", "turn-caption__label", "Original text");
+    const content = make("p", "", payload.text);
+    caption.append(label, content);
+    row.append(heading, caption);
+    events.append(row);
+    while (events.childElementCount > 16) events.firstElementChild.remove();
+    turnEmpty.hidden = true;
+    turnAnnouncement.textContent = role + " sent an untranslated message.";
   }
 
   function receive(raw) {
@@ -449,7 +479,7 @@
       showParticipants(event.payload.participants);
       window.dispatchEvent(new Event("voicelink-room-state"));
     } else if (event.type === "TEXT_MESSAGE") {
-      addText(event.payload);
+      addText(event);
     } else if (event.type === "TEXT_TRANSLATION_SENT") {
       window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
     } else if (event.type === "TEXT_DRAFT_UPDATED" || event.type === "TEXT_DRAFT_CLEARED") {

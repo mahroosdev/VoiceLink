@@ -42,7 +42,7 @@ public class RoomLiveAuthorizer {
         List<Participant> people = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).stream()
                 .map(p -> new Participant(p.getId(), p.getUser().getDisplayName(),
                         p.getParticipantSlot(), p.getSpeakingLanguageTag(),
-                        p.getListeningLanguageTag()))
+                        p.getListeningLanguageTag(), p.getUser().getId().equals(userId)))
                 .toList();
         return new Snapshot(member.status(), people);
     }
@@ -55,6 +55,6 @@ public class RoomLiveAuthorizer {
         }
     }
     public record Participant(UUID participantId, String displayName, short slot,
-                              String speaking, String listening) {}
+                              String speaking, String listening, boolean current) {}
     public record Snapshot(RoomStatus status, List<Participant> participants) {}
 }

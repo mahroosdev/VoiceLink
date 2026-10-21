@@ -32,9 +32,11 @@
   const reviewHeading = document.getElementById("type-review-heading");
   const original = document.getElementById("type-review-original");
   const translated = document.getElementById("type-review-translation");
-  const finalEvents = document.getElementById("final-text-events");
+  const finalEvents = document.getElementById("conversation-events");
+  const turnEmpty = document.getElementById("turn-empty");
   const announcement = document.getElementById("turn-announcement");
   const sharedDraft = document.getElementById("shared-text-draft");
+  const sharedDraftHeading = document.getElementById("shared-text-draft-heading");
   const sharedDraftText = document.getElementById("shared-text-draft-text");
   const sharedDraftStatus = document.getElementById("shared-text-draft-status");
   const sharedDraftAnnouncement = document.getElementById("shared-text-draft-announcement");
@@ -476,7 +478,8 @@
     seen.add(message.finalId);
     if (seen.size > 256) seen.delete(seen.values().next().value);
     const row = document.createElement("li");
-    row.className = "turn-card text-turn-card";
+    row.className = "turn-card text-turn-card turn-card--" + sender.toLowerCase();
+    row.dataset.senderRole = sender;
     const heading = document.createElement("strong");
     heading.className = "turn-card__speaker";
     heading.textContent = sender + " · Sent translated text";
@@ -500,6 +503,7 @@
     targetBlock.append(targetLabel, targetText);
     row.append(heading, sourceBlock, targetBlock);
     finalEvents.append(row);
+    if (turnEmpty) turnEmpty.hidden = true;
     while (finalEvents.childElementCount > 16) finalEvents.firstElementChild.remove();
     if (announcement) announcement.textContent = sender + " sent translated text.";
   }
@@ -577,10 +581,10 @@
     const payload = event?.payload;
     if (!payload || event.roomId !== roomId) return;
     const participant = document.querySelector("#participants-list [data-participant-id='" +
-      event.senderParticipantId + "'] strong");
+      event.senderParticipantId + "']");
     if (receivedDraft?.senderParticipantId === event.senderParticipantId)
       clearReceivedDraft("The shared draft was finalized.");
-    appendFinal({ ...payload, finalId: event.turnId }, participant?.textContent || "Participant");
+    appendFinal({ ...payload, finalId: event.turnId }, participant?.dataset.role || "Partner");
   });
   window.addEventListener("voicelink-text-draft", ({ detail: event }) => {
     if (!event || event.roomId !== roomId) return;
@@ -598,12 +602,17 @@
     const first = receivedDraft === null || receivedDraft.draftId !== event.turnId;
     receivedDraft = { draftId: event.turnId, revision: incomingRevision,
       senderParticipantId: event.senderParticipantId };
+    const participant = document.querySelector("#participants-list [data-participant-id='" +
+      event.senderParticipantId + "']");
+    const sender = participant?.dataset.role || "Partner";
+    if (sharedDraftHeading) sharedDraftHeading.textContent = sender + " · Live translation draft";
     sharedDraftText.textContent = payload.translatedText;
     sharedDraftText.lang = payload.targetLanguage;
     sharedDraftStatus.textContent = "Updating may continue until the participant sends or stops sharing.";
     sharedDraft.hidden = false;
+    if (turnEmpty) turnEmpty.hidden = true;
     if (first && sharedDraftAnnouncement)
-      sharedDraftAnnouncement.textContent = "A participant started sharing a translated draft.";
+      sharedDraftAnnouncement.textContent = sender + " started sharing a translated draft.";
   });
   window.addEventListener("voicelink-text-draft-reset", () => {
     clearReceivedDraft("Shared draft cleared after the live connection changed.");
