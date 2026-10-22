@@ -97,7 +97,7 @@ class PremiumSpeechTurnFlowTests {
         AccountPrincipal principal = new AccountPrincipal(owner.getId(), owner.getEmail(),
                 owner.getPasswordHash(), true);
         mvc.perform(post("/rooms").with(user(principal)).with(csrf())
-                        .param("speaking", "en").param("listening", "ta")
+                        .param("displayName", "Premium owner").param("speaking", "en")
                         .param("profile", "PREMIUM").param("premiumCostSaver", "OFF"))
                 .andExpect(status().is3xxRedirection());
         var created = rooms.listRoomsForMember(owner.getId()).getFirst();
@@ -112,7 +112,7 @@ class PremiumSpeechTurnFlowTests {
 
         int before = rooms.listRoomsForMember(owner.getId()).size();
         mvc.perform(post("/rooms").with(user(principal)).with(csrf())
-                        .param("speaking", "en").param("listening", "ta")
+                        .param("displayName", "Premium owner").param("speaking", "en")
                         .param("profile", "PREMIUM").param("premiumCostSaver", "FORGED"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(

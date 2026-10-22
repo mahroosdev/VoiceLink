@@ -175,13 +175,13 @@ class UiRenderingTests {
         assertThat(index).contains("class=\"authenticated-shell\"", "<h1>Rooms</h1>",
                 "Closed rooms", "No closed rooms",
                 "class=\"application-sidebar\"", "class=\"application-bottom-nav\"",
-                "action=\"/rooms\"", "action=\"/rooms/join\"",
-                "name=\"speaking\"", "name=\"listening\"", "name=\"profile\"",
+                "action=\"/rooms\"", "action=\"/rooms/join/preview\"",
+                "name=\"displayName\"", "name=\"speaking\"", "name=\"profile\"",
                 "Paid Gemini translation and voice; Groq speech recognition is shared.",
                 "Premium is not available on this server.", "name=\"_csrf\"",
                 "href=\"/about#privacy\"", "Recent captions and generated audio are temporary.",
                 "href=\"/about\"", owner.getUsername());
-        assertThat(index).contains("class=\"room-direction-choice\"", "class=\"room-direction-choice__arrow\"")
+        assertThat(index).contains("id=\"direction-preview\"", "Conversation Owner")
                 .doesNotContain("Recent History", "Recovery Key");
         assertThat(index).doesNotContain("<details class=\"disclosure data-disclosure\"",
                 "Standard uses Gemini Free Tier for translation and voice.",
@@ -201,7 +201,8 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse();
         assertThat(script.getContentType()).contains("javascript");
         assertThat(script.getContentAsString()).contains("premium-cost-saver",
-                "input[name=\"profile\"]", "premiumControls.hidden = !premiumSelected")
+                "input[name=\"profile\"]", "premiumControls.hidden = !selected",
+                "direction-preview", "textContent = creatorLanguage")
                 .doesNotContain("innerHTML", "localStorage", "sessionStorage");
 
         mvc.perform(get("/app"))
@@ -232,7 +233,7 @@ class UiRenderingTests {
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(index).contains("Closed rooms", "href=\"/rooms/" + closedId + "\"",
-                "View closed room", "Remove room", "action=\"/rooms\"", "action=\"/rooms/join\"");
+                "View closed room", "Remove room", "action=\"/rooms\"", "action=\"/rooms/join/preview\"");
         assertThat(index).doesNotContain("href=\"/rooms/" + waitingId + "\"",
                 "href=\"/rooms/" + activeId + "\"");
     }

@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 @Controller
@@ -31,6 +30,7 @@ public class RoomController {
     @GetMapping("/rooms")
     String index(@AuthenticationPrincipal AccountPrincipal principal, Model model) {
         if (!model.containsAttribute("createRoomForm")) model.addAttribute("createRoomForm", new CreateRoomForm());
+        if (!model.containsAttribute("joinCodeForm")) model.addAttribute("joinCodeForm", new JoinCodeForm());
         model.addAttribute("closedRooms", rooms.listRoomsForMember(principal.getUserId()).stream()
                 .filter(room -> room.status() == RoomStatus.CLOSED).toList());
         model.addAttribute("premiumAvailable", premium.available());
@@ -59,25 +59,64 @@ public class RoomController {
                 }
                 costSaver = "ON".equals(form.getPremiumCostSaver());
             }
-            UUID id = rooms.createRoom(principal.getUserId(), form.getSpeaking(), form.getListening(), profile,
-                    costSaver);
+            UUID id = rooms.createRoomForSpeaker(principal.getUserId(), form.getDisplayName(),
+                    form.getSpeaking(), profile, costSaver);
             return "redirect:/rooms/" + id;
         } catch (PremiumUnavailableException ex) {
             errors.rejectValue("profile", "room.premium", "Premium profile is not currently available.");
         } catch (IllegalArgumentException ex) {
-            errors.rejectValue("listening", "room.direction", "Choose English to Tamil or Tamil to English.");
+            if (invalidDisplayName(form.getDisplayName())) {
+                errors.rejectValue("displayName", "room.displayName", ConversationDisplayName.VALIDATION_MESSAGE);
+            } else {
+                errors.rejectValue("speaking", "room.direction", "Choose English or Tamil.");
+            }
         } catch (DataIntegrityViolationException ex) {
             model.addAttribute("roomError", "Room could not be created. Please try again.");
         }
         return index(principal, model);
     }
 
-    @PostMapping("/rooms/join")
-    String join(@AuthenticationPrincipal AccountPrincipal principal,
-                @RequestParam(name = "joinCode", required = false) String joinCode,
-                RedirectAttributes redirect) {
+    @PostMapping({"/rooms/join", "/rooms/join/preview"})
+    String previewJoin(@AuthenticationPrincipal AccountPrincipal principal,
+                       @Valid @ModelAttribute("joinCodeForm") JoinCodeForm form,
+                       BindingResult errors, Model model) {
+        if (errors.hasErrors()) return index(principal, model);
         try {
-            return "redirect:/rooms/" + rooms.joinRoom(principal.getUserId(), joinCode);
+            RoomService.JoinPreview preview = rooms.previewJoin(principal.getUserId(), form.getJoinCode());
+            if (preview.alreadyMember()) return "redirect:/rooms/" + preview.roomId();
+            JoinRoomForm joinRoomForm = new JoinRoomForm();
+            joinRoomForm.setJoinCode(preview.joinCode());
+            model.addAttribute("joinRoomForm", joinRoomForm);
+            model.addAttribute("joinPreview", preview);
+        } catch (RoomInviteUnavailableException ex) {
+            model.addAttribute("joinError", "Invite unavailable. Check the code or ask for a new room.");
+        }
+        return index(principal, model);
+    }
+
+    @PostMapping("/rooms/join/setup")
+    String joinWithSetup(@AuthenticationPrincipal AccountPrincipal principal,
+                         @Valid @ModelAttribute("joinRoomForm") JoinRoomForm form,
+                         BindingResult errors, Model model, RedirectAttributes redirect) {
+        RoomService.JoinPreview preview;
+        try {
+            preview = rooms.previewJoin(principal.getUserId(), form.getJoinCode());
+            if (preview.alreadyMember()) return "redirect:/rooms/" + preview.roomId();
+        } catch (RoomInviteUnavailableException ex) {
+            redirect.addFlashAttribute("joinError", "Invite unavailable. Check the code or ask for a new room.");
+            return "redirect:/rooms";
+        }
+        if (errors.hasErrors()) {
+            model.addAttribute("joinPreview", preview);
+            return index(principal, model);
+        }
+        try {
+            return "redirect:/rooms/" + rooms.joinRoomWithSetup(principal.getUserId(),
+                    form.getJoinCode(), form.getDisplayName());
+        } catch (IllegalArgumentException ex) {
+            errors.rejectValue("displayName", "room.displayName", ConversationDisplayName.VALIDATION_MESSAGE);
+            model.addAttribute("joinPreview", preview);
+            return index(principal, model);
         } catch (RoomInviteUnavailableException | DataIntegrityViolationException ex) {
             redirect.addFlashAttribute("joinError", "Invite unavailable. Check the code or ask for a new room.");
             return "redirect:/rooms";
@@ -103,5 +142,14 @@ public class RoomController {
         rooms.removeClosedRoom(principal.getUserId(), id);
         redirect.addFlashAttribute("roomRemoved", "Closed room removed from your list.");
         return "redirect:/rooms";
+    }
+
+    private boolean invalidDisplayName(String value) {
+        try {
+            ConversationDisplayName.normalize(value);
+            return false;
+        } catch (IllegalArgumentException ex) {
+            return true;
+        }
     }
 }

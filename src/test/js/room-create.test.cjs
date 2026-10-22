@@ -35,3 +35,35 @@ test("Cost Saver controls appear only when Premium is selected", () => {
   premium.callbacks.change();
   assert.equal(costSaver.hidden, false);
 });
+
+test("creator language choice explains the server-defined complementary direction", () => {
+  assert.match(html, /Which language will you speak\?/);
+  assert.match(html, /Creator speaks:/);
+  assert.match(html, /Invited participant speaks:/);
+  assert.doesNotMatch(html, /th:field="\*\{listening\}"/);
+  const creatorNodes = [{ textContent: "" }, { textContent: "" }];
+  const participantNodes = [{ textContent: "" }, { textContent: "" }];
+  const summary = {
+    hidden: true,
+    querySelectorAll(selector) {
+      return selector === "[data-creator-language]" ? creatorNodes : participantNodes;
+    }
+  };
+  const speaking = { value: "en", callbacks: {}, addEventListener(name, fn) { this.callbacks[name] = fn; } };
+  const document = {
+    getElementById(id) {
+      if (id === "speaking") return speaking;
+      if (id === "direction-preview") return summary;
+      return null;
+    },
+    querySelectorAll() { return []; }
+  };
+  vm.runInNewContext(script, { document });
+  assert.equal(summary.hidden, false);
+  assert.deepEqual(creatorNodes.map(node => node.textContent), ["English", "English"]);
+  assert.deepEqual(participantNodes.map(node => node.textContent), ["Tamil", "Tamil"]);
+  speaking.value = "ta";
+  speaking.callbacks.change();
+  assert.deepEqual(creatorNodes.map(node => node.textContent), ["Tamil", "Tamil"]);
+  assert.deepEqual(participantNodes.map(node => node.textContent), ["English", "English"]);
+});

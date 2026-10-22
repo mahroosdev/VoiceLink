@@ -92,11 +92,11 @@ class RoomFlowTests {
     void forgedPremiumAndInvalidProfilePostAreRejectedWithoutCreatingRoom() throws Exception {
         UserAccount creator = account("Creator");
         mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
-                .param("speaking", "en").param("listening", "ta").param("profile", "PREMIUM"))
+                .param("displayName", "Creator").param("speaking", "en").param("profile", "PREMIUM"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Premium profile is not currently available.")));
         mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
-                .param("speaking", "en").param("listening", "ta").param("profile", "OTHER"))
+                .param("displayName", "Creator").param("speaking", "en").param("profile", "OTHER"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Choose a valid service profile.")));
         assertThat(service.listRoomsForMember(creator.getId())).isEmpty();
@@ -197,6 +197,131 @@ class RoomFlowTests {
     }
 
     @Test
+    void participantSetupPersistsNamesComplementaryLanguagesAndServerDerivedOwner() {
+        UserAccount englishOwner = account("Account Owner");
+        UserAccount tamilOwner = account("Tamil Account");
+        UserAccount joiner = account("Joiner Account");
+
+        UUID englishRoom = service.createRoomForSpeaker(englishOwner.getId(), "  Alice  ", " EN ",
+                AiServiceProfile.STANDARD, true);
+        UUID tamilRoom = service.createRoomForSpeaker(tamilOwner.getId(), "தமிழ் உரிமையாளர்", "ta",
+                AiServiceProfile.STANDARD, true);
+        assertThat(service.getRoomForMember(englishOwner.getId(), englishRoom).currentParticipant())
+                .extracting("displayName", "speaking", "listening", "owner")
+                .containsExactly("Alice", "en", "ta", true);
+        assertThat(service.getRoomForMember(tamilOwner.getId(), tamilRoom).currentParticipant())
+                .extracting("displayName", "speaking", "listening", "owner")
+                .containsExactly("தமிழ் உரிமையாளர்", "ta", "en", true);
+
+        String code = rooms.findById(englishRoom).orElseThrow().getJoinCode();
+        var preview = service.previewJoin(joiner.getId(), code);
+        assertThat(preview.ownerDisplayName()).isEqualTo("Alice");
+        assertThat(preview.ownerSpeaking()).isEqualTo("en");
+        assertThat(preview.participantSpeaking()).isEqualTo("ta");
+        service.joinRoomWithSetup(joiner.getId(), code, "Alice");
+
+        var ownerView = service.getRoomForMember(englishOwner.getId(), englishRoom);
+        var joinerView = service.getRoomForMember(joiner.getId(), englishRoom);
+        assertThat(ownerView.participants()).extracting("displayName").containsExactly("Alice", "Alice");
+        assertThat(ownerView.participants()).filteredOn("owner", true).singleElement()
+                .extracting("current", "speaking", "listening").containsExactly(true, "en", "ta");
+        assertThat(joinerView.participants()).filteredOn("owner", true).singleElement()
+                .extracting("current", "speaking", "listening").containsExactly(false, "en", "ta");
+        assertThat(joinerView.currentParticipant())
+                .extracting("displayName", "speaking", "listening", "owner")
+                .containsExactly("Alice", "ta", "en", false);
+        assertThat(service.joinRoomWithSetup(joiner.getId(), code, "Ignored duplicate name"))
+                .isEqualTo(englishRoom);
+        assertThat(service.getRoomForMember(joiner.getId(), englishRoom).currentParticipant().displayName())
+                .isEqualTo("Alice");
+    }
+
+    @Test
+    void displayNamesValidateUnicodeBoundariesEscapeMarkupAndLegacyRoomsFallback() throws Exception {
+        UserAccount creator = account("Legacy Account Name");
+        assertThatThrownBy(() -> service.createRoomForSpeaker(creator.getId(), "   ", "en",
+                AiServiceProfile.STANDARD, true)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.createRoomForSpeaker(creator.getId(), "x".repeat(49), "en",
+                AiServiceProfile.STANDARD, true)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.createRoomForSpeaker(creator.getId(), "Alex\u202Eowner", "en",
+                AiServiceProfile.STANDARD, true)).isInstanceOf(IllegalArgumentException.class);
+
+        String unicodeMarkupName = "<Alex & நண்பர்>";
+        UUID named = service.createRoomForSpeaker(creator.getId(), unicodeMarkupName, "en",
+                AiServiceProfile.STANDARD, true);
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(named).getFirst()
+                .getConversationDisplayName()).isEqualTo(unicodeMarkupName);
+        String page = mvc.perform(get("/rooms/" + named).with(user(principal(creator))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(page).contains("&lt;Alex &amp; நண்பர்&gt;").doesNotContain("<Alex & நண்பர்>");
+
+        UUID legacy = service.createRoom(creator.getId(), "ta", "en");
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(legacy).getFirst()
+                .getConversationDisplayName()).isNull();
+        assertThat(service.getRoomForMember(creator.getId(), legacy).currentParticipant().displayName())
+                .isEqualTo("Legacy Account Name");
+    }
+
+    @Test
+    void invitePreviewAndSetupExposeOnlyAuthorizedConversationDetailsAndRecheckCapacity() throws Exception {
+        UserAccount creator = account("Private Account Name");
+        UserAccount joiner = account("Joiner Account");
+        UserAccount third = account("Third Account");
+        UUID id = service.createRoomForSpeaker(creator.getId(), "Room Host", "en",
+                AiServiceProfile.STANDARD, true);
+        String code = rooms.findById(id).orElseThrow().getJoinCode();
+
+        String preview = mvc.perform(post("/rooms/join/preview").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(preview).contains("Join Conversation", "Room Host", "Owner speaks", "English",
+                        "Your speaking language", "Tamil", "action=\"/rooms/join/setup\"")
+                .doesNotContain(creator.getEmail(), creator.getId().toString(), "Private Account Name");
+
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest"))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
+        String denied = mvc.perform(post("/rooms/join/preview").with(user(principal(third))).with(csrf())
+                        .param("joinCode", code))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(denied).contains("Invite unavailable. Check the code or ask for a new room.")
+                .doesNotContain("Room Host", creator.getEmail(), creator.getId().toString());
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(2);
+    }
+
+    @Test
+    void setupFormsRejectEmptyOversizedAndContradictoryClientLanguage() throws Exception {
+        UserAccount creator = account("Creator");
+        UserAccount joiner = account("Joiner");
+        mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
+                        .param("displayName", "").param("speaking", "en"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Enter your display name for this conversation.")));
+        mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
+                        .param("displayName", "x".repeat(49)).param("speaking", "en"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Use 1 to 48 Unicode characters")));
+
+        UUID id = service.createRoomForSpeaker(creator.getId(), "Owner", "en",
+                AiServiceProfile.STANDARD, true);
+        String code = rooms.findById(id).orElseThrow().getJoinCode();
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "")
+                        .param("speaking", "en").param("owner", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Enter your display name for this conversation.")));
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest")
+                        .param("speaking", "en").param("owner", "true"))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
+        assertThat(service.getRoomForMember(joiner.getId(), id).currentParticipant())
+                .extracting("speaking", "listening", "owner").containsExactly("ta", "en", false);
+    }
+
+    @Test
     void closeRequiresMembershipAndCannotReopen() {
         UserAccount creator = account("Creator");
         UserAccount joiner = account("Joiner");
@@ -256,13 +381,14 @@ class RoomFlowTests {
         UUID id = service.createRoom(creator.getId(), "en", "ta");
         String code = rooms.findById(id).orElseThrow().getJoinCode();
         mvc.perform(post("/rooms").with(user(principal(creator))).param("speaking", "en")
-                .param("listening", "ta")).andExpect(status().isForbidden());
+                .param("displayName", "Creator")).andExpect(status().isForbidden());
         mvc.perform(post("/rooms/join").with(user(principal(joiner))).param("joinCode", code))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/rooms/" + id + "/close").with(user(principal(creator))))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/rooms/join").with(user(principal(joiner))).with(csrf())
-                .param("joinCode", code).param("userId", creator.getId().toString()))
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                .param("joinCode", code).param("displayName", "Joiner")
+                .param("userId", creator.getId().toString()))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
         assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id).get(1).getUser().getId())
                 .isEqualTo(joiner.getId());
@@ -273,16 +399,15 @@ class RoomFlowTests {
     void webCreationValidationAndGenericJoinErrorAreSafe() throws Exception {
         UserAccount creator = account("Creator");
         mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
-                .param("speaking", "en").param("listening", "en"))
+                .param("displayName", "Creator").param("speaking", "fr"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "Choose English to Tamil or Tamil to English.")));
-        var result = mvc.perform(post("/rooms/join").with(user(principal(creator))).with(csrf())
+                        "Choose English or Tamil.")));
+        mvc.perform(post("/rooms/join").with(user(principal(creator))).with(csrf())
                 .param("joinCode", "missing"))
-                .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms"))
-                .andReturn();
-        assertThat(result.getFlashMap().get("joinError"))
-                .isEqualTo("Invite unavailable. Check the code or ask for a new room.");
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Invite unavailable. Check the code or ask for a new room.")));
         assertThat(service.listRoomsForMember(creator.getId())).isEmpty();
     }
 
@@ -292,7 +417,7 @@ class RoomFlowTests {
         UserAccount joiner = account("Joiner");
         UserAccount outsider = account("Outsider");
         String redirect = mvc.perform(post("/rooms").with(user(principal(creator))).with(csrf())
-                .param("speaking", "en").param("listening", "ta")
+                .param("displayName", "Room Creator").param("speaking", "en")
                 .param("userId", outsider.getId().toString()))
                 .andExpect(status().isFound()).andReturn().getResponse().getRedirectedUrl();
         UUID id = UUID.fromString(redirect.substring("/rooms/".length()));
@@ -303,6 +428,10 @@ class RoomFlowTests {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Waiting for a guest")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("and you will receive")));
         mvc.perform(post("/rooms/join").with(user(principal(joiner))).with(csrf()).param("joinCode", code))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Join Conversation")));
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Room Guest"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))
                 .andExpect(status().isOk())

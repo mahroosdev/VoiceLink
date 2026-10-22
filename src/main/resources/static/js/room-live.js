@@ -425,16 +425,21 @@
       item.dataset.participantId = person.participantId;
       item.dataset.role = role;
       item.dataset.current = String(person.current === true);
+      item.dataset.owner = String(person.owner === true);
       const avatar = make("span", "participant__avatar", role === "You" ? "Y" : "P");
       avatar.setAttribute("aria-hidden", "true");
       const details = make("span", "participant__details");
-      const name = make("strong", "", role);
+      const name = make("strong", "", (person.current === true ? "You" : person.displayName) +
+        (person.owner === true ? " · Conversation Owner" : " · Partner"));
       const direction = make("small", "",
         role + " speak" + (role === "Partner" ? "s" : "") + ": " + languageName(person.speaking) +
         "\n" + (role === "You" ? "Partner receives: " : "You receive: ")
         + languageName(person.listening));
-      const account = make("span", "participant__account-name", "Account: " + person.displayName);
-      details.append(name, direction, account);
+      details.append(name, direction);
+      if (person.current === true) {
+        details.append(make("span", "participant__account-name",
+          "Conversation name: " + person.displayName));
+      }
       item.append(avatar, details);
       members.append(item);
     }

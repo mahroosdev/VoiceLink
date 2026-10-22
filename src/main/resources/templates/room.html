@@ -38,12 +38,12 @@
           <h2 id="members-heading" class="sr-only">Participants and languages</h2>
           <ul id="participants-list" class="participant-grid">
             <li class="participant" th:each="person : ${room.participants}"
-                th:attr="data-participant-id=${person.participantId},data-role=${person.current ? 'You' : 'Partner'},data-current=${person.current}">
+                th:attr="data-participant-id=${person.participantId},data-role=${person.current ? 'You' : 'Partner'},data-current=${person.current},data-owner=${person.owner}">
               <span class="participant__avatar" aria-hidden="true" th:text="${person.current ? 'Y' : 'P'}"></span>
-              <span class="participant__details"><strong th:text="${person.current ? 'You' : 'Partner'}"></strong>
+              <span class="participant__details"><strong><span th:text="${person.current ? 'You' : person.displayName}"></span><span th:text="${person.owner ? ' · Conversation Owner' : ' · Partner'}"></span></strong>
                 <small><span th:text="${person.current ? 'You speak: ' : 'Partner speaks: '}"></span><span th:text="${person.speaking == 'en' ? 'English' : 'Tamil'}"></span><br>
                   <span th:text="${person.current ? 'Partner receives: ' : 'You receive: '}"></span><span th:text="${person.listening == 'en' ? 'English' : 'Tamil'}"></span></small>
-                <span class="participant__account-name" th:text="|Account: ${person.displayName}|"></span>
+                <span class="participant__account-name" th:if="${person.current}" th:text="|Conversation name: ${person.displayName}|"></span>
               </span>
             </li>
           </ul>

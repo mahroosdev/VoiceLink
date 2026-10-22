@@ -166,12 +166,16 @@ test("server current marker keeps identical names distinct and attributes untran
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 1, eventId: "event-1",
     roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
       { participantId: "person-1", displayName: "Same Name", slot: 1,
-        speaking: "en", listening: "ta", current: true },
+        speaking: "en", listening: "ta", current: true, owner: true },
       { participantId: "person-2", displayName: "Same Name", slot: 2,
-        speaking: "ta", listening: "en", current: false }
+        speaking: "ta", listening: "en", current: false, owner: false }
     ] } });
   assert.equal(h.nodes["participants-list"].children[0].dataset.role, "You");
   assert.equal(h.nodes["participants-list"].children[1].dataset.role, "Partner");
+  assert.equal(h.nodes["participants-list"].children[0].children[1].children[0].textContent,
+    "You · Conversation Owner");
+  assert.equal(h.nodes["participants-list"].children[1].children[1].children[0].textContent,
+    "Same Name · Partner");
   assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
     /You speak: English\nPartner receives: Tamil/);
   assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
@@ -179,14 +183,18 @@ test("server current marker keeps identical names distinct and attributes untran
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 2, eventId: "event-2",
     roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
       { participantId: "person-1", displayName: "Same Name", slot: 1,
-        speaking: "en", listening: "ta", current: false },
+        speaking: "en", listening: "ta", current: false, owner: true },
       { participantId: "person-2", displayName: "Same Name", slot: 2,
-        speaking: "ta", listening: "en", current: true }
+        speaking: "ta", listening: "en", current: true, owner: false }
     ] } });
   assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
     /Partner speaks: English\nYou receive: Tamil/);
   assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
     /You speak: Tamil\nPartner receives: English/);
+  assert.equal(h.nodes["participants-list"].children[0].children[1].children[0].textContent,
+    "Same Name · Conversation Owner");
+  assert.equal(h.nodes["participants-list"].children[1].children[1].children[0].textContent,
+    "You · Partner");
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 3, eventId: "event-3",
     roomId: "room-1", type: "TEXT_MESSAGE", senderParticipantId: "person-1",
     payload: { text: "<b>safe text</b>" } });

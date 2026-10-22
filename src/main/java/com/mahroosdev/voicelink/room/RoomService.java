@@ -53,7 +53,19 @@ public class RoomService {
     @Transactional
     public UUID createRoom(UUID userId, String speaking, String listening, AiServiceProfile profile,
                            boolean premiumCostSaverEnabled) {
-        var direction = languages.validate(speaking, listening);
+        return createRoom(userId, null, languages.validate(speaking, listening), profile,
+                premiumCostSaverEnabled);
+    }
+
+    @Transactional
+    public UUID createRoomForSpeaker(UUID userId, String displayName, String speaking,
+                                     AiServiceProfile profile, boolean premiumCostSaverEnabled) {
+        return createRoom(userId, ConversationDisplayName.normalize(displayName),
+                languages.forSpeaker(speaking), profile, premiumCostSaverEnabled);
+    }
+
+    private UUID createRoom(UUID userId, String displayName, SupportedRoomLanguages.Direction direction,
+                            AiServiceProfile profile, boolean premiumCostSaverEnabled) {
         if (profile == null) throw new IllegalArgumentException("Invalid profile");
         if (profile == AiServiceProfile.PREMIUM && !premium.available()) {
             throw new PremiumUnavailableException();
@@ -63,12 +75,21 @@ public class RoomService {
         ConversationRoom room = rooms.saveAndFlush(new ConversationRoom(RoomCode.generate(), creator, now, profile,
                 premiumCostSaverEnabled));
         participants.saveAndFlush(new RoomParticipant(room, creator, (short) 1,
-                direction.speaking(), direction.listening(), now));
+                direction.speaking(), direction.listening(), displayName, now));
         return room.getId();
     }
 
     @Transactional
     public UUID joinRoom(UUID userId, String inputCode) {
+        return joinRoom(userId, inputCode, null);
+    }
+
+    @Transactional
+    public UUID joinRoomWithSetup(UUID userId, String inputCode, String displayName) {
+        return joinRoom(userId, inputCode, ConversationDisplayName.normalize(displayName));
+    }
+
+    private UUID joinRoom(UUID userId, String inputCode, String displayName) {
         String code = RoomCode.canonicalize(inputCode);
         if (code == null) throw new RoomInviteUnavailableException();
         ConversationRoom room = rooms.findByJoinCode(code).orElseThrow(RoomInviteUnavailableException::new);
@@ -89,10 +110,35 @@ public class RoomService {
                 creator.getListeningLanguageTag()).reverse();
         UserAccount joiner = accounts.findById(userId).orElseThrow(this::notFound);
         participants.saveAndFlush(new RoomParticipant(room, joiner, (short) 2,
-                direction.speaking(), direction.listening(), now));
+                direction.speaking(), direction.listening(), displayName, now));
         room.activate(now);
         events.publishEvent(new RoomActivatedEvent(room.getId()));
         return room.getId();
+    }
+
+    @Transactional
+    public JoinPreview previewJoin(UUID userId, String inputCode) {
+        String code = RoomCode.canonicalize(inputCode);
+        if (code == null) throw new RoomInviteUnavailableException();
+        ConversationRoom room = rooms.findByJoinCode(code).orElseThrow(RoomInviteUnavailableException::new);
+        Instant now = Instant.now();
+        if (participants.existsByRoom_IdAndUser_Id(room.getId(), userId)) {
+            if (room.getStatus() == RoomStatus.ACTIVE || room.getStatus() == RoomStatus.WAITING
+                    && now.isBefore(room.getInviteExpiresAt())) {
+                return new JoinPreview(room.getId(), RoomCode.display(code), null, null, null, true);
+            }
+            throw new RoomInviteUnavailableException();
+        }
+        if (room.getStatus() != RoomStatus.WAITING || !now.isBefore(room.getInviteExpiresAt())
+                || participants.existsByRoom_IdAndParticipantSlot(room.getId(), (short) 2)) {
+            throw new RoomInviteUnavailableException();
+        }
+        RoomParticipant creator = participants.findByRoom_IdOrderByParticipantSlotAsc(room.getId())
+                .stream().filter(p -> p.getUser().getId().equals(room.getCreatedBy().getId()))
+                .findFirst().orElseThrow(RoomInviteUnavailableException::new);
+        var ownerDirection = languages.validate(creator.getSpeakingLanguageTag(), creator.getListeningLanguageTag());
+        return new JoinPreview(room.getId(), RoomCode.display(code), ConversationDisplayName.resolve(creator),
+                ownerDirection.speaking(), ownerDirection.listening(), false);
     }
 
     @Transactional(readOnly = true)
@@ -113,9 +159,10 @@ public class RoomService {
         access.requireMember(userId, roomId);
         ConversationRoom room = rooms.findById(roomId).orElseThrow(this::notFound);
         List<ParticipantView> members = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).stream()
-                .map(p -> new ParticipantView(p.getId(), p.getUser().getDisplayName(), p.getParticipantSlot(),
+                .map(p -> new ParticipantView(p.getId(), ConversationDisplayName.resolve(p), p.getParticipantSlot(),
                         p.getSpeakingLanguageTag(), p.getListeningLanguageTag(),
-                        p.getUser().getId().equals(userId)))
+                        p.getUser().getId().equals(userId),
+                        p.getUser().getId().equals(room.getCreatedBy().getId())))
                 .toList();
         ParticipantView currentParticipant = members.stream().filter(ParticipantView::current)
                 .findFirst().orElseThrow(this::notFound);
@@ -163,7 +210,10 @@ public class RoomService {
                               String speaking, String listening,
                               Instant createdAt, boolean inviteExpired) {}
     public record ParticipantView(UUID participantId, String displayName, short slot,
-                                  String speaking, String listening, boolean current) {}
+                                  String speaking, String listening, boolean current, boolean owner) {}
+    public record JoinPreview(UUID roomId, String joinCode, String ownerDisplayName,
+                              String ownerSpeaking, String participantSpeaking,
+                              boolean alreadyMember) {}
     public record RoomView(UUID id, RoomStatus status, AiServiceProfile profile,
                            boolean premiumCostSaverEnabled,
                            List<ParticipantView> participants,
