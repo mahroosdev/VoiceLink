@@ -1,55 +1,51 @@
 # VoiceLink
 
-**VoiceLink – Java-Based Real-Time Multilingual Speech Translation and Communication Platform**
+**VoiceLink — Java based English↔Tamil speech and text translation for two person conversations**
 
-Status: **VoiceLink is deployed for controlled QA**. Recovery remains disabled by default in code; the owner reports that the configured production forgot-password, Resend email, reset, login, and dashboard sequence passed browser QA on 2026-10-16. Remaining integrated English–Tamil QA and the reported Chrome warning require separate review. Gate 1 included owner-performed local PostgreSQL and runtime verification.
+VoiceLink helps two people who speak English and Tamil communicate in a private room. One participant speaks English and the other speaks Tamil. The application transcribes short speech turns, translates them, displays temporary captions, and generates translated audio. It also supports reviewed text translation. This repository is a controlled demonstration application; final owner browser and live provider validation remain pending, as recorded in [docs/TESTING.md](docs/TESTING.md).
 
-VoiceLink aims to help two people communicate across languages while preserving conversation context and session terminology. The current application supports accounts, session sign-in, private two-person rooms, temporary live text, and Standard or Premium short-turn speech routing. Live English/Tamil provider quality is pending owner validation. It does not persist conversation messages.
+## Who it serves
 
-## Planned flow
+The intended users are two people who need a short bilingual conversation, including students or colleagues discussing technical work. Standard development is designed for Groq and Gemini free tier accounts; the operator must confirm the current account tiers before live calls. Use only synthetic or non-sensitive, non-confidential content while the free tier privacy and quota conditions apply.
 
-Browser microphone → bounded authenticated upload → Java/Spring Boot → Groq STT → bounded in-memory context and room glossary → Gemini translation → captions → Gemini TTS → authenticated audio playback.
+## Architecture
 
-Java and Spring Boot own the application, authorization, and pipeline orchestration. Gate 7B adds explicit immutable room service profiles through one shared speech pipeline.
+- **Backend:** Java 21, Spring Boot 4.1.1, Spring MVC, Spring Security, Spring Data JPA, Bean Validation, and Maven Wrapper.
+- **Frontend:** server rendered Thymeleaf, local CSS, vanilla JavaScript, browser MediaRecorder, and an authenticated raw WebSocket. There is no frontend framework, external font, or icon service.
+- **Persistence:** PostgreSQL for accounts, room membership, room glossary, and other application records; Flyway V1–V8 on the integrated local release branch. Conversation transcripts, translated messages, and generated audio are not persisted.
+- **Standard speech:** browser WebM/Opus upload → Groq `whisper-large-v3` transcription → Gemini `gemini-3.1-flash-lite` translation → temporary captions → Gemini `gemini-3.8-flash-lite-tts` voice → authenticated WAV playback.
+- **Standard text:** explicit Total translation, or debounced Live translation with Private Preview by default. Shared Live requires consent. A reviewed result is sent explicitly.
+- **Room context:** up to three recent eligible source turns, at most five minutes old and 1,200 Unicode code points combined, remain in memory. Each open room may store up to 12 glossary entries in PostgreSQL. Context is reference-only; glossary terms are used when they fit the current utterance.
+- **Premium:** a separate designed provider mode using a separate billed Gemini project and credentials. It is disabled by default and has not been activated or live validated for this submission. There is no automatic Standard-to-Premium fallback.
 
-## Technology
+## What is implemented
 
-Java 21, Spring Boot 4.1.1, Maven Wrapper, Spring Web MVC, Security, Data JPA, Validation, WebSocket, Actuator, Thymeleaf, Flyway, PostgreSQL 17 for local development, and JUnit. Fast tests use H2; the separate PostgreSQL integration path uses Testcontainers.
+- Registration, session sign-in, account deletion, and a password reset feature that remains disabled unless configured by the operator.
+- Two-person rooms with authenticated membership, manual invitation codes, a maximum of two participants, and server-assigned complementary English/Tamil directions.
+- Per-conversation display names and a two-step invite preview on the integrated local release branch. The server derives Conversation Owner from the room creator's account ID; names never grant access.
+- Temporary WebSocket room state, text messages, captions, and speech progress. Refresh or reconnect does not replay conversation history.
+- Speak mode with a bounded recording, Live Send, and a private Finish & Send review. If recognition is wrong, the user can record again. The reviewed speech cannot be edited in this release.
+- Type mode with Total, Live Private Preview, and explicitly enabled Shared Live. Final Send is explicit; provisional shared drafts are distinct from final messages.
+- A room-specific technical glossary and bounded recent context. Closing a room clears context and deletes glossary entries.
+- Temporary generated audio, accessible only to active room members, which expires after five minutes or earlier on eviction or restart.
+- Safe user-facing provider failures and content-free operation diagnostics. Translation has a configurable ceiling of up to 15 seconds within the speech pipeline deadline, bounded transient retry, and a manual text Retry action.
 
-## Current capabilities
+## Security and privacy boundaries
 
-- Public VoiceLink landing page at `/`, using a light-only, responsive design.
-- Actuator health at `/actuator/health`, including database health when the application is connected to a database.
-- Registration at `/register`, sign-in at `/login`, and a protected conversation dashboard at `/app`.
-- A disabled-by-default forgot-password/reset flow using a 30-minute, single-use emailed link. Only the token hash is stored; successful reset invalidates existing authenticated access. The owner reports successful production Resend delivery and browser recovery QA.
-- Create, join, list, view, and explicitly close two-person rooms at `/rooms`. The creator chooses English ↔ Tamil direction; the second participant receives the reverse direction. A private manual invite code expires after 24 hours while the room is waiting. Active rooms persist across refresh and logout.
-- An authenticated, same-origin raw WebSocket for room-state updates and temporary text. A waiting creator sees activation without refreshing; active members exchange text. Live text is not saved or replayed.
-- Active members can switch between Speak and Type. Type defaults to **Total**, where Gemini is called only after **Translate**. **Live** waits for an 800 ms typing pause and defaults to **Private Preview**. A sender may explicitly opt into **Shared Live**, which lets the connected partner see only the current provisional translated draft; raw typing remains private. **Send** still finalizes the reviewed result. Drafts and sent text are temporary and are not replayed after a disconnect.
-- ACTIVE members can record up to 15 seconds of WebM/Opus speech and upload at most 1 MiB through a CSRF-protected HTTP endpoint. Standard uses Groq Free `whisper-large-v3`, Gemini API Free Tier `gemini-3.1-flash-lite` translation, and `gemini-3.8-flash-lite-tts`. The source transcript and translated caption arrive as WebSocket events; generated WAV is served only to ACTIVE room members from temporary memory. These providers have free quotas, not unlimited use. No paid fallback exists.
-- Server-side sessions with CSRF protection, member-only room views, and deny-by-default authorization.
-- Recent translated source turns supply memory-only translation context: at most three prior turns, no older than five minutes, 400 Unicode code points each and 1,200 combined. Restart and room closure erase this context; no transcript history is stored in PostgreSQL.
-- Each open room has up to 12 saved terminology entries in PostgreSQL through Flyway V3. The waiting creator can prepare terms while the invite is valid; active members can view and edit them. Explicit room closure deletes entries. The responsive room page keeps this glossary in a collapsible secondary panel.
-- The active room prioritizes connection state, recording, live original/translated captions, and authenticated temporary audio playback. The interface uses Thymeleaf, one local CSS file, and vanilla JavaScript without an external frontend framework, font, or icon dependency.
-- Local PostgreSQL Compose definition and Flyway V1–V6 for accounts, rooms, glossary entries, the service profile, password-reset tokens, and per-member closed-room removal.
+Server-side session authentication, CSRF checks on forms and mutations, member-only room access, WebSocket membership checks, and deny-by-default route rules protect private surfaces. Passwords are hashed with Argon2id. Room owner status and language assignments are server-derived. User text is escaped in rendered HTML and inserted with DOM text APIs.
 
-The creator chooses Standard (default, free-tier quotas) or Premium when creating a room. Premium uses the same Groq `whisper-large-v3` recognition, paid Gemini `gemini-3.8-flash` translation, and paid Gemini `gemini-3.8-flash-tts` voice. The profile is stored per room, shown to both members, and cannot be changed. Premium is disabled by default; it requires `VOICELINK_PREMIUM_ENABLED=true` and a separate billed project key in `VOICELINK_PREMIUM_GEMINI_API_KEY`. Standard continues to use only `VOICELINK_GEMINI_API_KEY`. There is no automatic fallback or hidden paid request. Premium account, billing, live quality, and latency remain owner-controlled and unverified. The current `provider-live` Maven profile covers Standard only; paid Premium live validation is deferred.
-
-## Prerequisites
-
-- JDK 21; no global Maven installation is needed.
-- Docker with Compose for local PostgreSQL.
-- PowerShell on Windows for the commands below.
+The application sends the current utterance and, when applicable, bounded context and glossary terms to the configured provider. It does not log audio, transcripts, translations, raw provider responses, prompts, or glossary content. Free tier quotas and provider data-use terms still apply. Registration/login and invite attempts do not yet have complete public-abuse throttling, so the application is intended for controlled demonstration rather than unrestricted public signup.
 
 ## Local setup
 
-From the repository root:
+Prerequisites: JDK 21, Docker with Compose, and PowerShell on Windows. Maven itself need not be installed globally.
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad .env
 ```
 
-Replace the example password with a unique local-only password. Keep `.env` out of Git. The Docker Compose environment file is separate from the application process environment. Load its two values into the current PowerShell session, without printing them:
+Use unique local PostgreSQL credentials in `.env`. The file is ignored by Git. Docker Compose reads it directly; the Spring process needs its values in the current Process environment:
 
 ```powershell
 $settings = Get-Content .env | Where-Object { $_ -match '^(POSTGRES_USER|POSTGRES_PASSWORD|VOICELINK_[A-Z_]+)=' }
@@ -58,42 +54,43 @@ foreach ($setting in $settings) {
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 $env:SPRING_PROFILES_ACTIVE = 'local'
-```
-
-The local profile connects to `jdbc:postgresql://localhost:5432/voicelink`. `PORT` takes precedence when supplied by a host; otherwise `SERVER_PORT` can override port 8080. `DB_URL` and `DB_USERNAME` can override local connection defaults. The default profile requires explicit `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` environment variables. Never commit production secrets.
-
-Speech remains disabled until you configure `VOICELINK_GROQ_API_KEY` and `VOICELINK_GEMINI_API_KEY`, verify in the provider consoles that Groq is **Free** and the Gemini API project is on the **Free Tier**, then set `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. Keep the flag false otherwise; the application cannot infer billing status from a key. Provider keys stay in the server process; never enter them in the browser. A key or quota failure produces a safe turn failure, with no switch to a paid service. [Gemini Free Tier pricing disclosures](https://ai.google.dev/gemini-api/docs/pricing) say content may be used to improve Google's products. Use only non-sensitive demo speech and non-confidential conversations during development. In Live text mode, the current draft is sent to Gemini after the configured 800 ms pause. Private Preview sends nothing to the partner until Send. Shared Live requires explicit opt-in and sends the partner only the server-verified translated draft; stopping sharing clears the current display but cannot erase text the partner already saw or copied. A current utterance, up to three prior source utterances, and matching room glossary terms may be sent to Gemini. Closing a room removes local context and glossary data but cannot retract anything already sent to a provider. No live provider or Tamil quality test is claimed yet.
-
-## PostgreSQL with Docker Compose
-
-```powershell
-docker compose --env-file .env config --quiet
 docker compose --env-file .env up -d postgres
-docker compose --env-file .env ps
-docker compose --env-file .env exec postgres pg_isready -U voicelink_dev -d voicelink
-docker compose --env-file .env exec postgres psql -U voicelink_dev -d voicelink -c 'SELECT 1;'
+.\mvnw.cmd -ntp spring-boot:run
 ```
 
-If you change `POSTGRES_USER`, use that name in the last two commands. The database has a named persistent volume; changing initialization credentials in `.env` does not update an already initialized database.
+Open `http://localhost:8080/` and `http://localhost:8080/actuator/health`. The local database runs on port 5432. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the controlled Railway configuration. Never copy local or production secrets into source control, browser fields, screenshots, or issue reports.
 
-## Test and run
+Standard speech and translation require `VOICELINK_GROQ_API_KEY`, `VOICELINK_GEMINI_API_KEY`, and `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`. Set the confirmation flag only after checking the actual Groq and Gemini project tiers in their consoles. A key alone does not establish billing tier. Premium remains disabled with `VOICELINK_PREMIUM_ENABLED=false`.
+
+## Verification
 
 ```powershell
-.\mvnw.cmd test
-.\mvnw.cmd clean package
-.\mvnw.cmd spring-boot:run
+.\mvnw.cmd -ntp test
+.\mvnw.cmd -ntp clean package
+.\mvnw.cmd -ntp -Ppostgres-it verify
 ```
 
-With the application running, request `http://localhost:8080/`, `http://localhost:8080/actuator/health`, and `http://localhost:8080/register`. Register with a display name, email, and a 10–128 character password, then sign in and visit `/app`. Use **Create conversation** or **Join conversation** to reach the real room forms at `/rooms`. Share a waiting room's displayed code directly with one other signed-in user. The creator sees the room activate when that user joins. The Technical glossary panel lets the waiting creator prepare terms while the invite is valid and lets either active member add, edit, delete, or refresh terms. Active members can exchange temporary untranslated live text. With validated Standard credentials, they can choose **Type** and use Total, Live Private Preview, or explicitly enabled Shared Live. Total and Live Private keep reviews sender-only until **Send**; Shared Live shows the connected partner the newest provisional translation and still requires **Send** to finalize. They can also choose **Speak** to record short turns, follow original/translated captions, and play temporary translated audio. Speech results, drafts, sent text, and recent translation context are temporary; the room glossary is saved until explicit closure. Either member can explicitly close an active room for both people. A database outage should make Actuator report unhealthy. Fast tests use H2 and fake providers; they need no Docker or provider key. PostgreSQL integration runs separately with `.\mvnw.cmd -ntp -Ppostgres-it verify` when Docker is available. Remaining owner browser/visual QA is deferred to final integrated QA.
+Normal tests use fake providers and never call Groq, Gemini, or an email service. The PostgreSQL profile uses Docker/Testcontainers. JavaScript behavior tests run with `node --test` over the `.test.cjs` files in `src/test/js`; check production scripts with `node --check`. The final integrated counts and exact environment are recorded in [docs/TESTING.md](docs/TESTING.md). The `provider-live` Maven profile is separate and consumes free tier quota; do not run it as part of routine verification.
 
-The explicit `-Pprovider-live` profile (`.\mvnw.cmd -ntp -Pprovider-live verify`) is the only provided automated path that calls real speech providers. It needs Groq Free and Gemini API Free Tier credentials, `VOICELINK_STANDARD_FREE_TIER_CONFIRMED=true`, and non-sensitive WebM/Opus clip paths in `VOICELINK_LIVE_AUDIO_EN` and `VOICELINK_LIVE_AUDIO_TA`. It makes two calls to each provider and consumes free-tier quota. It is not part of normal `test`, `clean package`, or CI. See [provider evaluation](docs/AI_PROVIDER_EVALUATION.md) and [testing evidence](docs/TESTING.md) before invoking it.
+## Demonstration
 
-## Security and scope
+1. Open the public homepage, then register or sign in with two separate accounts in two browser sessions.
+2. Create a **Standard** conversation, choose a per-conversation name and the creator's speaking language, and share the private invite code directly with the other account.
+3. Enter the invite code with the second account, verify the owner and complementary language preview, and choose the second conversation name.
+4. Confirm both participants see their own **You** identity, the other person's name, and the correct speaking/receiving languages.
+5. In **Type**, review and explicitly send a Total or Live Private translation. Opt into Shared Live only when both participants agree to provisional drafts.
+6. In **Speak**, record a short synthetic utterance, review recognized and translated captions, send it, and play the temporary audio. Repeat in the opposite language.
+7. Try a room glossary term, then close the room and confirm the glossary is removed. No permanent conversation history should appear after refresh.
 
-The root page, health endpoint, login, registration, forgot/reset pages, reset-page script, and `/css/voicelink.css` stylesheet are public. The recovery pages return 404 while password reset is disabled. `/app`, room routes, `/api/rooms/{roomId}/turns`, generated audio, `/api/rooms/{roomId}/glossary`, the room scripts, and `/ws/rooms/{roomId}` require an authenticated server-side session. Turn upload and audio retrieval also require ACTIVE room membership; glossary access requires membership in an open room. Other `/ws/**` paths and unlisted paths are denied by default. CSRF remains enabled for browser forms, audio upload, and glossary mutations. Passwords use Argon2id through Spring Security's PasswordEncoder abstraction. This is a controlled development/demo application: email verification, request throttling, strong media decoding, owner live Tamil verification, Premium live validation, and remaining manual UI/browser QA are separate work. Do not expose account registration publicly as an unrestricted production identity service.
+Use non-sensitive example phrases and monitor free tier quotas. Live provider quality, Tamil recognition, voice pronunciation, browser accessibility, and deployed two-user behavior require human review; offline tests cannot prove them.
 
-The exact public GET `/favicon.ico` route serves the local VoiceLink icon; other application routes keep their existing access rules.
+## Known limitations and next work
 
-Railway deployment preparation uses a small `prod` profile for trusted forwarded headers and secure session cookies, while the common configuration accepts Railway's `PORT` and explicit JDBC database credentials. Use the [deployment guide](docs/DEPLOYMENT.md) for the owner-controlled Gate 10B setup. Gate 10A does not create cloud resources or establish production readiness through live/browser evidence.
+- English↔Tamil is the only supported pair. Actual conversational quality, code-switched pronunciation, and latency vary by provider and remain dependent on live review.
+- Recognition errors can be handled by recording again; transcript editing is not implemented.
+- Captions, messages, context, and generated audio are temporary and are not replayed after reconnect. Audio is not retained for three hours and text is not retained for six hours.
+- Waiting-room closure belongs to the creator; either member can close an active room. Separate Leave, owner-only Close, member removal, and ownership transfer are deferred.
+- Complete public-abuse controls, email verification, broader browser/accessibility QA, and multi-instance shared rate accounting remain future hardening work.
+- Premium activation, billing, quality, latency, and paid-provider validation are deferred. The Standard release must not call Premium automatically.
 
-See [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [provider evaluation](docs/AI_PROVIDER_EVALUATION.md), [project log](docs/PROJECT_LOG.md), and [testing evidence](docs/TESTING.md).
+Further detail: [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [provider evaluation](docs/AI_PROVIDER_EVALUATION.md), [testing evidence](docs/TESTING.md), and [project log](docs/PROJECT_LOG.md).
