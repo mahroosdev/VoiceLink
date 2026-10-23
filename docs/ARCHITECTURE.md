@@ -1,5 +1,22 @@
 # VoiceLink architecture
 
+## Submission component view
+
+```mermaid
+flowchart LR
+    A[Browser A: English or Tamil] <-->|HTTPS session, CSRF, WebSocket| S[Java 21 / Spring Boot]
+    B[Browser B: complementary language] <-->|HTTPS session, CSRF, WebSocket| S
+    S --> R[Authentication, room and conversation services]
+    R --> P[(PostgreSQL: users, rooms, membership, glossary)]
+    F[Flyway V1–V8] --> P
+    R --> M[Bounded in-memory context, reviews, captions and audio]
+    R --> G[Groq whisper-large-v3 STT]
+    R --> T[Gemini gemini-3.1-flash-lite translation]
+    R --> V[Gemini gemini-3.8-flash-lite-tts / Kore]
+```
+
+The Standard pipeline runs only when the separately configured free-tier guard and credentials permit it. The diagram shows the implemented flow, not proof of live provider quality or production deployment. HTTP/API details are in [API_REFERENCE.md](API_REFERENCE.md).
+
 ## Approved direction
 
 The browser captures short microphone turns and displays captions and playback. Java/Spring Boot owns application logic, validation, authorization, room membership, bounded translation context, and room glossary behavior. Provider interfaces separate speech-to-text, translation, and text-to-speech services from orchestration. PostgreSQL persists accounts, rooms, and room glossary entries. WebSocket version 1 carries room and speech-turn events.

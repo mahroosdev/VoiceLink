@@ -2,12 +2,14 @@
 
 This worksheet is for the integrated `release/standard-final` candidate. It has **not** been marked as completed. Use synthetic accounts, display names, room terms, and utterances. Keep Standard provider execution and Premium disabled throughout this local pass. A provider-disabled failure is expected; it cannot establish real translated captions, generated audio, recognition quality, or end-to-end latency.
 
+At the 2026-10-24 checkpoint, the disposable app and database are already running at `http://127.0.0.1:18080/`. Open that URL directly for the owner review. The commands below are for a later restart only; do not run them while the named containers are present. The app can take about 75 seconds to start before the health check reports UP.
+
 ## Start the disposable Linux app
 
 Run these commands in Windows PowerShell. They use the already built candidate JAR outside the repository, create an empty disposable database, and bind both services to localhost. First check that the named containers and ports are unused; do not stop or overwrite an unrelated service. These commands do not read `.env` or pass API keys.
 
 ```powershell
-$qaJar = "$env:LOCALAPPDATA\Temp\VoiceLink-Standard-Final-Build\target\voicelink-0.0.1-SNAPSHOT.jar"
+$qaJar = "$env:LOCALAPPDATA\Temp\VoiceLink-Final-20261024\source\target\voicelink-0.0.1-SNAPSHOT.jar"
 if (-not (Test-Path -LiteralPath $qaJar -PathType Leaf)) { throw 'Candidate JAR missing; stop and rebuild only from the verified release commit.' }
 docker ps --all --filter name=voicelink-final-local-qa --filter name=voicelink-final-local-app
 Get-NetTCPConnection -State Listen -LocalPort 55432,18080 -ErrorAction SilentlyContinue
@@ -33,3 +35,5 @@ The database uses trust authentication **only inside this disposable localhost-b
 ## Evidence record and screenshots
 
 For every viewport, record browser/version, operating system, date, actual CSS viewport, result, and issue identifier. Capture redacted screenshots of: homepage/preview at 1440 and 390; room setup at 320; WAITING and ACTIVE room headers in both sessions; Type/Speak controls; safe disabled-provider error; privacy/reconnect; and closed room. Do not capture join codes, email addresses, real names, passwords, private text/audio, API keys, or browser devtools secrets. Record pass/fail separately for A, B, and C. Mark all provider-dependent caption, voice, and translation-quality cells **not tested**, never pass, until a separately authorized live check.
+
+Store approved, redacted captures in the private sibling folder `..\VoiceLinkSubmissionEvidence\screenshots\`, **outside the Git repository**. Suggested filenames are `homepage-1440.png`, `homepage-390.png`, `room-setup-320.png`, `waiting-a.png`, `active-a.png`, `active-b.png`, `type-speak-controls.png`, `provider-disabled-error.png`, `privacy-reconnect.png`, and `room-closed.png`. These are requested evidence slots, not files already captured. Keep completion certificates in `..\VoiceLinkSubmissionEvidence\certificates\`, also outside Git.

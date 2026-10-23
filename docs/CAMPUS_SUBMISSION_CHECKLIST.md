@@ -14,6 +14,8 @@
 - [ ] Complete and sign off the [two-browser worksheet](MANUAL_TWO_BROWSER_QA.md), with separate results for 1440×900, 1024×768, 390×844, and 320×800 CSS viewports.
 - [ ] Capture the redacted screenshot set in the worksheet: homepage preview, room setup, WAITING/ACTIVE perspectives, Type/Speak controls, safe error, privacy/reconnect, and closure. Record actual viewport and browser version; omit private content and invite codes.
 - [ ] Assemble training/evaluation evidence required by the campus rubric. VoiceLink uses pretrained Groq/Gemini services and performs **no local model training or fine-tuning**; label custom-training logs/datasets **not applicable**. Cite provider/model documentation, the natural-conversation prompt contract, offline tests, and later human bilingual evaluation separately. Do not invent training metrics or present mocked outputs as quality evidence.
+- [ ] Obtain the owner's **Cloud Computing training** completion certificate or official completion evidence. The owner supplies the original; record its issuing organization and completion date outside the public repository if personally identifying.
+- [ ] Obtain the owner's **Java Developer to AI Engineer training** completion certificate or official completion evidence. The owner supplies the original; do not claim completion until received and checked.
 
 Checked items are verified by current local evidence in [TESTING.md](TESTING.md). They are not a claim that the deployed application or live translation quality is ready for submission. Keep Premium disabled and untested.
 
@@ -25,7 +27,7 @@ Checked items are verified by current local evidence in [TESTING.md](TESTING.md)
 | Local setup and PostgreSQL/Flyway V1–V8 | [README.md](../README.md), [TESTING.md](TESTING.md) | Local verification passed; production V8 pending |
 | Railway deployment and recovery | [DEPLOYMENT.md](DEPLOYMENT.md), [security runbook](RAILWAY_SECURITY_RELEASE_RUNBOOK.md) | Prepared; staged release and rotation unexecuted |
 | Test counts, known limitations, graphical QA | [TESTING.md](TESTING.md), [two-browser worksheet](MANUAL_TWO_BROWSER_QA.md) | Automated evidence recorded; owner browser QA pending |
-| Screenshots and model training/evaluation evidence | [Two-browser screenshot checklist](MANUAL_TWO_BROWSER_QA.md) and [provider evaluation](AI_PROVIDER_EVALUATION.md) | Redacted captures and human bilingual review pending; custom training not applicable |
+| Screenshots and model training/evaluation evidence | [Two-browser screenshot checklist](MANUAL_TWO_BROWSER_QA.md), [Standard live QA plan](STANDARD_LIVE_QA_PLAN.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md) | Redacted captures and human bilingual review pending; custom training not applicable |
 
 ## Demonstration sequence
 
@@ -47,5 +49,7 @@ Checked items are verified by current local evidence in [TESTING.md](TESTING.md)
 - [AI_PROVIDER_EVALUATION.md](AI_PROVIDER_EVALUATION.md): provider choice and live-quality validation scope.
 - [MANUAL_TWO_BROWSER_QA.md](MANUAL_TWO_BROWSER_QA.md): exact graphical QA sequence, viewport and screenshot evidence checklist.
 - [RAILWAY_SECURITY_RELEASE_RUNBOOK.md](RAILWAY_SECURITY_RELEASE_RUNBOOK.md): non-executing backup, credential, staged release, health, and rollback plan.
+- [API_REFERENCE.md](API_REFERENCE.md): authenticated REST/form endpoints and raw WebSocket v1 contract.
+- [STANDARD_LIVE_QA_PLAN.md](STANDARD_LIVE_QA_PLAN.md): bounded synthetic provider QA; execution requires separate authorization.
 
 Do not include `.env`, API keys, private transcripts, real audio, or screenshots containing personal data. Use synthetic accounts and examples in the campus demonstration.
