@@ -1416,6 +1416,17 @@ h3 { font-size: 1.1rem; }
   line-height: 1.65;
 }
 .home-hero__action { min-width: 140px; }
+/* Keep the decoration outside the transforming card's stacking context. */
+.home-preview-frame { position: relative; min-width: 0; isolation: isolate; }
+.home-preview-frame::before {
+  position: absolute;
+  z-index: -1;
+  inset: 28px -22px -22px 28px;
+  border-radius: 28px;
+  background: var(--vl-teal-wash);
+  pointer-events: none;
+  content: "";
+}
 .home-preview {
   position: relative;
   min-width: 0;
@@ -1424,14 +1435,6 @@ h3 { font-size: 1.1rem; }
   border-radius: 28px;
   background: var(--vl-surface);
   box-shadow: 0 28px 70px rgb(20 60 61 / 13%);
-}
-.home-preview::before {
-  position: absolute;
-  z-index: -1;
-  inset: 28px -22px -22px 28px;
-  border-radius: 28px;
-  background: var(--vl-teal-wash);
-  content: "";
 }
 .home-preview__header {
   display: flex;
@@ -1565,7 +1568,7 @@ h3 { font-size: 1.1rem; }
   .public-shell--home .header-actions > a:not(.button):hover { background: var(--vl-teal-wash); color: var(--vl-primary-hover); }
   .public-shell--home .header-actions .button:hover:not(:disabled):not([aria-disabled="true"]),
   .home-hero__action:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: 0 9px 22px rgb(0 111 115 / 20%); }
-  .home-preview:hover { transform: translateY(-2px); border-color: var(--vl-teal-border); box-shadow: 0 32px 74px rgb(20 60 61 / 16%); }
+  .home-preview:hover { transform: translateY(-2px); border-color: #B5D2CF; box-shadow: 0 30px 72px rgb(20 60 61 / 15%); }
   .home-benefit:hover { transform: translateY(-2px); border-color: #C8DAD8; box-shadow: 0 12px 28px rgb(20 60 61 / 8%); }
 }
 .public-shell--home .header-actions a:active:not([aria-disabled="true"]),
@@ -1578,7 +1581,7 @@ h3 { font-size: 1.1rem; }
 @media (max-width: 799px) {
   .home-hero { grid-template-columns: 1fr; min-height: 0; padding-block: 58px 72px; }
   .home-hero__copy { max-width: 650px; }
-  .home-preview { width: min(100%, 590px); justify-self: center; }
+  .home-preview-frame { width: min(100%, 590px); justify-self: center; }
   .home-benefits__heading { grid-template-columns: 1fr; gap: 8px; }
   .home-benefits__grid { grid-template-columns: 1fr; }
   .home-benefit { display: grid; grid-template-columns: 48px 1fr; gap: 0 14px; }
@@ -1596,7 +1599,7 @@ h3 { font-size: 1.1rem; }
   .home-hero__copy > p { margin-block: 20px 26px; font-size: 1rem; }
   .home-hero__action { width: 100%; }
   .home-preview { padding: 18px; border-radius: 22px; }
-  .home-preview::before { inset: 16px -9px -11px 18px; border-radius: 22px; }
+  .home-preview-frame::before { inset: 16px -9px -11px 18px; border-radius: 22px; }
   .home-preview__header { align-items: flex-start; }
   .home-preview__conversation { padding-block: 22px 18px; }
   .home-preview__message { max-width: 94%; }

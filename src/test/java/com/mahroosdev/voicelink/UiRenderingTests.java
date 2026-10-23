@@ -85,11 +85,21 @@ class UiRenderingTests {
                 "@media (max-width: 799px)", "@media (max-width: 359px)",
                 ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;",
                 "@media (hover: hover) and (pointer: fine)",
-                ".home-preview:hover { transform: translateY(-2px);",
+                ".home-preview-frame { position: relative; min-width: 0; isolation: isolate; }",
+                ".home-preview-frame::before {", "pointer-events: none;",
+                ".home-preview:hover { transform: translateY(-2px); border-color: #B5D2CF;",
                 ".home-benefit:hover { transform: translateY(-2px);",
                 ".public-shell--home .header-actions a:focus-visible",
                 ".home-hero__action:hover:not(:disabled):not([aria-disabled=\"true\"])",
-                "transition-duration: 200ms;", "transition: none !important;");
+                "transition-duration: 200ms;", "transition: none !important;")
+                .doesNotContain(".home-preview::before");
+        assertThat(Pattern.compile("(?s)\\.home-preview \\{([^}]*)\\}").matcher(css)
+                .results().findFirst().orElseThrow().group(1))
+                .contains("background: var(--vl-surface);")
+                .doesNotContain("var(--vl-teal-wash)");
+        assertThat(Pattern.compile("(?s)\\.home-preview:hover \\{([^}]*)\\}").matcher(css)
+                .results().findFirst().orElseThrow().group(1))
+                .doesNotContain("background:", "background-color:");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -153,6 +163,7 @@ class UiRenderingTests {
         String landing = mvc.perform(get("/"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(landing).contains("class=\"public-shell public-shell--home\"",
+                "class=\"home-preview-frame\"",
                 "A clearer way to speak across languages.",
                 "private, two-person English ↔ Tamil conversations",
                 "href=\"/register\">Get started</a>",
