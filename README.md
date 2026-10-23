@@ -72,6 +72,8 @@ Standard speech and translation require `VOICELINK_GROQ_API_KEY`, `VOICELINK_GEM
 
 Normal tests use fake providers and never call Groq, Gemini, or an email service. The PostgreSQL profile uses Docker/Testcontainers. JavaScript behavior tests run with `node --test` over the `.test.cjs` files in `src/test/js`; check production scripts with `node --check`. The final integrated counts and exact environment are recorded in [docs/TESTING.md](docs/TESTING.md). The `provider-live` Maven profile is separate and consumes free tier quota; do not run it as part of routine verification.
 
+The final local candidate passed 209 Java tests (including 11 real WebSocket tests), 10 PostgreSQL integrations, 47 JavaScript behavior tests, and seven syntax checks. A separate local run with disabled providers passed 34 synthetic HTTP/session/WebSocket checks across three isolated sessions. These are automated and protocol-level results; authenticated graphical two-browser QA, true small-screen interaction, live English↔Tamil quality, and deployed behavior remain pending. See the [campus submission checklist](docs/CAMPUS_SUBMISSION_CHECKLIST.md) for the demonstration order and remaining gates.
+
 ## Demonstration
 
 1. Open the public homepage, then register or sign in with two separate accounts in two browser sessions.
@@ -93,4 +95,4 @@ Use non-sensitive example phrases and monitor free tier quotas. Live provider qu
 - Complete public-abuse controls, email verification, broader browser/accessibility QA, and multi-instance shared rate accounting remain future hardening work.
 - Premium activation, billing, quality, latency, and paid-provider validation are deferred. The Standard release must not call Premium automatically.
 
-Further detail: [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [provider evaluation](docs/AI_PROVIDER_EVALUATION.md), [testing evidence](docs/TESTING.md), and [project log](docs/PROJECT_LOG.md).
+Further detail: [architecture](docs/ARCHITECTURE.md), [development plan](docs/DEVELOPMENT_PLAN.md), [provider evaluation](docs/AI_PROVIDER_EVALUATION.md), [testing evidence](docs/TESTING.md), [deployment](docs/DEPLOYMENT.md), [campus submission checklist](docs/CAMPUS_SUBMISSION_CHECKLIST.md), and [project log](docs/PROJECT_LOG.md).
