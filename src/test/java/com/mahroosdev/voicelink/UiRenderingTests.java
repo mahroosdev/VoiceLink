@@ -87,12 +87,20 @@ class UiRenderingTests {
                 "@media (hover: hover) and (pointer: fine)",
                 ".home-preview-frame { position: relative; min-width: 0; isolation: isolate; }",
                 ".home-preview-frame::before {", "pointer-events: none;",
-                ".home-preview:hover { transform: translateY(-2px); border-color: #B5D2CF;",
-                ".home-benefit:hover { transform: translateY(-2px);",
+                ".home-preview:hover { border-color: #B5D2CF;",
+                ".home-benefit:hover { border-color: #C8DAD8;",
                 ".public-shell--home .header-actions a:focus-visible",
                 ".home-hero__action:hover:not(:disabled):not([aria-disabled=\"true\"])",
                 "transition-duration: 200ms;", "transition: none !important;")
                 .doesNotContain(".home-preview::before");
+        assertThat(css).contains(".profile-option:hover:not(:has(input:disabled)):not(:has(input:checked))",
+                ".button:active:not(:disabled):not([aria-disabled=\"true\"]) { box-shadow: inset",
+                "@keyframes vl-caption-in { from { opacity: 0; } to { opacity: 1; } }")
+                .doesNotContain(".button:hover:not(:disabled):not([aria-disabled=\"true\"]) { transform",
+                        ".application-nav a:active { transform", ".application-bottom-nav a:active { transform",
+                        ".home-preview:hover { transform", ".home-benefit:hover { transform",
+                        "@keyframes account-menu-in { from { opacity: 0; transform",
+                        "@keyframes vl-caption-in { from { opacity: 0; transform");
         assertThat(Pattern.compile("(?s)\\.home-preview \\{([^}]*)\\}").matcher(css)
                 .results().findFirst().orElseThrow().group(1))
                 .contains("background: var(--vl-surface);")
