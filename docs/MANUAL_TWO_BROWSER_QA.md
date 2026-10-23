@@ -1,0 +1,35 @@
+# Final local two-browser QA — owner worksheet
+
+This worksheet is for the integrated `release/standard-final` candidate. It has **not** been marked as completed. Use synthetic accounts, display names, room terms, and utterances. Keep Standard provider execution and Premium disabled throughout this local pass. A provider-disabled failure is expected; it cannot establish real translated captions, generated audio, recognition quality, or end-to-end latency.
+
+## Start the disposable Linux app
+
+Run these commands in Windows PowerShell. They use the already built candidate JAR outside the repository, create an empty disposable database, and bind both services to localhost. First check that the named containers and ports are unused; do not stop or overwrite an unrelated service. These commands do not read `.env` or pass API keys.
+
+```powershell
+$qaJar = "$env:LOCALAPPDATA\Temp\VoiceLink-Standard-Final-Build\target\voicelink-0.0.1-SNAPSHOT.jar"
+if (-not (Test-Path -LiteralPath $qaJar -PathType Leaf)) { throw 'Candidate JAR missing; stop and rebuild only from the verified release commit.' }
+docker ps --all --filter name=voicelink-final-local-qa --filter name=voicelink-final-local-app
+Get-NetTCPConnection -State Listen -LocalPort 55432,18080 -ErrorAction SilentlyContinue
+docker run -d --rm --name voicelink-final-local-qa -p 127.0.0.1:55432:5432 -e POSTGRES_DB=voicelinkqa -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17.11-bookworm
+docker run -d --rm --name voicelink-final-local-app -p 127.0.0.1:18080:18080 -v "${qaJar}:/app/voicelink.jar:ro" -e SERVER_PORT=18080 -e DB_URL=jdbc:postgresql://host.docker.internal:55432/voicelinkqa -e DB_USERNAME=postgres -e DB_PASSWORD=unused-local-qa -e VOICELINK_STANDARD_FREE_TIER_CONFIRMED=false -e VOICELINK_GROQ_API_KEY= -e VOICELINK_GEMINI_API_KEY= -e VOICELINK_PREMIUM_ENABLED=false -e VOICELINK_PREMIUM_GEMINI_API_KEY= -e VOICELINK_PASSWORD_RESET_ENABLED=false maven:3.9.16-eclipse-temurin-21 java -jar /app/voicelink.jar
+Invoke-WebRequest http://127.0.0.1:18080/actuator/health | Select-Object StatusCode
+```
+
+The database uses trust authentication **only inside this disposable localhost-bound QA setup**. Stop both containers after QA with `docker stop voicelink-final-local-app voicelink-final-local-qa`; `--rm` removes them and their unsaved QA data. Do not use this setup for production or personal data. If startup fails, inspect only safe status and error lines; do not paste credentials, transcripts, or full provider bodies into evidence.
+
+## Two isolated browser sessions
+
+1. Open `http://127.0.0.1:18080/` in a normal Edge window (A) and a separate InPrivate window (B). Check the homepage English source, the exact illustrative `project update-ஐ share பண்ண முடியுமா?` preview under `Tamil · Translated text`, both CTAs, focus visibility, restrained hover, and reduced-motion behavior. The preview must not issue a provider request.
+2. At 1440×900 and 1024×768, inspect homepage, login, dashboard, room setup, and room workspace. In DevTools device mode set **CSS viewport** to 390×844 and 320×800; confirm `window.innerWidth` reports the requested width and `document.documentElement.scrollWidth <= window.innerWidth`. Inspect keyboard focus, tap targets, safe-area/bottom navigation, no clipped fields, and Tamil/mixed-script wrapping. A screenshot command that merely crops a wider viewport is invalid evidence.
+3. Register two synthetic accounts in A and B. Confirm each success flash appears only after registration and login works. Sign out and back in once. Keep sessions isolated. Use a third private/profile session (C) for access-denial checks.
+4. In A create a **Standard** room with a distinct conversation display name and English as the creator's speaking language. Confirm the owner sees `You speak: English / Partner receives: Tamil` and `Partner speaks: Tamil / You receive: English`, with a private join code. Confirm Premium is unavailable. Do not share the code in screenshots.
+5. In B try an invalid code and verify safe feedback. Use the valid code for the join preview, confirm the creator's displayed name and language, choose the complementary Tamil-speaking role, set a different conversation name, and join. Confirm both windows change from WAITING to ACTIVE and show correct You/Partner attribution, distinct names, and complementary directions. Repeat with reversed creator language in a new room.
+6. In C, confirm anonymous `/rooms/{id}` access redirects to login; a signed-in nonmember cannot view the room, request its recent turns/audio, or establish its WebSocket. In A and B verify authenticated live connection. Send one short **untranslated** message each way; each should appear once on both timelines with correct sender, order of arrival, and safe literal rendering of a synthetic markup string. A browser refresh must not claim durable message history.
+7. Inspect Type controls: Total Translation, Live Translation with Private Live and Shared Live, Translate, explicit Send, and Retry. Check that a private draft/review is not visible in B; Shared Live is visible only after explicit opt-in and is visually provisional. With providers disabled, a translation attempt should show a safe error; Retry should not create a duplicate final message. A successful final translated Send and translation quality remain pending separate authorized provider QA.
+8. Inspect Speak controls: Live Send and Finish & Send never overlap; Start/Stop use `audio/webm;codecs=opus`, stop at the product time/size limit, and show recording/processing/failure states. On localhost, grant microphone access only for synthetic speech. With providers disabled, recognition should fail safely and no translated caption or generated voice should be claimed. Private review, Record again, final speech Send, audio playback, and actual caption quality require the later free-tier provider pass.
+9. Temporarily disconnect/reconnect B using browser network controls or close/reopen B. Confirm room state returns, temporary messages are not represented as permanent history, and no duplicate final event is shown. Check keyboard Escape/focus behavior in the glossary, add a synthetic term, refresh, and confirm it remains while the room is open. Close the room; both sessions must show closure and the room glossary must be gone.
+
+## Evidence record and screenshots
+
+For every viewport, record browser/version, operating system, date, actual CSS viewport, result, and issue identifier. Capture redacted screenshots of: homepage/preview at 1440 and 390; room setup at 320; WAITING and ACTIVE room headers in both sessions; Type/Speak controls; safe disabled-provider error; privacy/reconnect; and closed room. Do not capture join codes, email addresses, real names, passwords, private text/audio, API keys, or browser devtools secrets. Record pass/fail separately for A, B, and C. Mark all provider-dependent caption, voice, and translation-quality cells **not tested**, never pass, until a separately authorized live check.
