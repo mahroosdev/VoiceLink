@@ -175,15 +175,16 @@
                   <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="translation-composer">Live translation</button>
                   <button id="text-mode-quick" class="type-mode__button" type="button" aria-pressed="false" aria-controls="live-text-section">Quick chat</button>
                 </div>
-                <div id="type-privacy-controls" class="type-privacy-controls" hidden>
-                  <span class="type-privacy-controls__label">Preview visibility</span>
-                  <div class="type-privacy-mode" role="group" aria-label="Live translation visibility">
-                    <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Live</button>
-                    <button id="text-privacy-shared" class="type-privacy-mode__button" type="button" aria-pressed="false">Shared Live</button>
-                  </div>
-                </div>
               </div>
               <div id="translation-composer">
+              <div id="type-privacy-controls" class="type-privacy-controls" hidden>
+                <span id="live-visibility-label" class="type-privacy-controls__label">Live preview visibility</span>
+                <div class="type-privacy-mode" role="group" aria-labelledby="live-visibility-label" aria-describedby="live-visibility-help">
+                  <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Live</button>
+                  <button id="text-privacy-shared" class="type-privacy-mode__button" type="button" aria-pressed="false">Shared Live</button>
+                </div>
+                <p id="live-visibility-help" class="type-privacy-controls__help">Only you see the live preview until you send.</p>
+              </div>
               <div id="type-sharing-notice" class="type-sharing-notice" hidden>
                 <div>
                   <strong>Sharing translated drafts</strong>

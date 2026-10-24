@@ -23,6 +23,9 @@ test("room keeps Speak, Translate message, and Private Live defaults with explic
   assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
   assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Live/);
   assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
+  assert.match(html, /<div class="type-mode-bar">[\s\S]*?<\/div>\s*<\/div>\s*<div id="translation-composer">\s*<div id="type-privacy-controls"/);
+  assert.match(html, /Live preview visibility/);
+  assert.match(html, /id="live-visibility-help"[^>]*>Only you see the live preview until you send/);
   assert.match(html, /Your translated drafts will be visible/);
   assert.match(html, /id="shared-text-draft"[^>]*hidden/);
   assert.match(html, /id="type-section"[^>]*data-text-mode="total"[^>]*hidden/);
@@ -43,7 +46,8 @@ test("room keeps Speak, Translate message, and Private Live defaults with explic
   assert.match(css, /max-width: 390px/);
   assert.match(css, /Gate J5A: server-attributed two-person conversation workspace/);
   assert.match(css, /recording-card\[data-phase="listening"\] #record-stop \{ position: static/);
-  assert.match(css, /@media \(max-width: 359px\)[\s\S]*\.speech-mode, \.type-mode \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /\.type-mode \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.type-mode \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.turn-card \{ transition: none !important; \}/);
 });
 
@@ -89,7 +93,7 @@ function setup(fetch, debounce = "800") {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
     "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section",
     "live-text-input", "speech-section", "type-section", "type-eyebrow", "type-heading",
-    "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
+    "type-intro", "type-actions", "type-privacy-controls", "live-visibility-help", "text-privacy-private",
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
     "type-translate", "type-retry", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
@@ -271,12 +275,14 @@ test("Shared Live requires explicit opt-in and binds translated reviews to its e
   nodes["mode-type"].callbacks.click();
   nodes["text-mode-live"].callbacks.click();
   assert.equal(nodes["type-privacy-controls"].hidden, false);
+  assert.match(nodes["live-visibility-help"].textContent, /Only you see/);
   assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
   nodes["text-privacy-shared"].callbacks.click();
   await next();
   assert.equal(calls[0].url, "/api/rooms/room-1/text/sharing");
   assert.equal(calls[0].request.method, "POST");
   assert.equal(nodes["text-privacy-shared"].attributes["aria-pressed"], "true");
+  assert.match(nodes["live-visibility-help"].textContent, /partner can see provisional/);
   assert.equal(nodes["type-sharing-notice"].hidden, false);
   assert.match(nodes["type-intro"].textContent, /visible to the other participant/);
   nodes["type-source"].value = "Hello";

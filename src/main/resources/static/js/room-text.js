@@ -23,6 +23,7 @@
   const typeIntro = document.getElementById("type-intro");
   const typeActions = document.getElementById("type-actions");
   const privacyControls = document.getElementById("type-privacy-controls");
+  const visibilityHelp = document.getElementById("live-visibility-help");
   const privateButton = document.getElementById("text-privacy-private");
   const sharedButton = document.getElementById("text-privacy-shared");
   const sharingNotice = document.getElementById("type-sharing-notice");
@@ -149,6 +150,9 @@
   }
 
   function liveCopy() {
+    visibilityHelp.textContent = privacyMode === "shared"
+      ? "Your partner can see provisional translated drafts. Only Send makes a final message."
+      : "Only you see the live preview until you send.";
     typeEyebrow.textContent = privacyMode === "shared"
       ? "Shared live translation" : "Live private translation";
     typeHeading.textContent = "Type and pause to preview";
