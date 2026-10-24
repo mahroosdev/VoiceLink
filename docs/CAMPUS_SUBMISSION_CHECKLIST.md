@@ -24,8 +24,8 @@ Checked items are verified by current local evidence in [TESTING.md](TESTING.md)
 | Requirement | Evidence to cite | Status |
 | --- | --- | --- |
 | Architecture, Java backend, REST and authenticated WebSocket | [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](../README.md) | Implemented; local automated/protocol verification |
-| Local setup and PostgreSQL/Flyway V1–V8 | [README.md](../README.md), [TESTING.md](TESTING.md) | Local verification passed; production V8 pending |
-| Railway deployment and recovery | [DEPLOYMENT.md](DEPLOYMENT.md), [security runbook](RAILWAY_SECURITY_RELEASE_RUNBOOK.md) | Prepared; staged release and rotation unexecuted |
+| Local setup and PostgreSQL/Flyway V1–V8 | [README.md](../README.md), [TESTING.md](TESTING.md) | Local V1–V8 verification passed; production V8 applied and database startup observed; two-user production DB workflow pending |
+| Railway deployment and recovery | [DEPLOYMENT.md](DEPLOYMENT.md), [security runbook](RAILWAY_SECURITY_RELEASE_RUNBOOK.md) | Release `b7bf2b7` deployed successfully; credential rotation was not repeated; recovery/rollback exercise pending |
 | Test counts, known limitations, graphical QA | [TESTING.md](TESTING.md), [two-browser worksheet](MANUAL_TWO_BROWSER_QA.md) | Automated evidence recorded; owner browser QA pending |
 | Screenshots and model training/evaluation evidence | [Two-browser screenshot checklist](MANUAL_TWO_BROWSER_QA.md), [Standard live QA plan](STANDARD_LIVE_QA_PLAN.md), and [provider evaluation](AI_PROVIDER_EVALUATION.md) | Redacted captures and human bilingual review pending; custom training not applicable |
 
