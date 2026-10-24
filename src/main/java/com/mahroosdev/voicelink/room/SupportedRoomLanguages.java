@@ -16,6 +16,15 @@ public class SupportedRoomLanguages {
         return new Direction(source, target);
     }
 
+    public Direction forSpeaker(String speaking) {
+        String source = normalize(speaking);
+        return switch (source) {
+            case "en" -> new Direction("en", "ta");
+            case "ta" -> new Direction("ta", "en");
+            default -> throw new IllegalArgumentException("Choose English or Tamil.");
+        };
+    }
+
     private String normalize(String tag) {
         return tag == null ? "" : tag.strip().toLowerCase(Locale.ROOT);
     }

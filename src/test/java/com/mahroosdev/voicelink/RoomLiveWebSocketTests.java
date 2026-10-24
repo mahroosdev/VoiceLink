@@ -137,7 +137,8 @@ class RoomLiveWebSocketTests {
     void speechUploadPublishesSafeTurnEventsOverRealSocketWithoutProviderCredentials() throws Exception {
         var a = account("Speech A");
         var b = account("Speech B");
-        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        UUID roomId = rooms.createRoomForSpeaker(a.getId(), "Room A", "en",
+                com.mahroosdev.voicelink.ai.AiServiceProfile.STANDARD, true);
         rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
         Browser first = browser(a);
         Browser second = browser(b);
@@ -165,7 +166,8 @@ class RoomLiveWebSocketTests {
         var a = account("Private speech sender");
         var b = account("Private speech receiver");
         var other = account("Other speech room");
-        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        UUID roomId = rooms.createRoomForSpeaker(a.getId(), "Room A", "en",
+                com.mahroosdev.voicelink.ai.AiServiceProfile.STANDARD, true);
         rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
         UUID otherRoom = rooms.createRoom(other.getId(), "ta", "en");
         Browser sender = browser(a), receiver = browser(b), separate = browser(other);
@@ -313,17 +315,25 @@ class RoomLiveWebSocketTests {
     void waitingActivationAndBidirectionalDeliveryAreRealWebSocketEvents() throws Exception {
         var a = account("A");
         var b = account("B");
-        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        UUID roomId = rooms.createRoomForSpeaker(a.getId(), "Room A", "en",
+                com.mahroosdev.voicelink.ai.AiServiceProfile.STANDARD, true);
         Browser first = browser(a);
         Browser second = browser(b);
         LiveSocket aSocket = first.connect(roomId, first.base);
-        assertThat(aSocket.await("ROOM_STATE").path("payload").path("status").textValue())
+        JsonNode waitingState = aSocket.await("ROOM_STATE");
+        assertThat(waitingState.path("payload").path("status").textValue())
                 .isEqualTo("WAITING");
+        assertThat(waitingState.path("payload").path("participants").get(0).path("current").booleanValue())
+                .isTrue();
+        assertThat(waitingState.path("payload").path("participants").get(0).path("displayName").textValue())
+                .isEqualTo("Room A");
+        assertThat(waitingState.path("payload").path("participants").get(0).path("owner").booleanValue())
+                .isTrue();
         aSocket.sendText("too soon");
         assertThat(aSocket.await("ERROR").path("payload").path("code").textValue())
                 .isEqualTo("ROOM_NOT_ACTIVE");
         new TransactionTemplate(transactions).execute(ignored -> {
-            rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+            rooms.joinRoomWithSetup(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode(), "Room B");
             try {
                 assertThat(aSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
             } catch (InterruptedException ex) {
@@ -332,15 +342,28 @@ class RoomLiveWebSocketTests {
             }
             return null;
         });
-        assertThat(aSocket.await("ROOM_STATE").path("payload").path("status").textValue())
+        JsonNode aState = aSocket.await("ROOM_STATE");
+        assertThat(aState.path("payload").path("status").textValue())
                 .isEqualTo("ACTIVE");
         LiveSocket bSocket = second.connect(roomId, second.base);
-        assertThat(bSocket.await("ROOM_STATE").path("payload").path("status").textValue())
+        JsonNode bState = bSocket.await("ROOM_STATE");
+        assertThat(bState.path("payload").path("status").textValue())
                 .isEqualTo("ACTIVE");
+        UUID aParticipant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).getFirst().getId();
+        UUID bParticipant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).getLast().getId();
+        assertThat(aState.path("payload").path("participants")).anySatisfy(person -> {
+            assertThat(person.path("participantId").textValue()).isEqualTo(aParticipant.toString());
+            assertThat(person.path("current").booleanValue()).isTrue();
+        });
+        assertThat(bState.path("payload").path("participants")).anySatisfy(person -> {
+            assertThat(person.path("participantId").textValue()).isEqualTo(bParticipant.toString());
+            assertThat(person.path("current").booleanValue()).isTrue();
+            assertThat(person.path("displayName").textValue()).isEqualTo("Room B");
+            assertThat(person.path("owner").booleanValue()).isFalse();
+        });
         aSocket.sendText("hello B");
         JsonNode aEcho = aSocket.await("TEXT_MESSAGE");
         JsonNode bReceive = bSocket.await("TEXT_MESSAGE");
-        UUID aParticipant = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).getFirst().getId();
         assertThat(bReceive.path("payload").path("text").textValue()).isEqualTo("hello B");
         assertThat(bReceive.path("senderParticipantId").textValue()).isEqualTo(aParticipant.toString());
         assertThat(aEcho.path("eventId").textValue()).isEqualTo(bReceive.path("eventId").textValue());
@@ -459,6 +482,10 @@ class RoomLiveWebSocketTests {
                 + id + "\",\"text\":\"room one\"}";
         aSocket.sendRaw(request);
         aSocket.sendRaw(request);
+        assertThat(aSocket.await("TEXT_MESSAGE").path("payload").path("clientMessageId").textValue())
+                .isEqualTo(id.toString());
+        assertThat(aSocket.await("TEXT_MESSAGE").path("payload").path("clientMessageId").textValue())
+                .isEqualTo(id.toString());
         assertThat(bSocket.await("TEXT_MESSAGE").path("payload").path("text").textValue())
                 .isEqualTo("room one");
         assertThat(bSocket.messages.poll(500, TimeUnit.MILLISECONDS)).isNull();

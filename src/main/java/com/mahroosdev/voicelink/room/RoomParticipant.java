@@ -38,6 +38,9 @@ public class RoomParticipant {
     @Column(name = "listening_language_tag", nullable = false, length = 64)
     private String listeningLanguageTag;
 
+    @Column(name = "conversation_display_name", length = 48)
+    private String conversationDisplayName;
+
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
 
@@ -48,11 +51,18 @@ public class RoomParticipant {
 
     public RoomParticipant(ConversationRoom room, UserAccount user, short participantSlot,
                            String speakingLanguageTag, String listeningLanguageTag, Instant joinedAt) {
+        this(room, user, participantSlot, speakingLanguageTag, listeningLanguageTag, null, joinedAt);
+    }
+
+    public RoomParticipant(ConversationRoom room, UserAccount user, short participantSlot,
+                           String speakingLanguageTag, String listeningLanguageTag,
+                           String conversationDisplayName, Instant joinedAt) {
         this.room = room;
         this.user = user;
         this.participantSlot = participantSlot;
         this.speakingLanguageTag = speakingLanguageTag;
         this.listeningLanguageTag = listeningLanguageTag;
+        this.conversationDisplayName = conversationDisplayName;
         this.joinedAt = joinedAt;
     }
 
@@ -62,6 +72,7 @@ public class RoomParticipant {
     public short getParticipantSlot() { return participantSlot; }
     public String getSpeakingLanguageTag() { return speakingLanguageTag; }
     public String getListeningLanguageTag() { return listeningLanguageTag; }
+    public String getConversationDisplayName() { return conversationDisplayName; }
     public Instant getJoinedAt() { return joinedAt; }
     public Instant getRemovedAt() { return removedAt; }
     public void removeFromList(Instant now) {

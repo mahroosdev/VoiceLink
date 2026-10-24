@@ -15,7 +15,8 @@
   const form = document.getElementById("live-text-form");
   const input = document.getElementById("live-text-input");
   const send = document.getElementById("live-send");
-  const events = document.getElementById("live-events");
+  const quickStatus = document.getElementById("quick-status");
+  const events = document.getElementById("conversation-events");
   const speechSection = document.getElementById("speech-section");
   const glossarySection = document.getElementById("glossary-section");
   const roomToolBar = document.querySelector(".room-tool-bar");
@@ -36,7 +37,7 @@
   const speechReviewCancel = document.getElementById("speech-review-cancel");
   const recordingStatus = document.getElementById("recording-status");
   const recordingTimer = document.getElementById("recording-timer");
-  const speechEvents = document.getElementById("speech-events");
+  const speechEvents = document.getElementById("conversation-events");
   const turnEmpty = document.getElementById("turn-empty");
   const turnAnnouncement = document.getElementById("turn-announcement");
   const inviteCode = document.getElementById("invite-code");
@@ -47,7 +48,7 @@
   const speechSupported = !!(navigator.mediaDevices?.getUserMedia &&
     window.MediaRecorder?.isTypeSupported(speechType));
   const turnRows = new Map();
-  const participantNames = new Map();
+  const participantRoles = new Map();
 
   let recorder;
   let microphone;
@@ -67,6 +68,8 @@
   let streamId;
   let lastSequence = 0;
   const seen = new Set();
+  const seenQuickIds = new Set();
+  let pendingQuick = null;
 
   function make(tag, className, value) {
     const element = document.createElement(tag);
@@ -125,8 +128,8 @@
     speechModeLive.setAttribute("aria-pressed", String(workflow === "LIVE_SEND"));
     speechModeFinish.setAttribute("aria-pressed", String(workflow === "FINISH_AND_SEND"));
     speechModeHelp.textContent = workflow === "LIVE_SEND"
-      ? "Live Send shares captions while your turn is processed."
-      : "Finish & Send keeps recognition and translation private until you review and send.";
+      ? "Record and send the translated turn."
+      : "Review your speech before sending.";
     recordingStatus.textContent = workflow === "LIVE_SEND"
       ? "Ready for Live Send. Speak for up to 15 seconds."
       : "Ready for private review. Speak for up to 15 seconds.";
@@ -176,7 +179,7 @@
         : "Recognizing speech privately.";
       if (review.status === "FAILED") {
         resetPrivateReview();
-        recordingStatus.textContent = failureText(review.failedStage);
+        recordingStatus.textContent = failureText(review.failedStage, review.errorCode);
         speechSection.dataset.phase = "error";
         return;
       }
@@ -195,7 +198,8 @@
     waiting.hidden = value !== "WAITING";
     active.hidden = value !== "ACTIVE";
     if (wasWaiting && value === "ACTIVE") active.classList.add("room-state-entered");
-    live.hidden = value !== "ACTIVE";
+    live.hidden = value !== "ACTIVE" || document.getElementById("mode-type")?.getAttribute("aria-pressed") !== "true"
+      || document.getElementById("text-mode-quick")?.getAttribute("aria-pressed") !== "true";
     speechSection.hidden = value !== "ACTIVE" || document.getElementById("mode-type")?.getAttribute("aria-pressed") === "true";
     if (value === "CLOSED" && glossarySection?.open) glossarySection.close();
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
@@ -210,8 +214,9 @@
     if (closeForm) closeForm.hidden = value === "CLOSED";
     if (closeButton) closeButton.textContent =
       value === "WAITING" ? "Cancel room" : "Leave and close room";
-    input.disabled = value !== "ACTIVE" || !connected || !socketOpen();
-    send.disabled = input.disabled;
+    input.disabled = value !== "ACTIVE" || !connected || !socketOpen() || !!pendingQuick;
+    send.disabled = value !== "ACTIVE" || !connected || !socketOpen();
+    send.textContent = pendingQuick ? "Retry send" : "Send";
     recordStart.disabled = value !== "ACTIVE" || !connected ||
       !socketOpen() || !speechSupported || busy;
     if (value !== "ACTIVE" && recorder?.state === "recording") {
@@ -225,6 +230,8 @@
       speechEvents.replaceChildren();
       turnRows.clear();
       events.replaceChildren();
+      pendingQuick = null;
+      seenQuickIds.clear();
       turnEmpty.hidden = false;
       recordingStatus.textContent = "This room is closed.";
     }
@@ -235,16 +242,21 @@
       const existing = turnRows.get(turnId);
       if (senderId) {
         existing.row.dataset.senderId = senderId;
-        existing.speaker.textContent = participantNames.get(senderId) || "Participant";
+        applySender(existing, senderId);
       }
       return existing;
     }
-    const row = make("li", "turn-card");
+    const wasNearBottom = window.voicelinkHistory?.beforeAppend();
+    const role = participantRoles.get(senderId) || "Participant";
+    const row = make("li", "turn-card turn-card--" + role.toLowerCase());
     row.dataset.index = String(turnIndex);
+    row.dataset.timelineKind = "speech";
+    row.dataset.messageKind = "processing";
     if (senderId) row.dataset.senderId = senderId;
     const top = make("div", "turn-card__top");
     const meta = make("div", "turn-card__meta");
-    const speaker = make("strong", "turn-card__speaker", participantNames.get(senderId) || "Participant");
+    row.dataset.senderRole = role;
+    const speaker = make("strong", "turn-card__speaker", role);
     const index = make("span", "turn-card__index", "Turn " + turnIndex);
     const progress = make("span", "turn-card__status", "Processing");
     meta.append(speaker, index);
@@ -270,6 +282,7 @@
     const parts = { row, speaker, progress, sourceBlock, sourceLabel, source,
       targetBlock, targetLabel, target, playback };
     turnRows.set(turnId, parts);
+    window.voicelinkHistory?.changed(wasNearBottom, "processing");
     while (turnRows.size > 16) {
       let oldestId;
       let oldestIndex = Number.POSITIVE_INFINITY;
@@ -286,6 +299,14 @@
     return parts;
   }
 
+  function applySender(parts, senderId) {
+    const role = participantRoles.get(senderId) || "Participant";
+    parts.speaker.textContent = role;
+    parts.row.dataset.senderRole = role;
+    parts.row.classList.toggle("turn-card--you", role === "You");
+    parts.row.classList.toggle("turn-card--partner", role === "Partner");
+  }
+
   function showCaption(parts, kind, language, textValue) {
     const isSource = kind === "source";
     const block = isSource ? parts.sourceBlock : parts.targetBlock;
@@ -296,6 +317,8 @@
     if (language === "en" || language === "ta") content.lang = language;
     block.hidden = false;
     block.classList.add("turn-caption--revealed");
+    if (!isSource && typeof textValue === "string" && textValue.trim())
+      parts.row.dataset.messageKind = "translated";
   }
 
   function showAudio(parts, url) {
@@ -314,10 +337,25 @@
     parts.playback.append(label, player);
   }
 
-  function failureText(stage) {
-    if (stage === "STT") return "Speech recognition failed. Try another turn.";
-    if (stage === "TRANSLATION") return "Translation failed. Try another turn.";
-    if (stage === "TTS") return "Voice generation failed. Captions are still available.";
+  function failureText(stage, code) {
+    if (stage === "STT") {
+      if (code === "TIMEOUT") return "Speech recognition took too long. Try another turn.";
+      if (code === "RATE_LIMIT" || code === "QUOTA")
+        return "Speech recognition is busy or limited. Wait and try another turn.";
+      return "Speech recognition failed. Check your connection and try another turn.";
+    }
+    if (stage === "TRANSLATION") {
+      if (code === "TIMEOUT") return "Translation took too long. The recognized caption remains available.";
+      if (code === "RATE_LIMIT" || code === "QUOTA")
+        return "Translation is busy or limited. The recognized caption remains available.";
+      if (code === "INVALID_RESPONSE")
+        return "The translation response could not be processed. The recognized caption remains available.";
+      return "Translation is temporarily unavailable. The recognized caption remains available.";
+    }
+    if (stage === "TTS") {
+      if (code === "TIMEOUT") return "Audio generation took too long. Captions are still available.";
+      return "Audio generation failed. Captions are still available.";
+    }
     return "Speech processing could not finish. Try another turn.";
   }
 
@@ -333,7 +371,9 @@
       parts.row.dataset.phase = "translating";
     }
     if (event.type === "TRANSLATION_READY") {
+      const wasNearBottom = window.voicelinkHistory?.beforeAppend();
       showCaption(parts, "target", payload.targetLanguage, payload.translatedText);
+      window.voicelinkHistory?.changed(wasNearBottom, "translated");
       parts.progress.textContent = "Creating voice";
       parts.row.dataset.phase = "voice";
     }
@@ -343,7 +383,7 @@
       parts.row.dataset.phase = "ready";
     }
     if (event.type === "TURN_FAILED") {
-      parts.progress.textContent = failureText(payload.stage);
+      parts.progress.textContent = failureText(payload.stage, payload.code);
       parts.progress.dataset.failed = "true";
       parts.row.dataset.phase = "error";
     }
@@ -365,7 +405,7 @@
         if (turn.translatedText) showCaption(parts, "target", turn.targetLanguage, turn.translatedText);
         if (turn.audioAvailable) showAudio(parts,
           "/api/rooms/" + roomId + "/turns/" + turn.turnId + "/audio");
-        parts.progress.textContent = turn.status === "FAILED" ? failureText(turn.failedStage) :
+        parts.progress.textContent = turn.status === "FAILED" ? failureText(turn.failedStage, turn.errorCode) :
           turn.status === "READY" ? "Audio ready" :
           turn.status === "TRANSLATED" ? "Creating voice" :
           turn.status === "TRANSCRIBED" ? "Translating" : "Recognizing speech";
@@ -381,7 +421,9 @@
           turnRows.delete(turnId);
         }
       }
-      turnEmpty.hidden = turnRows.size !== 0;
+      turnEmpty.hidden = speechEvents.childElementCount !== 0
+        || document.getElementById("shared-text-draft")?.hidden === false;
+      window.voicelinkHistory?.refresh();
     } catch {
       // The live connection can remain available if the snapshot request fails.
     }
@@ -390,28 +432,71 @@
   function showParticipants(people) {
     if (!Array.isArray(people)) return;
     members.replaceChildren();
-    participantNames.clear();
+    participantRoles.clear();
     for (const person of people) {
-      participantNames.set(person.participantId, person.displayName);
+      const role = person.current === true ? "You" : "Partner";
+      participantRoles.set(person.participantId, role);
       const item = make("li", "participant");
       item.dataset.participantId = person.participantId;
-      const avatar = make("span", "participant__avatar", String(person.slot));
+      item.dataset.role = role;
+      item.dataset.current = String(person.current === true);
+      item.dataset.owner = String(person.owner === true);
+      const avatar = make("span", "participant__avatar", role === "You" ? "Y" : "P");
       avatar.setAttribute("aria-hidden", "true");
       const details = make("span", "participant__details");
-      const name = make("strong", "", person.displayName);
+      const name = make("strong", "", (person.current === true ? "You" : person.displayName) +
+        (person.owner === true ? " · Conversation Owner" : " · Partner"));
       const direction = make("small", "",
-        "Speaks " + languageName(person.speaking) + " · Hears " + languageName(person.listening));
+        role + " speak" + (role === "Partner" ? "s" : "") + ": " + languageName(person.speaking) +
+        "\n" + (role === "You" ? "Partner receives: " : "You receive: ")
+        + languageName(person.listening));
       details.append(name, direction);
+      if (person.current === true) {
+        details.append(make("span", "participant__account-name",
+          "Conversation name: " + person.displayName));
+      }
       item.append(avatar, details);
       members.append(item);
     }
     for (const parts of turnRows.values()) {
-      parts.speaker.textContent = participantNames.get(parts.row.dataset.senderId) || "Participant";
+      applySender(parts, parts.row.dataset.senderId);
     }
   }
 
-  function addText(payload) {
-    events.append(make("li", "", payload.text));
+  function addText(event) {
+    const payload = event.payload || {};
+    if (typeof payload.text !== "string") return;
+    const role = participantRoles.get(event.senderParticipantId) || "Participant";
+    const messageId = payload.clientMessageId;
+    if (role === "You" && pendingQuick?.id === messageId) {
+      if (input.value.trim() === pendingQuick.text) input.value = "";
+      pendingQuick = null;
+      quickStatus.textContent = "Sent. Quick chat is ready for the next message.";
+      setStatus(status.textContent);
+      input.focus();
+    }
+    const deliveryId = event.senderParticipantId + ":" + messageId;
+    if (messageId && seenQuickIds.has(deliveryId)) return;
+    if (messageId) {
+      seenQuickIds.add(deliveryId);
+      if (seenQuickIds.size > 256) seenQuickIds.delete(seenQuickIds.values().next().value);
+    }
+    const wasNearBottom = window.voicelinkHistory?.beforeAppend();
+    const row = make("li", "turn-card text-turn-card untranslated-turn turn-card--" + role.toLowerCase());
+    row.dataset.senderId = event.senderParticipantId || "";
+    row.dataset.senderRole = role;
+    row.dataset.timelineKind = "text";
+    row.dataset.messageKind = "quick";
+    const heading = make("strong", "turn-card__speaker", role + " · Quick chat");
+    const content = make("p", "quick-chat__text", payload.text);
+    const delivery = make("span", "quick-chat__delivery", role === "You" ? "Sent" : "Received");
+    row.append(heading, content, delivery);
+    events.append(row);
+    const textRows = [...events.children].filter(item => item.dataset.timelineKind === "text");
+    while (textRows.length > 16) textRows.shift().remove();
+    turnEmpty.hidden = true;
+    turnAnnouncement.textContent = role + " sent a quick chat message.";
+    window.voicelinkHistory?.changed(wasNearBottom, "quick");
   }
 
   function receive(raw) {
@@ -423,6 +508,7 @@
       streamId = event.streamId;
       lastSequence = 0;
       seen.clear();
+      seenQuickIds.clear();
       window.dispatchEvent(new Event("voicelink-text-draft-reset"));
     }
     if (event.sequence <= lastSequence || seen.has(event.eventId)) return;
@@ -434,7 +520,7 @@
       showParticipants(event.payload.participants);
       window.dispatchEvent(new Event("voicelink-room-state"));
     } else if (event.type === "TEXT_MESSAGE") {
-      addText(event.payload);
+      addText(event);
     } else if (event.type === "TEXT_TRANSLATION_SENT") {
       window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
     } else if (event.type === "TEXT_DRAFT_UPDATED" || event.type === "TEXT_DRAFT_CLEARED") {
@@ -445,7 +531,15 @@
       updateConnection("Live connection closed", "closed");
       socket.close();
     } else if (event.type === "ERROR") {
-      updateConnection(event.payload.message || "Live message rejected", "disconnected");
+      updateConnection(event.payload.message || "Live action rejected",
+        ["ROOM_NOT_ACTIVE", "NOT_AUTHORIZED"].includes(event.payload?.code) || !connected
+          ? "disconnected" : "connected");
+      if (pendingQuick && ["INVALID_MESSAGE", "MESSAGE_TOO_LARGE", "ROOM_NOT_ACTIVE", "NOT_AUTHORIZED"]
+          .includes(event.payload?.code)) {
+        pendingQuick = null;
+        quickStatus.textContent = "Quick chat was not sent. Your message remains here; check it and try again.";
+        setStatus(status.textContent);
+      }
     } else if (["TURN_ACCEPTED", "TRANSCRIPT_READY", "TRANSLATION_READY",
       "AUDIO_READY", "TURN_FAILED"].includes(event.type)) {
       receiveTurn(event);
@@ -485,6 +579,7 @@
       retry = 0;
       updateConnection("Connected", "connected");
       setStatus(status.textContent);
+      if (pendingQuick) quickStatus.textContent = "Delivery is unconfirmed. Retry uses the same message, but a server restart could resend it.";
       refreshTurns();
       window.dispatchEvent(new Event("voicelink-room-state"));
       window.dispatchEvent(new Event("voicelink-live-connected"));
@@ -495,6 +590,7 @@
       window.dispatchEvent(new Event("voicelink-text-draft-reset"));
       input.disabled = true;
       send.disabled = true;
+      if (pendingQuick) quickStatus.textContent = "Delivery is unconfirmed. Your message remains here until you reconnect.";
       recordStart.disabled = true;
       if (recorder?.state === "recording") {
         discardRecording = true;
@@ -530,10 +626,17 @@
         status.textContent !== "ACTIVE") return;
     const value = input.value.trim();
     if (!value || [...value].length > 1000) return;
-    socket.send(JSON.stringify({
-      protocolVersion: 1, type: "SEND_TEXT", clientMessageId: crypto.randomUUID(), text: value
-    }));
-    input.value = "";
+    if (pendingQuick && pendingQuick.text !== value) return;
+    if (!pendingQuick) pendingQuick = { id: crypto.randomUUID(), text: value };
+    setStatus(status.textContent);
+    quickStatus.textContent = "Sending quick chat message…";
+    try {
+      socket.send(JSON.stringify({
+        protocolVersion: 1, type: "SEND_TEXT", clientMessageId: pendingQuick.id, text: pendingQuick.text
+      }));
+    } catch {
+      quickStatus.textContent = "Delivery is unconfirmed. Your message remains here; retry after reconnecting.";
+    }
   });
 
   if (!speechSupported) {

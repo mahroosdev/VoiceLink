@@ -12,6 +12,10 @@
   const typeButton = document.getElementById("mode-type");
   const liveButton = document.getElementById("text-mode-live");
   const totalButton = document.getElementById("text-mode-total");
+  const quickButton = document.getElementById("text-mode-quick");
+  const translationComposer = document.getElementById("translation-composer");
+  const quickComposer = document.getElementById("live-text-section");
+  const quickInput = document.getElementById("live-text-input");
   const speakSection = document.getElementById("speech-section");
   const typeSection = document.getElementById("type-section");
   const typeEyebrow = document.getElementById("type-eyebrow");
@@ -19,25 +23,29 @@
   const typeIntro = document.getElementById("type-intro");
   const typeActions = document.getElementById("type-actions");
   const privacyControls = document.getElementById("type-privacy-controls");
+  const visibilityHelp = document.getElementById("live-visibility-help");
   const privateButton = document.getElementById("text-privacy-private");
   const sharedButton = document.getElementById("text-privacy-shared");
   const sharingNotice = document.getElementById("type-sharing-notice");
   const stopSharingButton = document.getElementById("text-sharing-stop");
   const source = document.getElementById("type-source");
   const translate = document.getElementById("type-translate");
+  const retry = document.getElementById("type-retry");
   const send = document.getElementById("type-send");
   const status = document.getElementById("type-status");
   const reviewSection = document.getElementById("type-review");
   const reviewHeading = document.getElementById("type-review-heading");
   const original = document.getElementById("type-review-original");
   const translated = document.getElementById("type-review-translation");
-  const finalEvents = document.getElementById("final-text-events");
+  const finalEvents = document.getElementById("conversation-events");
+  const turnEmpty = document.getElementById("turn-empty");
   const announcement = document.getElementById("turn-announcement");
   const sharedDraft = document.getElementById("shared-text-draft");
+  const sharedDraftHeading = document.getElementById("shared-text-draft-heading");
   const sharedDraftText = document.getElementById("shared-text-draft-text");
   const sharedDraftStatus = document.getElementById("shared-text-draft-status");
   const sharedDraftAnnouncement = document.getElementById("shared-text-draft-announcement");
-  if (!typeButton || !typeSection || !liveButton || !totalButton) return;
+  if (!typeButton || !typeSection || !liveButton || !totalButton || !quickButton) return;
 
   const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
   const csrfHeader = document.querySelector('meta[name="_csrf_header"]')?.content;
@@ -57,9 +65,12 @@
   let sharedInvalidation = Promise.resolve();
   let receivedDraft = null;
   let debounceTimer = null;
-  let activeController = null;
   let lastInputValue = source.value;
-  let lastAutomaticSource = null;
+  let lastAutomaticKey = null;
+  let pendingLive = false;
+  let requestSequence = 0;
+  let activeRequest = 0;
+  let retryRequest = null;
 
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
@@ -80,6 +91,8 @@
     sharedDraft.hidden = true;
     sharedDraftText.textContent = "";
     sharedDraftText.removeAttribute?.("lang");
+    if (turnEmpty) turnEmpty.hidden = finalEvents.childElementCount !== 0;
+    window.voicelinkHistory?.refresh();
     if (existed && message && sharedDraftAnnouncement)
       sharedDraftAnnouncement.textContent = message;
   }
@@ -89,10 +102,13 @@
       clearTimeout(debounceTimer);
       debounceTimer = null;
     }
-    if (activeController) {
-      activeController.abort();
-      activeController = null;
-    }
+    pendingLive = false;
+  }
+
+  function clearRetry() {
+    retryRequest = null;
+    retry.hidden = true;
+    retry.disabled = true;
   }
 
   function current(expectedTextMode = textMode) {
@@ -107,7 +123,9 @@
     const available = current();
     speakSection.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "speak";
     typeSection.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "type";
-    typeActions.hidden = textMode === "live";
+    translationComposer.hidden = textMode === "quick";
+    quickComposer.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "type" || textMode !== "quick";
+    typeActions.hidden = textMode !== "total";
     privacyControls.hidden = textMode !== "live";
     privateButton.setAttribute("aria-pressed", String(privacyMode === "private"));
     sharedButton.setAttribute("aria-pressed", String(privacyMode === "shared"));
@@ -116,6 +134,7 @@
     sharingNotice.hidden = textMode !== "live" || privacyMode !== "shared";
     source.disabled = !available || sending || sharingChanging;
     translate.disabled = !available || textMode !== "total" || translating || sending;
+    retry.disabled = !available || translating || sending || !retryRequest;
     send.disabled = !available || sending || translating || !review || review.revision !== revision
       || review.originalText !== source.value || Date.now() >= Date.parse(review.expiresAt);
   }
@@ -123,14 +142,17 @@
   function invalidate(message, state = "idle") {
     revision++;
     cancelPending();
-    translating = false;
-    lastAutomaticSource = null;
+    lastAutomaticKey = null;
+    clearRetry();
     clearReview();
     if (message) setStatus(message, state);
     update();
   }
 
   function liveCopy() {
+    visibilityHelp.textContent = privacyMode === "shared"
+      ? "Your partner can see provisional translated drafts. Only Send makes a final message."
+      : "Only you see the live preview until you send.";
     typeEyebrow.textContent = privacyMode === "shared"
       ? "Shared live translation" : "Live private translation";
     typeHeading.textContent = "Type and pause to preview";
@@ -142,9 +164,9 @@
   }
 
   function totalCopy() {
-    typeEyebrow.textContent = "Total text translation";
+    typeEyebrow.textContent = "Translate message";
     typeHeading.textContent = "Type a complete message";
-    typeIntro.textContent = "Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.";
+    typeIntro.textContent = "Translate and review your message before sending. Your partner sees it only after you select Send.";
     reviewHeading.textContent = "Translated — Not sent";
   }
 
@@ -158,27 +180,30 @@
     speakSection.hidden = mode !== "speak";
     typeSection.hidden = mode !== "type";
     invalidate(mode === "type" ? (textMode === "live"
-      ? "Live private preview is ready for input." : "Ready to translate.")
+      ? "Live private preview is ready for input." : textMode === "quick"
+        ? "Quick chat is ready." : "Ready to translate.")
       : "Text translation paused while Speak is selected.", "idle");
     update();
     if (mode === "type") {
-      source.focus();
+      (textMode === "quick" ? quickInput : source).focus();
       if (textMode === "live") scheduleLive();
     } else speakButton.focus();
   }
 
   function selectTextMode(next) {
     if (next === textMode) return;
-    if (next === "total" && privacyMode === "shared")
-      stopSharing("Shared Live stopped. Total mode is private until Send.");
+    if (next !== "live" && privacyMode === "shared")
+      stopSharing("Shared Live stopped. Translation drafts are private until Send.");
     textMode = next;
     typeSection.dataset.textMode = next;
     liveButton.setAttribute("aria-pressed", String(next === "live"));
     totalButton.setAttribute("aria-pressed", String(next === "total"));
-    if (next === "live") liveCopy(); else totalCopy();
+    quickButton.setAttribute("aria-pressed", String(next === "quick"));
+    if (next === "live") liveCopy(); else if (next === "total") totalCopy();
     invalidate(next === "live" ? "Live private preview is ready for input."
-      : "Total mode selected. Select Translate when your message is complete.", "idle");
-    source.focus();
+      : next === "quick" ? "Quick chat is ready. Messages are sent as written."
+        : "Translate message selected. Select Translate when your message is complete.", "idle");
+    (next === "quick" ? quickInput : source).focus();
     if (next === "live") scheduleLive();
   }
 
@@ -314,19 +339,44 @@
     }
   }
 
-  async function translateCurrent(requestMode) {
+  function retryAllowed(response, result) {
+    return ["TIMED_OUT", "TEMPORARILY_UNAVAILABLE", "CONNECTION_PROBLEM",
+      "RESPONSE_INVALID"].includes(result?.code)
+      || response === null;
+  }
+
+  function offerRetry(request, response, result) {
+    if (!retryAllowed(response, result)) return;
+    retryRequest = request;
+    retry.hidden = false;
+    retry.disabled = false;
+  }
+
+  async function translateCurrent(requestMode, savedRequest = null) {
     if (!current(requestMode) || translating || sending || composing) return;
-    const text = source.value;
+    const text = savedRequest?.text ?? source.value;
     if (!validSource(text)) {
       setStatus(text.trim() ? "Use no more than 1,000 Unicode characters."
         : (requestMode === "live" ? "Waiting for input." : "Enter 1 to 1,000 characters before translating."),
       text.trim() ? "error" : "idle");
       return;
     }
-    invalidate();
-    const requestRevision = revision;
-    const requestPrivacy = privacyMode;
-    const requestSharingEpoch = sharingEpoch;
+    if (savedRequest) {
+      if (source.value !== savedRequest.text || revision !== savedRequest.revision
+          || privacyMode !== savedRequest.privacy || sharingEpoch !== savedRequest.sharingEpoch) {
+        clearRetry();
+        setStatus("The message or sharing mode changed. Translate the current message instead.", "error");
+        update();
+        return;
+      }
+      clearReview();
+      clearRetry();
+    } else invalidate();
+    const requestRevision = savedRequest?.revision ?? revision;
+    const requestPrivacy = savedRequest?.privacy ?? privacyMode;
+    const requestSharingEpoch = savedRequest?.sharingEpoch ?? sharingEpoch;
+    const request = { mode: requestMode, text, revision: requestRevision,
+      privacy: requestPrivacy, sharingEpoch: requestSharingEpoch };
     if (requestMode === "live" && requestPrivacy === "shared" && !requestSharingEpoch) {
       setStatus("Enable Shared Live again before translating.", "error");
       return;
@@ -338,9 +388,10 @@
       sharedServerCurrent = true;
     }
     translating = true;
-    if (requestMode === "live") lastAutomaticSource = text;
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    activeController = controller;
+    pendingLive = false;
+    if (requestMode === "live") lastAutomaticKey = requestRevision + "\n" + text;
+    const requestId = ++requestSequence;
+    activeRequest = requestId;
     setStatus(requestMode === "live" ? (requestPrivacy === "shared"
       ? "Updating the shared translated draft…" : "Creating your private live preview…")
       : "Translating for private review…", "translating");
@@ -348,12 +399,13 @@
     try {
       const { response, result } = await post("reviews",
         { sourceText: text, revision: requestRevision,
-          ...(requestSharingEpoch ? { sharingEpoch: requestSharingEpoch } : {}) }, controller?.signal);
+          ...(requestSharingEpoch ? { sharingEpoch: requestSharingEpoch } : {}) });
       if (requestRevision !== revision || !current(requestMode) || source.value !== text
           || requestPrivacy !== privacyMode || requestSharingEpoch !== sharingEpoch) return;
       if (!response.ok) {
         setStatus(messageFor(response, result, "Translation could not finish. Try again."),
           response.status === 429 ? "rate-limited" : "error");
+        offerRetry(request, response, result);
         return;
       }
       if (result.originalText !== text || result.revision !== requestRevision || !result.reviewId) {
@@ -372,12 +424,22 @@
         : "Translated — Not sent. Review before sending.", "ready");
       if (requestMode === "total") send.focus();
     } catch (error) {
-      if (requestRevision === revision && error?.name !== "AbortError")
-        setStatus("Connection failed. Try translating again.", "error");
+      if (requestRevision === revision && current(requestMode)) {
+        setStatus("Connection problem. Your message remains here; check your internet connection and try again.", "error");
+        offerRetry(request, null, {});
+      }
     } finally {
-      if (activeController === controller) activeController = null;
-      if (requestRevision === revision) translating = false;
+      if (activeRequest === requestId) {
+        activeRequest = 0;
+        translating = false;
+      }
       update();
+      if (current("live") && !composing && !sending
+          && (pendingLive || (source.value.trim()
+            && lastAutomaticKey !== revision + "\n" + source.value))) {
+        pendingLive = false;
+        scheduleLive();
+      }
     }
   }
 
@@ -394,12 +456,17 @@
       setStatus("Use no more than 1,000 Unicode characters.", "error");
       return;
     }
-    if (text === lastAutomaticSource) return;
+    if (revision + "\n" + text === lastAutomaticKey) return;
     setStatus("Waiting for typing to pause…", "waiting");
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      if (current("live") && !composing && source.value === text && text !== lastAutomaticSource)
-        translateCurrent("live");
+      if (current("live") && !composing && source.value === text
+          && revision + "\n" + text !== lastAutomaticKey) {
+        if (translating) {
+          pendingLive = true;
+          setStatus("Latest message queued. Translation will update after the current request finishes.", "waiting");
+        } else translateCurrent("live");
+      }
     }, LIVE_DEBOUNCE_MS);
   }
 
@@ -423,10 +490,14 @@
 
   function appendFinal(message, sender) {
     if (!message?.finalId || seen.has(message.finalId)) return;
+    const wasNearBottom = window.voicelinkHistory?.beforeAppend();
     seen.add(message.finalId);
     if (seen.size > 256) seen.delete(seen.values().next().value);
     const row = document.createElement("li");
-    row.className = "turn-card text-turn-card";
+    row.className = "turn-card text-turn-card turn-card--" + sender.toLowerCase();
+    row.dataset.senderRole = sender;
+    row.dataset.timelineKind = "text";
+    row.dataset.messageKind = "translated";
     const heading = document.createElement("strong");
     heading.className = "turn-card__speaker";
     heading.textContent = sender + " · Sent translated text";
@@ -450,14 +521,19 @@
     targetBlock.append(targetLabel, targetText);
     row.append(heading, sourceBlock, targetBlock);
     finalEvents.append(row);
-    while (finalEvents.childElementCount > 16) finalEvents.firstElementChild.remove();
+    if (turnEmpty) turnEmpty.hidden = true;
+    window.voicelinkHistory?.refresh();
+    const textRows = [...finalEvents.children].filter(item => item.dataset.timelineKind === "text");
+    while (textRows.length > 16) textRows.shift().remove();
     if (announcement) announcement.textContent = sender + " sent translated text.";
+    window.voicelinkHistory?.changed(wasNearBottom, "translated");
   }
 
   speakButton.addEventListener("click", () => selectMode("speak"));
   typeButton.addEventListener("click", () => selectMode("type"));
   liveButton.addEventListener("click", () => selectTextMode("live"));
   totalButton.addEventListener("click", () => selectTextMode("total"));
+  quickButton.addEventListener("click", () => selectTextMode("quick"));
   privateButton.addEventListener("click", () => stopSharing());
   sharedButton.addEventListener("click", startSharing);
   stopSharingButton.addEventListener("click", () => stopSharing());
@@ -478,6 +554,11 @@
   });
   source.addEventListener("input", sourceChanged);
   translate.addEventListener("click", () => translateCurrent("total"));
+  retry.addEventListener("click", () => {
+    if (!retryRequest || translating || sending) return;
+    const request = retryRequest;
+    translateCurrent(request.mode, request);
+  });
 
   send.addEventListener("click", async () => {
     if (!current() || sending || translating || !review || review.revision !== revision
@@ -522,10 +603,10 @@
     const payload = event?.payload;
     if (!payload || event.roomId !== roomId) return;
     const participant = document.querySelector("#participants-list [data-participant-id='" +
-      event.senderParticipantId + "'] strong");
+      event.senderParticipantId + "']");
     if (receivedDraft?.senderParticipantId === event.senderParticipantId)
       clearReceivedDraft("The shared draft was finalized.");
-    appendFinal({ ...payload, finalId: event.turnId }, participant?.textContent || "Participant");
+    appendFinal({ ...payload, finalId: event.turnId }, participant?.dataset.role || "Partner");
   });
   window.addEventListener("voicelink-text-draft", ({ detail: event }) => {
     if (!event || event.roomId !== roomId) return;
@@ -543,12 +624,18 @@
     const first = receivedDraft === null || receivedDraft.draftId !== event.turnId;
     receivedDraft = { draftId: event.turnId, revision: incomingRevision,
       senderParticipantId: event.senderParticipantId };
+    const participant = document.querySelector("#participants-list [data-participant-id='" +
+      event.senderParticipantId + "']");
+    const sender = participant?.dataset.role || "Partner";
+    if (sharedDraftHeading) sharedDraftHeading.textContent = sender + " · Live translation draft";
     sharedDraftText.textContent = payload.translatedText;
     sharedDraftText.lang = payload.targetLanguage;
     sharedDraftStatus.textContent = "Updating may continue until the participant sends or stops sharing.";
     sharedDraft.hidden = false;
+    if (turnEmpty) turnEmpty.hidden = true;
+    window.voicelinkHistory?.refresh();
     if (first && sharedDraftAnnouncement)
-      sharedDraftAnnouncement.textContent = "A participant started sharing a translated draft.";
+      sharedDraftAnnouncement.textContent = sender + " started sharing a translated draft.";
   });
   window.addEventListener("voicelink-text-draft-reset", () => {
     clearReceivedDraft("Shared draft cleared after the live connection changed.");

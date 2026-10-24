@@ -36,9 +36,9 @@ function node() {
 function setup(fetchImpl, microphoneError) {
   const ids = ["room-page", "room-status", "connection-state", "participants-list",
     "waiting-section", "active-section", "live-text-section", "closed-notice",
-    "live-text-form", "live-text-input", "live-send", "live-events", "speech-section",
+    "live-text-form", "live-text-input", "live-send", "quick-status", "conversation-events", "speech-section",
     "glossary-section", "room-details", "record-start", "record-stop", "recording-status",
-    "recording-timer", "speech-events", "turn-empty", "turn-announcement", "mode-type",
+    "recording-timer", "turn-empty", "turn-announcement", "mode-type", "text-mode-quick",
     "speech-mode-live", "speech-mode-finish", "speech-mode-help", "speech-review",
     "speech-review-transcript", "speech-review-translation", "speech-review-expiry",
     "speech-review-send", "speech-review-record-again", "speech-review-cancel"];
@@ -46,6 +46,7 @@ function setup(fetchImpl, microphoneError) {
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-status"].textContent = "ACTIVE";
   nodes["mode-type"].attributes["aria-pressed"] = "false";
+  nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["record-start"].label = node();
   nodes["record-start"].label.textContent = "Start speaking";
   nodes["speech-mode-live"].attributes["aria-pressed"] = "true";
@@ -70,8 +71,8 @@ function setup(fetchImpl, microphoneError) {
   class FakeSocket {
     static OPEN = 1;
     static latest;
-    constructor() { this.readyState = FakeSocket.OPEN; FakeSocket.latest = this; }
-    send() {}
+    constructor() { this.readyState = FakeSocket.OPEN; this.sent = []; FakeSocket.latest = this; }
+    send(data) { this.sent.push(JSON.parse(data)); }
     close() { this.readyState = 3; }
   }
   class FakeEvent { constructor(type) { this.type = type; } }
@@ -112,7 +113,8 @@ function setup(fetchImpl, microphoneError) {
     performance: { now: () => now }, setTimeout, clearTimeout, setInterval: () => 1,
     clearInterval: () => {} });
   FakeSocket.latest.onopen();
-  return { nodes, listeners, timers, runTimer, recorder: () => FakeRecorder.instances.at(-1),
+  return { nodes, listeners, timers, runTimer, socket: FakeSocket.latest,
+    recorder: () => FakeRecorder.instances.at(-1),
     advance(ms) { now += ms; } };
 }
 
@@ -145,7 +147,7 @@ test("Finish and Send records a complete clip and renders only the private serve
     return response([]);
   });
   h.nodes["speech-mode-finish"].callbacks.click();
-  assert.match(h.nodes["speech-mode-help"].textContent, /keeps recognition and translation private/);
+  assert.equal(h.nodes["speech-mode-help"].textContent, "Review your speech before sending.");
   await finishRecording(h);
   assert.equal(h.nodes["speech-review"].hidden, true);
   assert.match(h.nodes["recording-status"].textContent, /Recognizing speech privately/);
@@ -155,8 +157,114 @@ test("Finish and Send records a complete clip and renders only the private serve
   assert.equal(h.nodes["speech-review-transcript"].textContent, "<hello>");
   assert.equal(h.nodes["speech-review-translation"].textContent, "வணக்கம்");
   assert.equal(h.nodes["speech-review-send"].focused, true);
-  assert.equal(h.nodes["speech-events"].children.length, 0);
+  assert.equal(h.nodes["conversation-events"].children.length, 0);
   assert.equal(calls.filter(call => call.url.endsWith("/turns")).length, 1);
+});
+
+test("server current marker keeps identical names distinct and attributes untranslated text", async () => {
+  const h = setup(async () => response([]));
+  const receive = event => h.socket.onmessage({ data: JSON.stringify(event) });
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 1, eventId: "event-1",
+    roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
+      { participantId: "person-1", displayName: "Same Name", slot: 1,
+        speaking: "en", listening: "ta", current: true, owner: true },
+      { participantId: "person-2", displayName: "Same Name", slot: 2,
+        speaking: "ta", listening: "en", current: false, owner: false }
+    ] } });
+  assert.equal(h.nodes["participants-list"].children[0].dataset.role, "You");
+  assert.equal(h.nodes["participants-list"].children[1].dataset.role, "Partner");
+  assert.equal(h.nodes["participants-list"].children[0].children[1].children[0].textContent,
+    "You · Conversation Owner");
+  assert.equal(h.nodes["participants-list"].children[1].children[1].children[0].textContent,
+    "Same Name · Partner");
+  assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
+    /You speak: English\nPartner receives: Tamil/);
+  assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
+    /Partner speaks: Tamil\nYou receive: English/);
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 2, eventId: "event-2",
+    roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
+      { participantId: "person-1", displayName: "Same Name", slot: 1,
+        speaking: "en", listening: "ta", current: false, owner: true },
+      { participantId: "person-2", displayName: "Same Name", slot: 2,
+        speaking: "ta", listening: "en", current: true, owner: false }
+    ] } });
+  assert.match(h.nodes["participants-list"].children[0].children[1].children[1].textContent,
+    /Partner speaks: English\nYou receive: Tamil/);
+  assert.match(h.nodes["participants-list"].children[1].children[1].children[1].textContent,
+    /You speak: Tamil\nPartner receives: English/);
+  assert.equal(h.nodes["participants-list"].children[0].children[1].children[0].textContent,
+    "Same Name · Conversation Owner");
+  assert.equal(h.nodes["participants-list"].children[1].children[1].children[0].textContent,
+    "You · Partner");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 3, eventId: "event-3",
+    roomId: "room-1", type: "TEXT_MESSAGE", senderParticipantId: "person-1",
+    payload: { text: "<b>safe text</b>" } });
+  const message = h.nodes["conversation-events"].children[0];
+  assert.equal(message.dataset.senderRole, "Partner");
+  assert.equal(message.children[1].textContent, "<b>safe text</b>");
+  assert.equal(message.dataset.messageKind, "quick");
+  assert.equal(h.nodes["turn-announcement"].textContent,
+    "Partner sent a quick chat message.");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 4, eventId: "event-4",
+    roomId: "room-1", type: "TURN_ACCEPTED", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, sourceLanguage: "en", targetLanguage: "ta" } });
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.messageKind, "processing");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
+    roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "பாதுகாப்பான உரை" } });
+  assert.equal(h.nodes["conversation-events"].children.length, 2);
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.senderRole, "Partner");
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.messageKind, "translated");
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
+    roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
+    payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "duplicate" } });
+  assert.equal(h.nodes["conversation-events"].children.length, 2);
+});
+
+test("Quick chat waits for the server echo, stays open, and deduplicates retry echoes", async () => {
+  const h = setup(async () => response([]));
+  h.nodes["mode-type"].attributes["aria-pressed"] = "true";
+  h.nodes["text-mode-quick"].attributes["aria-pressed"] = "true";
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 1, eventId: "state", roomId: "room-1", type: "ROOM_STATE",
+    payload: { status: "ACTIVE", participants: [{ participantId: "person-1", current: true,
+      owner: true, displayName: "Same Name", speaking: "en", listening: "ta" }] } }) });
+  assert.equal(h.nodes["live-text-section"].hidden, false);
+  h.nodes["live-text-input"].value = "First quick message";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(h.nodes["live-text-input"].value, "First quick message");
+  assert.equal(h.nodes["live-text-input"].disabled, true);
+  assert.equal(h.socket.sent.length, 1);
+  const first = h.socket.sent[0];
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 2, eventId: "echo-1", roomId: "room-1", type: "TEXT_MESSAGE",
+    senderParticipantId: "person-1", payload: { clientMessageId: first.clientMessageId,
+      text: "First quick message" } }) });
+  assert.equal(h.nodes["live-text-input"].value, "");
+  assert.equal(h.nodes["live-text-input"].disabled, false);
+  assert.equal(h.nodes["live-text-section"].hidden, false);
+  assert.equal(h.nodes["conversation-events"].children.length, 1);
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 3, eventId: "echo-retry", roomId: "room-1", type: "TEXT_MESSAGE",
+    senderParticipantId: "person-1", payload: { clientMessageId: first.clientMessageId,
+      text: "First quick message" } }) });
+  assert.equal(h.nodes["conversation-events"].children.length, 1);
+  h.nodes["live-text-input"].value = "Second quick message";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(h.socket.sent.length, 2);
+  assert.notEqual(h.socket.sent[1].clientMessageId, first.clientMessageId);
+});
+
+test("Quick chat keeps its draft when the server rejects a send", async () => {
+  const h = setup(async () => response([]));
+  h.nodes["live-text-input"].value = "Keep this draft";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-error",
+    sequence: 1, eventId: "error", roomId: "room-1", type: "ERROR",
+    payload: { code: "INVALID_MESSAGE", message: "Invalid live message." } }) });
+  assert.equal(h.nodes["live-text-input"].value, "Keep this draft");
+  assert.equal(h.nodes["live-text-input"].disabled, false);
+  assert.match(h.nodes["quick-status"].textContent, /not sent/);
 });
 
 test("explicit speech Send is single-action and mode change cancels an unsent review", async () => {

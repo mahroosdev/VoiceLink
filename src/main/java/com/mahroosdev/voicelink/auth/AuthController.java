@@ -53,7 +53,7 @@ public class AuthController {
             return "redirect:/login";
         } catch (DuplicateRegistrationException exception) {
             registrationForm.setPassword(null);
-            model.addAttribute("registrationError", "Registration could not be completed with those details.");
+            model.addAttribute("duplicateRegistration", true);
             return "register";
         } catch (ConstraintViolationException exception) {
             registrationForm.setPassword(null);

@@ -39,10 +39,13 @@ public class RoomLiveAuthorizer {
     @Transactional(readOnly = true)
     public Snapshot snapshot(UUID userId, UUID roomId) {
         Member member = authorize(userId, roomId);
+        ConversationRoom room = rooms.findById(roomId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         List<Participant> people = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId).stream()
-                .map(p -> new Participant(p.getId(), p.getUser().getDisplayName(),
+                .map(p -> new Participant(p.getId(), ConversationDisplayName.resolve(p),
                         p.getParticipantSlot(), p.getSpeakingLanguageTag(),
-                        p.getListeningLanguageTag()))
+                        p.getListeningLanguageTag(), p.getUser().getId().equals(userId),
+                        p.getUser().getId().equals(room.getCreatedBy().getId())))
                 .toList();
         return new Snapshot(member.status(), people);
     }
@@ -55,6 +58,6 @@ public class RoomLiveAuthorizer {
         }
     }
     public record Participant(UUID participantId, String displayName, short slot,
-                              String speaking, String listening) {}
+                              String speaking, String listening, boolean current, boolean owner) {}
     public record Snapshot(RoomStatus status, List<Participant> participants) {}
 }

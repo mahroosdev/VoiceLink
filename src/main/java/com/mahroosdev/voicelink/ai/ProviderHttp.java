@@ -18,16 +18,16 @@ public final class ProviderHttp {
         try {
             HttpResponse<T> response = client.send(request, handler);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ProviderFailure(codeForStatus(response.statusCode()));
+                throw ProviderFailure.forHttpStatus(response.statusCode());
             }
             return response;
         } catch (java.net.http.HttpTimeoutException ex) {
-            throw new ProviderFailure(ProviderFailure.Code.TIMEOUT);
+            throw ProviderFailure.localTimeout();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new ProviderFailure(ProviderFailure.Code.UNAVAILABLE);
+            throw ProviderFailure.requestCancelled();
         } catch (IOException ex) {
-            throw new ProviderFailure(ProviderFailure.Code.UNAVAILABLE);
+            throw ProviderFailure.networkIo();
         }
     }
 

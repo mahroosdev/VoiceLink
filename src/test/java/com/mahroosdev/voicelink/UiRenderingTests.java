@@ -49,6 +49,7 @@ class UiRenderingTests {
         mvc.perform(get("/css/voicelink.css")).andExpect(status().isOk());
         mvc.perform(get("/app")).andExpect(status().isFound());
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
+        mvc.perform(get("/js/room-history.js")).andExpect(status().isFound());
     }
 
     @Test
@@ -83,7 +84,31 @@ class UiRenderingTests {
         assertThat(css).contains(".public-shell--home", ".home-hero {",
                 ".home-preview {", ".home-benefits__grid {",
                 "@media (max-width: 799px)", "@media (max-width: 359px)",
-                ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;");
+                ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;",
+                "@media (hover: hover) and (pointer: fine)",
+                ".home-preview-frame { position: relative; min-width: 0; isolation: isolate; }",
+                ".home-preview-frame::before {", "pointer-events: none;",
+                ".home-preview:hover { border-color: #B5D2CF;",
+                ".home-benefit:hover { border-color: #C8DAD8;",
+                ".public-shell--home .header-actions a:focus-visible",
+                ".home-hero__action:hover:not(:disabled):not([aria-disabled=\"true\"])",
+                "transition-duration: 200ms;", "transition: none !important;")
+                .doesNotContain(".home-preview::before");
+        assertThat(css).contains(".profile-option:hover:not(:has(input:disabled)):not(:has(input:checked))",
+                ".button:active:not(:disabled):not([aria-disabled=\"true\"]) { box-shadow: inset",
+                "@keyframes vl-caption-in { from { opacity: 0; } to { opacity: 1; } }")
+                .doesNotContain(".button:hover:not(:disabled):not([aria-disabled=\"true\"]) { transform",
+                        ".application-nav a:active { transform", ".application-bottom-nav a:active { transform",
+                        ".home-preview:hover { transform", ".home-benefit:hover { transform",
+                        "@keyframes account-menu-in { from { opacity: 0; transform",
+                        "@keyframes vl-caption-in { from { opacity: 0; transform");
+        assertThat(Pattern.compile("(?s)\\.home-preview \\{([^}]*)\\}").matcher(css)
+                .results().findFirst().orElseThrow().group(1))
+                .contains("background: var(--vl-surface);")
+                .doesNotContain("var(--vl-teal-wash)");
+        assertThat(Pattern.compile("(?s)\\.home-preview:hover \\{([^}]*)\\}").matcher(css)
+                .results().findFirst().orElseThrow().group(1))
+                .doesNotContain("background:", "background-color:");
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
         String visibilityScript = mvc.perform(get("/js/password-visibility.js"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -147,14 +172,19 @@ class UiRenderingTests {
         String landing = mvc.perform(get("/"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(landing).contains("class=\"public-shell public-shell--home\"",
+                "class=\"home-preview-frame\"",
                 "A clearer way to speak across languages.",
                 "private, two-person English ↔ Tamil conversations",
                 "href=\"/register\">Get started</a>",
                 "href=\"/register\">Create account</a>",
                 "aria-label=\"Illustrative English to Tamil conversation preview\"",
                 "Illustrative preview", "English → Tamil",
-                "திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
+                "English · Speech", "Tamil · Translated text",
+                "Could you share the project update?",
+                "project update-ஐ share பண்ண முடியுமா?",
                 "Private two-person rooms", "Speak or type", "Read and listen");
+        assertThat(landing).doesNotContain("திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
+                "தமிழ் · மொழிபெயர்க்கப்பட்ட உரை");
         assertThat(Pattern.compile("href=\"/login\"[^>]*>Sign in</a>")
                 .matcher(landing).results().count()).isEqualTo(1);
         assertThat(landing).doesNotContain("simultaneous interpretation", "always listening",
@@ -165,13 +195,13 @@ class UiRenderingTests {
         assertThat(index).contains("class=\"authenticated-shell\"", "<h1>Rooms</h1>",
                 "Closed rooms", "No closed rooms",
                 "class=\"application-sidebar\"", "class=\"application-bottom-nav\"",
-                "action=\"/rooms\"", "action=\"/rooms/join\"",
-                "name=\"speaking\"", "name=\"listening\"", "name=\"profile\"",
+                "action=\"/rooms\"", "action=\"/rooms/join/preview\"",
+                "name=\"displayName\"", "name=\"speaking\"", "name=\"profile\"",
                 "Paid Gemini translation and voice; Groq speech recognition is shared.",
                 "Premium is not available on this server.", "name=\"_csrf\"",
                 "href=\"/about#privacy\"", "Recent captions and generated audio are temporary.",
                 "href=\"/about\"", owner.getUsername());
-        assertThat(index).contains("class=\"room-direction-choice\"", "class=\"room-direction-choice__arrow\"")
+        assertThat(index).contains("id=\"direction-preview\"", "Conversation Owner")
                 .doesNotContain("Recent History", "Recovery Key");
         assertThat(index).doesNotContain("<details class=\"disclosure data-disclosure\"",
                 "Standard uses Gemini Free Tier for translation and voice.",
@@ -191,7 +221,8 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse();
         assertThat(script.getContentType()).contains("javascript");
         assertThat(script.getContentAsString()).contains("premium-cost-saver",
-                "input[name=\"profile\"]", "premiumControls.hidden = !premiumSelected")
+                "input[name=\"profile\"]", "premiumControls.hidden = !selected",
+                "direction-preview", "textContent = creatorLanguage")
                 .doesNotContain("innerHTML", "localStorage", "sessionStorage");
 
         mvc.perform(get("/app"))
@@ -222,7 +253,7 @@ class UiRenderingTests {
         String index = mvc.perform(get("/rooms").with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(index).contains("Closed rooms", "href=\"/rooms/" + closedId + "\"",
-                "View closed room", "Remove room", "action=\"/rooms\"", "action=\"/rooms/join\"");
+                "View closed room", "Remove room", "action=\"/rooms\"", "action=\"/rooms/join/preview\"");
         assertThat(index).doesNotContain("href=\"/rooms/" + waitingId + "\"",
                 "href=\"/rooms/" + activeId + "\"");
     }
@@ -295,28 +326,46 @@ class UiRenderingTests {
                 "id=\"room-details\"", "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard",
                 "class=\"waiting-card__code-row\"", "Back to conversations",
                 "id=\"glossary-open\"", "id=\"glossary-add\"", "id=\"glossary-close\"",
-                "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden");
+                "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden",
+                "Your partner will speak <span>Tamil</span>, and you will receive <span>English</span>.");
         assertThat(waiting).doesNotContain("class=\"room-sidebar\"");
 
         rooms.joinRoom(guest.getUserId(), code.group(1));
         String active = mvc.perform(get(path).with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(active).contains("Live captions", "id=\"record-start\"",
-                "id=\"record-stop\"", "id=\"recording-status\"", "id=\"speech-events\"",
+        assertThat(active).contains("Conversation", "id=\"record-start\"",
+                "id=\"record-stop\"", "id=\"recording-status\"", "id=\"conversation-events\"",
                 "id=\"turn-announcement\"", "id=\"glossary-form\"", "id=\"live-text-form\"",
                 "id=\"close-room-form\"",
                 "meta name=\"_csrf\"", "room-live.js", "room-glossary.js");
         assertThat(active).contains("id=\"speech-section\" class=\"recording-card\" data-phase=\"idle\"",
                 "class=\"turns-card\"", "id=\"glossary-section\" class=\"glossary-dialog\"",
-                "id=\"room-details\"")
-                .doesNotContain("Low latency", "Recent History", "Delete account");
+                "id=\"room-details\"", "data-role=\"You\"", "data-role=\"Partner\"",
+                "You speak: ", "Partner receives: ", "Partner speaks: ", "You receive: ",
+                "You speak: </span><span>Tamil", "Partner receives: </span><span>English",
+                "Partner speaks: </span><span>English", "You receive: </span><span>Tamil",
+                "Translate message", "Live translation", "Private Live", "Shared Live",
+                "id=\"history-all\"", "id=\"history-translated\"", "id=\"history-quick\"",
+                "id=\"history-latest\"", "id=\"text-mode-quick\"",
+                "Translate and review your message before sending.",
+                "Record and send the translated turn.")
+                .doesNotContain("You hear: ", "Partner hears: ",
+                        "Low latency", "Recent History", "Delete account");
+        String ownerActive = mvc.perform(get(path).with(user(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(ownerActive).contains("You speak: </span><span>English",
+                "Partner receives: </span><span>Tamil", "Partner speaks: </span><span>Tamil",
+                "You receive: </span><span>English");
         var ids = Pattern.compile(" id=\"([^\"]+)\"").matcher(active).results()
                 .map(match -> match.group(1)).toList();
         assertThat(ids).doesNotHaveDuplicates();
         assertThat(active).containsPattern("(?s)<details id=\"room-details\".*?<form id=\"close-room-form\"");
-        assertThat(active.indexOf("id=\"speech-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
+        assertThat(active.indexOf("id=\"conversation-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String historyScript = mvc.perform(get("/js/room-history.js").with(user(guest)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(historyScript).contains("history-translated", "history-quick", "aria-pressed");
         assertThat(roomScript).contains("speechSection.dataset.phase = \"listening\"",
                 "speechSection.dataset.phase = \"uploading\"",
                 "recordingStatus.textContent = \"Requesting microphone access\"",

@@ -1,5 +1,22 @@
 # VoiceLink architecture
 
+## Submission component view
+
+```mermaid
+flowchart LR
+    A[Browser A: English or Tamil] <-->|HTTPS session, CSRF, WebSocket| S[Java 21 / Spring Boot]
+    B[Browser B: complementary language] <-->|HTTPS session, CSRF, WebSocket| S
+    S --> R[Authentication, room and conversation services]
+    R --> P[(PostgreSQL: users, rooms, membership, glossary)]
+    F[Flyway V1–V8] --> P
+    R --> M[Bounded in-memory context, reviews, captions and audio]
+    R --> G[Groq whisper-large-v3 STT]
+    R --> T[Gemini gemini-3.1-flash-lite translation]
+    R --> V[Gemini gemini-3.8-flash-lite-tts / Kore]
+```
+
+The Standard pipeline runs only when the separately configured free-tier guard and credentials permit it. The diagram shows the implemented flow, not proof of live provider quality or production deployment. HTTP/API details are in [API_REFERENCE.md](API_REFERENCE.md).
+
 ## Approved direction
 
 The browser captures short microphone turns and displays captions and playback. Java/Spring Boot owns application logic, validation, authorization, room membership, bounded translation context, and room glossary behavior. Provider interfaces separate speech-to-text, translation, and text-to-speech services from orchestration. PostgreSQL persists accounts, rooms, and room glossary entries. WebSocket version 1 carries room and speech-turn events.
@@ -169,3 +186,19 @@ Speak retains **Live Send** as the default complete-turn workflow. Live Send acc
 Explicit Send rechecks active membership, current session connection, direction, profile, glossary snapshot, expiry, and cancellation under the speech-state lock. The first accepted Send adds the source transcript to the shared bounded context once, publishes the established final speech caption events, and queues one TTS task through the same room-serial worker. Concurrent or repeated Send returns the already accepted finalization without another context entry, public caption, or TTS call. A glossary change rejects the stale review and requires a new recording. If TTS fails after Send, the finalized captions remain and the existing speech failure event reports the audio-stage failure without duplicating the message.
 
 No private review, review status, or review identifier is published to the room WebSocket. The peer and other rooms receive nothing before explicit Send. The browser polls only the authenticated sender endpoint at a fixed 750 ms interval for at most 80 attempts, renders text with `textContent`, and invalidates an outstanding review on Cancel, Record Again, or a switch away from Finish & Send. Recording remains capped at 15 seconds and 1 MiB, speech limits remain 12 accepted uploads per user and 60 per instance in 60 seconds, and Premium remains disabled unless its existing server-side paid configuration gate is satisfied. There is no persistent transcript, audio, or review migration.
+
+## Final Standard integration: participant setup and conversation workspace
+
+The local `release/standard-final` branch contains J5A/J5A.1 and J5B1 through Git ancestry. Flyway V8 adds a nullable, validated `room_participants.conversation_display_name`; existing rows remain valid and display the account name as a fallback. New room creation accepts a 1–48 code-point conversation name and a supported creator speaking language. The server assigns the partner the complementary English/Tamil direction and derives Conversation Owner from `conversation_rooms.created_by_user_id`. The two-step invite preview shows the owner's conversation name and speaking language only after an authenticated valid-code check. Neither a display name nor a browser-supplied owner flag grants room access.
+
+The room workspace identifies You and Partner from server-authoritative participant IDs and displays both speaking and receiving directions. Its temporary unified timeline distinguishes original/translated speech, untranslated text, provisional Shared Live drafts, and final sent translations. WebSocket event IDs and sequence numbers support duplicate suppression and arrival-order rendering; they do not promise persistent or creation-time ordered history. Refresh/reconnect starts a new temporary view. Speak retains Live Send and private Finish & Send; Type retains Total, Private Live, Shared Live opt-in, explicit Send, and safe manual Retry. User and provider text is inserted with text APIs rather than HTML interpolation.
+
+Standard retains Groq `whisper-large-v3`, Gemini `gemini-3.1-flash-lite` translation, and Gemini `gemini-3.8-flash-lite-tts`. Its structured translation instruction now emphasizes conversational meaning, tone, questions, suitable Latin-script technical terms in Tamil, and glossary constraints that cannot override current intent. The recent-context and room-glossary bounds remain unchanged. Offline request tests verify the instruction contract, not actual provider quality. Premium is a separate disabled mode with no automatic fallback; no paid call or live Premium quality claim is part of this release.
+
+## Final functional workspace refinement
+
+The authenticated join setup shows English and Tamil but accepts only the server-derived complementary speaking language. A submitted unsupported or owner-matching language is rejected before membership creation. The UI choice does not determine server authority. Registration reports an existing-email message only for the precheck or the named user-email uniqueness constraint; other persistence failures keep their normal error path. Login failure remains generic, including after account deletion. Deletion frees the email for a new account; the old credentials and sessions do not regain access.
+
+The room keeps one in-memory browser event list with All messages, Translated, and Quick chat filters. Filters change visibility only. The list has an independent bounded scroll region and follows new items only when the reader is near the bottom; otherwise it offers Jump to latest. The DOM still retains only the existing bounded temporary rows and is cleared by refresh. Private translation reviews remain sender-only, while explicitly shared drafts remain provisional outside final message history. Type exposes Translate message, Live translation, and Quick chat without changing the existing server mode identifiers.
+
+Quick chat clears its input only after the sender receives a server echo. A retry reuses the same client message ID, and the room stream gives the sender a repeat receipt without rebroadcasting to the peer. Receipt tracking is bounded to 128 IDs per participant per room and is in memory only. If the application restarts during an unconfirmed send, the previous delivery cannot be proven from this temporary state; the UI must not claim durable exactly-once delivery. The configured local disposable QA server has no Standard provider keys and has free-tier confirmation false, so provider-disabled translation is an expected configuration state, not evidence of an expired API key.

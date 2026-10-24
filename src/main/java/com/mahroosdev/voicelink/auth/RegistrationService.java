@@ -49,10 +49,19 @@ public class RegistrationService {
         UserAccount account = new UserAccount(displayName, email, passwordEncoder.encode(form.getPassword()));
         try {
             accounts.saveAndFlush(account);
-            preferences.saveAndFlush(new UserPreferences(account));
         } catch (DataIntegrityViolationException exception) {
-            throw new DuplicateRegistrationException();
+            if (emailConstraintViolated(exception)) throw new DuplicateRegistrationException();
+            throw exception;
         }
+        preferences.saveAndFlush(new UserPreferences(account));
         return account.getId();
+    }
+
+    static boolean emailConstraintViolated(Throwable failure) {
+        for (Throwable cause = failure; cause != null && cause != cause.getCause(); cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint
+                    && "uq_users_email".equalsIgnoreCase(constraint.getConstraintName())) return true;
+        }
+        return false;
     }
 }

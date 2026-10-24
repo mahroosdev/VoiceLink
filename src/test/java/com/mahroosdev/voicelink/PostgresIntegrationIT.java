@@ -87,7 +87,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(7);
+        assertThat(version).isEqualTo(8);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");
@@ -109,6 +109,35 @@ class PostgresIntegrationIT {
 
         jdbc.update("DELETE FROM users WHERE id = ?", id);
         assertThat(preferences.findById(id)).isEmpty();
+    }
+
+    @Test
+    void participantConversationNamesPersistWhileLegacyRowsRemainCompatible() {
+        UserAccount creator = account("Legacy fallback");
+        UserAccount joiner = account("Joiner account");
+        UUID named = rooms.createRoomForSpeaker(creator.getId(), "உரிமையாளர்", "ta",
+                AiServiceProfile.STANDARD, true);
+        String code = roomRepository.findById(named).orElseThrow().getJoinCode();
+        assertThatThrownBy(() -> rooms.joinRoomWithSetup(joiner.getId(), code, "<Guest>", "ta"))
+                .isInstanceOf(com.mahroosdev.voicelink.room.JoinLanguageMismatchException.class);
+        rooms.joinRoomWithSetup(joiner.getId(), code, "<Guest>", "en");
+        assertThat(jdbc.queryForList("SELECT conversation_display_name FROM room_participants "
+                + "WHERE room_id = ? ORDER BY participant_slot", String.class, named))
+                .containsExactly("உரிமையாளர்", "<Guest>");
+        assertThat(rooms.getRoomForMember(joiner.getId(), named).currentParticipant().displayName())
+                .isEqualTo("<Guest>");
+
+        UUID legacy = rooms.createRoom(creator.getId(), "en", "ta");
+        assertThat(jdbc.queryForObject("SELECT conversation_display_name IS NULL FROM room_participants "
+                + "WHERE room_id = ?", Boolean.class, legacy)).isTrue();
+        assertThat(rooms.getRoomForMember(creator.getId(), legacy).currentParticipant().displayName())
+                .isEqualTo("Legacy fallback");
+        assertThatThrownBy(() -> jdbc.update("UPDATE room_participants "
+                + "SET conversation_display_name = '   ' WHERE room_id = ?", legacy))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("UPDATE room_participants "
+                + "SET conversation_display_name = ? WHERE room_id = ?", "x".repeat(49), legacy))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test

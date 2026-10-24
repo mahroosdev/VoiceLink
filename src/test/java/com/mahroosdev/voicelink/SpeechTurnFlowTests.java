@@ -158,7 +158,7 @@ class SpeechTurnFlowTests {
                 eq("TURN_ACCEPTED"), any());
         verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
                 eq("TRANSLATION_READY"), any());
-        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+        verify(hub, timeout(2000).times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
                 eq("AUDIO_READY"), any());
         textTurns.review(a.getId(), "text-session", room, "After speech send", 2);
         var afterSend = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
@@ -214,7 +214,7 @@ class SpeechTurnFlowTests {
         assertThat(failed.failedStage()).isEqualTo("TTS");
         verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
                 eq("TRANSLATION_READY"), any());
-        verify(hub, times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
+        verify(hub, timeout(2000).times(1)).publishTurn(eq(room), eq(a.getId()), any(), eq(accepted.turnId()),
                 eq("TURN_FAILED"), any());
     }
 
@@ -261,7 +261,9 @@ class SpeechTurnFlowTests {
         verify(stt).transcribe(org.mockito.ArgumentMatchers.argThat(input ->
                 input.sourceLanguage().equals("ta")));
         verify(translation).translate(org.mockito.ArgumentMatchers.argThat(input ->
-                input.sourceLanguage().equals("ta") && input.targetLanguage().equals("en")));
+                input.sourceLanguage().equals("ta") && input.targetLanguage().equals("en")
+                        && input.timeout() != null && !input.timeout().isNegative()
+                        && input.timeout().compareTo(java.time.Duration.ofSeconds(15)) <= 0));
         verify(tts).synthesize(org.mockito.ArgumentMatchers.argThat(input ->
                 input.targetLanguage().equals("en")));
         verify(premiumTranslation, never()).translate(any());
@@ -328,6 +330,21 @@ class SpeechTurnFlowTests {
         assertThat(failedTts.translatedText()).isEqualTo("வணக்கம்");
         assertThat(failedTts.audioAvailable()).isFalse();
         assertThat(failedTts.failedStage()).isEqualTo("TTS");
+    }
+
+    @Test void recognizedSpeechRemainsAvailableWhenTranslationTimesOut() throws Exception {
+        UserAccount a = account("A"), b = account("B");
+        UUID roomId = activeRoom(a, b, "en");
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result(
+                "Recognized private speech", "GROQ", "whisper-large-v3", 1));
+        when(translation.translate(any())).thenThrow(ProviderFailure.localTimeout());
+        turns.accept(a.getId(), roomId, UUID.randomUUID(), webm(), "audio/webm;codecs=opus", 1000);
+        var failed = await(a.getId(), roomId, "FAILED");
+        assertThat(failed.transcript()).isEqualTo("Recognized private speech");
+        assertThat(failed.translatedText()).isNull();
+        assertThat(failed.failedStage()).isEqualTo("TRANSLATION");
+        assertThat(failed.errorCode()).isEqualTo("TIMEOUT");
+        verify(tts, never()).synthesize(any());
     }
 
     @Test void sttFailureDoesNotInventTranscriptOrCallLaterProviders() throws Exception {

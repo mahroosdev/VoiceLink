@@ -11,28 +11,46 @@ const glossaryScript = fs.readFileSync(path.join(root, "static/js/room-glossary.
 const liveScript = fs.readFileSync(path.join(root, "static/js/room-live.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "static/css/voicelink.css"), "utf8");
 
-test("room keeps Speak, Total, and Private Preview defaults with explicit Shared Live consent", () => {
+test("room keeps Speak, Translate message, and Private Live defaults with explicit Shared Live consent", () => {
   assert.match(html, /id="mode-speak"[^>]*aria-pressed="true"/);
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
+  assert.match(html, /id="text-mode-total"[^>]*>Translate message/);
+  assert.match(html, /id="text-mode-quick"[^>]*>Quick chat/);
+  assert.match(html, /Translate and review your message before sending\./);
+  assert.doesNotMatch(html, /Total Translation/);
   assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
-  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Preview/);
+  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Live/);
   assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
+  assert.match(html, /<div class="type-mode-bar">[\s\S]*?<\/div>\s*<\/div>\s*<div id="translation-composer">\s*<div id="type-privacy-controls"/);
+  assert.match(html, /Live preview visibility/);
+  assert.match(html, /id="live-visibility-help"[^>]*>Only you see the live preview until you send/);
   assert.match(html, /Your translated drafts will be visible/);
   assert.match(html, /id="shared-text-draft"[^>]*hidden/);
   assert.match(html, /id="type-section"[^>]*data-text-mode="total"[^>]*hidden/);
   assert.match(html, /Translated — Not sent/);
+  assert.match(html, /id="type-retry"[^>]*type="button"[^>]*hidden/);
   assert.match(html, /id="type-send"[^>]*disabled/);
   assert.match(html, /id="speech-section"/);
   assert.match(html, /id="live-text-section"/);
   assert.match(liveScript, /TEXT_TRANSLATION_SENT/);
   assert.match(liveScript, /TEXT_DRAFT_UPDATED/);
   assert.match(liveScript, /TEXT_DRAFT_CLEARED/);
+  assert.match(liveScript, /row\.dataset\.messageKind = "processing"/);
+  assert.match(liveScript, /parts\.row\.dataset\.messageKind = "translated"/);
+  assert.equal((html.match(/id="conversation-events"/g) || []).length, 1);
+  assert.match(liveScript, /getElementById\("conversation-events"\)/);
+  assert.match(script, /getElementById\("conversation-events"\)/);
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|localStorage|sessionStorage/);
   assert.match(glossaryScript, /voicelink-glossary-changed/);
   assert.match(css, /type-mode__button:focus-visible/);
   assert.match(css, /max-width: 390px/);
+  assert.match(css, /Gate J5A: server-attributed two-person conversation workspace/);
+  assert.match(css, /recording-card\[data-phase="listening"\] #record-stop \{ position: static/);
+  assert.match(css, /\.type-mode \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.type-mode \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.turn-card \{ transition: none !important; \}/);
 });
 
 test("speech Finish and Send is explicit, private by default, bounded, and safely rendered", () => {
@@ -45,6 +63,8 @@ test("speech Finish and Send is explicit, private by default, bounded, and safel
   assert.match(liveScript, /data\.append\("workflow", speechWorkflow\)/);
   assert.match(liveScript, /attempt >= 80/);
   assert.match(liveScript, /Private review timed out\. Record again\./);
+  assert.match(liveScript, /Translation took too long\. The recognized caption remains available\./);
+  assert.match(liveScript, /Audio generation failed\. Captions are still available\./);
   assert.match(liveScript, /method: "DELETE"/);
   assert.match(liveScript, /\/send"/);
   assert.match(liveScript, /speechReviewTranscript\.textContent = review\.transcript/);
@@ -73,13 +93,14 @@ function element() {
 
 function setup(fetch, debounce = "800") {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
-    "text-mode-total", "speech-section", "type-section", "type-eyebrow", "type-heading",
-    "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
+    "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section",
+    "live-text-input", "speech-section", "type-section", "type-eyebrow", "type-heading",
+    "type-intro", "type-actions", "type-privacy-controls", "live-visibility-help", "text-privacy-private",
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
-    "type-translate", "type-send", "type-status",
+    "type-translate", "type-retry", "type-send", "type-status",
     "type-review", "type-review-heading", "type-review-original", "type-review-translation",
-    "final-text-events", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
-    "shared-text-draft-status", "shared-text-draft-announcement"];
+    "conversation-events", "turn-empty", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
+    "shared-text-draft-status", "shared-text-draft-heading", "shared-text-draft-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-page"].dataset.liveTextDebounceMs = debounce;
@@ -88,6 +109,7 @@ function setup(fetch, debounce = "800") {
   nodes["mode-type"].attributes["aria-pressed"] = "false";
   nodes["text-mode-live"].attributes["aria-pressed"] = "false";
   nodes["text-mode-total"].attributes["aria-pressed"] = "true";
+  nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["text-privacy-private"].attributes["aria-pressed"] = "true";
   nodes["text-privacy-shared"].attributes["aria-pressed"] = "false";
   nodes["type-section"].hidden = true;
@@ -131,7 +153,7 @@ function setup(fetch, debounce = "800") {
   vm.runInNewContext(script, { document, window, fetch, setInterval(fn) { intervals.push(fn); },
     setTimeout, clearTimeout, AbortController: FakeAbortController, Event: FakeEvent,
     CustomEvent: FakeCustomEvent, Date });
-  return { nodes, listeners, intervals, timeouts, runTimeouts, dispatched };
+  return { nodes, listeners, intervals, timeouts, runTimeouts, dispatched, window };
 }
 
 const next = () => new Promise(resolve => setImmediate(resolve));
@@ -255,12 +277,14 @@ test("Shared Live requires explicit opt-in and binds translated reviews to its e
   nodes["mode-type"].callbacks.click();
   nodes["text-mode-live"].callbacks.click();
   assert.equal(nodes["type-privacy-controls"].hidden, false);
+  assert.match(nodes["live-visibility-help"].textContent, /Only you see/);
   assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
   nodes["text-privacy-shared"].callbacks.click();
   await next();
   assert.equal(calls[0].url, "/api/rooms/room-1/text/sharing");
   assert.equal(calls[0].request.method, "POST");
   assert.equal(nodes["text-privacy-shared"].attributes["aria-pressed"], "true");
+  assert.match(nodes["live-visibility-help"].textContent, /partner can see provisional/);
   assert.equal(nodes["type-sharing-notice"].hidden, false);
   assert.match(nodes["type-intro"].textContent, /visible to the other participant/);
   nodes["type-source"].value = "Hello";
@@ -364,7 +388,7 @@ test("clearing Shared Live input requests an authoritative draft clear without p
   assert.equal(JSON.parse(calls[1].request.body).revision > 0, true);
 });
 
-test("older and aborted Live responses cannot replace a newer preview", async () => {
+test("Live coalesces edits behind one request and only the latest pending text is translated", async () => {
   const deferred = [];
   const requests = [];
   const { nodes, runTimeouts } = setup((url, request) => {
@@ -379,21 +403,24 @@ test("older and aborted Live responses cannot replace a newer preview", async ()
   assert.equal(deferred.length, 1);
   nodes["type-source"].value = "Second";
   nodes["type-source"].callbacks.input();
-  assert.equal(requests[0].signal.aborted, true);
+  runTimeouts(800);
+  assert.equal(deferred.length, 1);
+  assert.match(nodes["type-status"].textContent, /Latest message queued/);
+  const oldBody = JSON.parse(requests[0].body);
+  deferred[0](response(privateReview("First", oldBody.revision, "review-old")));
+  await next();
+  assert.equal(nodes["type-review"].hidden, true);
   runTimeouts(800);
   assert.equal(deferred.length, 2);
   const newerBody = JSON.parse(requests[1].body);
+  assert.equal(newerBody.sourceText, "Second");
   deferred[1](response(privateReview("Second", newerBody.revision, "review-new")));
-  await next();
-  assert.equal(nodes["type-review-original"].textContent, "Second");
-  const oldBody = JSON.parse(requests[0].body);
-  deferred[0](response(privateReview("First", oldBody.revision, "review-old")));
   await next();
   assert.equal(nodes["type-review-original"].textContent, "Second");
   assert.equal(nodes["type-send"].disabled, false);
 });
 
-test("mode switching aborts Live work and restores the existing Total workflow", async () => {
+test("mode switching marks Live work stale and waits for it before restoring Total translation", async () => {
   let resolve;
   let request;
   const { nodes, runTimeouts } = setup((url, options) => {
@@ -406,14 +433,15 @@ test("mode switching aborts Live work and restores the existing Total workflow",
   nodes["type-source"].callbacks.input();
   runTimeouts(800);
   nodes["text-mode-total"].callbacks.click();
-  assert.equal(request.signal.aborted, true);
   assert.equal(nodes["type-actions"].hidden, false);
+  assert.equal(nodes["type-translate"].disabled, true);
   assert.equal(nodes["type-send"].disabled, true);
   const body = JSON.parse(request.body);
   resolve(response(privateReview("Pending", body.revision)));
   await next();
   assert.equal(nodes["type-review"].hidden, true);
-  assert.match(nodes["type-status"].textContent, /Total mode selected/);
+  assert.equal(nodes["type-translate"].disabled, false);
+  assert.match(nodes["type-status"].textContent, /Translate message selected/);
 });
 
 test("Live Send uses the reviewed result once and socket echo is deduplicated", async () => {
@@ -437,12 +465,12 @@ test("Live Send uses the reviewed result once and socket echo is deduplicated", 
   nodes["type-send"].callbacks.click();
   await next();
   assert.equal(calls.length, 2);
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
-  assert.equal(nodes["final-text-events"].children[0].children[1].children[1].textContent, "<unsafe>");
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].children[0].children[1].children[1].textContent, "<unsafe>");
   listeners["voicelink-final-text"]({ detail: { roomId: "room-1", turnId: "final-1",
     senderParticipantId: "person-1", payload: { originalText: "<unsafe>",
       translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
   assert.equal(nodes["turn-announcement"].textContent, "You sent translated text.");
 });
 
@@ -453,6 +481,7 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
       sourceLanguage: "en", targetLanguage: "ta", revision, provisional: true } } });
   listeners["voicelink-text-draft"](update(2));
   assert.equal(nodes["shared-text-draft"].hidden, false);
+  assert.equal(nodes["turn-empty"].hidden, true);
   assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
   assert.equal(nodes["shared-text-draft-text"].lang, "ta");
   listeners["voicelink-text-draft"](update(1));
@@ -461,8 +490,24 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
     senderParticipantId: "person-1", payload: { originalText: "Hello",
       translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 1);
+  assert.equal(nodes["conversation-events"].childElementCount, 1);
+  assert.equal(nodes["turn-empty"].hidden, true);
   assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
+});
+
+test("incoming shared draft refreshes the selected history view", () => {
+  const { nodes, listeners, window } = setup(async () => response({}));
+  let refreshes = 0;
+  window.voicelinkHistory = { refresh() {
+    refreshes++;
+    nodes["turn-empty"].hidden = false; // Translated filter has no final message.
+  } };
+  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
+    turnId: "draft-filter", senderParticipantId: "person-2", payload: { translatedText: "temporary",
+      sourceLanguage: "ta", targetLanguage: "en", revision: 1, provisional: true } } });
+  assert.equal(refreshes, 1);
+  assert.equal(nodes["shared-text-draft"].hidden, false);
+  assert.equal(nodes["turn-empty"].hidden, false);
 });
 
 test("draft clear and reconnect reset remove provisional content without creating history", () => {
@@ -473,7 +518,8 @@ test("draft clear and reconnect reset remove provisional content without creatin
   listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_CLEARED", roomId: "room-1",
     turnId: "draft-2", senderParticipantId: "person-2", payload: { revision: 3 } } });
   assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 0);
+  assert.equal(nodes["conversation-events"].childElementCount, 0);
+  assert.equal(nodes["turn-empty"].hidden, false);
   listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
     turnId: "draft-3", senderParticipantId: "person-2", payload: { translatedText: "again",
       sourceLanguage: "ta", targetLanguage: "en", revision: 4, provisional: true } } });
@@ -507,6 +553,41 @@ test("rate-limit and provider failures leave Live editable but unsendable", asyn
   assert.equal(nodes["type-status"].dataset.state, "error");
   assert.match(nodes["type-status"].textContent, /timed out/);
   assert.equal(nodes["type-send"].disabled, true);
+});
+
+test("Retry preserves unchanged failed text and revision while repeated clicks stay single-flight", async () => {
+  const calls = [];
+  let finishRetry;
+  const { nodes, runTimeouts } = setup(async (url, request) => {
+    calls.push({ url, request });
+    const body = JSON.parse(request.body);
+    if (calls.length === 1) return response({
+      code: "TIMED_OUT",
+      error: "Translation took too long. Your message remains here; try again."
+    }, false, 504);
+    return new Promise(resolve => {
+      finishRetry = () => resolve(response(privateReview(body.sourceText, body.revision, "review-retry")));
+    });
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Keep this message";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await next();
+  assert.equal(nodes["type-retry"].hidden, false);
+  assert.match(nodes["type-status"].textContent, /message remains here/);
+  const first = JSON.parse(calls[0].request.body);
+  nodes["type-retry"].callbacks.click();
+  nodes["type-retry"].callbacks.click();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[1].request.body), first);
+  assert.equal(nodes["type-retry"].disabled, true);
+  finishRetry();
+  await next();
+  assert.equal(nodes["type-review-original"].textContent, "Keep this message");
+  assert.equal(nodes["type-send"].disabled, false);
+  assert.equal(nodes["type-retry"].hidden, true);
 });
 
 test("glossary changes invalidate a ready review and request a fresh Live preview", async () => {
@@ -562,7 +643,7 @@ test("Shared Live clears the old glossary draft before scheduling its replacemen
   assert.equal(calls.filter(call => call.url.endsWith("/reviews")).length, 2);
 });
 
-test("expiry and room closure clear and cancel all private state", async () => {
+test("expiry and room closure clear private state and make pending responses stale", async () => {
   let pendingRequest;
   const { nodes, listeners, intervals, runTimeouts } = setup((url, request) => {
     pendingRequest = request;
@@ -583,7 +664,7 @@ test("expiry and room closure clear and cancel all private state", async () => {
   runTimeouts(800);
   nodes["room-status"].textContent = "CLOSED";
   listeners["voicelink-room-state"]();
-  assert.equal(pendingRequest.signal.aborted, true);
+  assert.equal(pendingRequest.signal, undefined);
   assert.equal(nodes["type-section"].hidden, true);
-  assert.equal(nodes["final-text-events"].childElementCount, 0);
+  assert.equal(nodes["conversation-events"].childElementCount, 0);
 });
