@@ -208,11 +208,13 @@ test("server current marker keeps identical names distinct and attributes untran
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 4, eventId: "event-4",
     roomId: "room-1", type: "TURN_ACCEPTED", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, sourceLanguage: "en", targetLanguage: "ta" } });
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.messageKind, "processing");
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
     roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "பாதுகாப்பான உரை" } });
   assert.equal(h.nodes["conversation-events"].children.length, 2);
   assert.equal(h.nodes["conversation-events"].children[1].dataset.senderRole, "Partner");
+  assert.equal(h.nodes["conversation-events"].children[1].dataset.messageKind, "translated");
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
     roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "duplicate" } });

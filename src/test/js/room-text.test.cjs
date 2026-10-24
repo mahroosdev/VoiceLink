@@ -37,6 +37,8 @@ test("room keeps Speak, Translate message, and Private Live defaults with explic
   assert.match(liveScript, /TEXT_TRANSLATION_SENT/);
   assert.match(liveScript, /TEXT_DRAFT_UPDATED/);
   assert.match(liveScript, /TEXT_DRAFT_CLEARED/);
+  assert.match(liveScript, /row\.dataset\.messageKind = "processing"/);
+  assert.match(liveScript, /parts\.row\.dataset\.messageKind = "translated"/);
   assert.equal((html.match(/id="conversation-events"/g) || []).length, 1);
   assert.match(liveScript, /getElementById\("conversation-events"\)/);
   assert.match(script, /getElementById\("conversation-events"\)/);
@@ -151,7 +153,7 @@ function setup(fetch, debounce = "800") {
   vm.runInNewContext(script, { document, window, fetch, setInterval(fn) { intervals.push(fn); },
     setTimeout, clearTimeout, AbortController: FakeAbortController, Event: FakeEvent,
     CustomEvent: FakeCustomEvent, Date });
-  return { nodes, listeners, intervals, timeouts, runTimeouts, dispatched };
+  return { nodes, listeners, intervals, timeouts, runTimeouts, dispatched, window };
 }
 
 const next = () => new Promise(resolve => setImmediate(resolve));
@@ -491,6 +493,21 @@ test("receiver replaces a shared draft, rejects older revisions, and clears it b
   assert.equal(nodes["conversation-events"].childElementCount, 1);
   assert.equal(nodes["turn-empty"].hidden, true);
   assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
+});
+
+test("incoming shared draft refreshes the selected history view", () => {
+  const { nodes, listeners, window } = setup(async () => response({}));
+  let refreshes = 0;
+  window.voicelinkHistory = { refresh() {
+    refreshes++;
+    nodes["turn-empty"].hidden = false; // Translated filter has no final message.
+  } };
+  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
+    turnId: "draft-filter", senderParticipantId: "person-2", payload: { translatedText: "temporary",
+      sourceLanguage: "ta", targetLanguage: "en", revision: 1, provisional: true } } });
+  assert.equal(refreshes, 1);
+  assert.equal(nodes["shared-text-draft"].hidden, false);
+  assert.equal(nodes["turn-empty"].hidden, false);
 });
 
 test("draft clear and reconnect reset remove provisional content without creating history", () => {

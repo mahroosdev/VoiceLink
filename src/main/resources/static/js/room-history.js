@@ -4,6 +4,7 @@
   const empty = document.getElementById("turn-empty");
   const draft = document.getElementById("shared-text-draft");
   const latest = document.getElementById("history-latest");
+  const filterStatus = document.getElementById("history-filter-status");
   const buttons = {
     all: document.getElementById("history-all"),
     translated: document.getElementById("history-translated"),
@@ -19,12 +20,12 @@
   function applyFilter() {
     let visible = 0;
     for (const row of list.children) {
-      const kind = row.dataset.messageKind || "translated";
+      const kind = row.dataset.messageKind;
       row.hidden = filter !== "all" && kind !== filter;
       if (!row.hidden) visible++;
     }
-    draft?.classList.toggle("history-filtered", filter === "quick");
-    const showingDraft = draft && !draft.hidden && filter !== "quick";
+    draft?.classList.toggle("history-filtered", filter !== "all");
+    const showingDraft = draft && !draft.hidden && filter === "all";
     if (empty) {
       empty.hidden = visible > 0 || !!showingDraft;
       empty.textContent = filter === "quick" ? "No quick chat messages yet."
@@ -39,6 +40,7 @@
       filter = name;
       for (const [key, item] of Object.entries(buttons))
         item.setAttribute("aria-pressed", String(key === name));
+      if (filterStatus) filterStatus.textContent = button.textContent + " selected.";
       latest.hidden = true;
       applyFilter();
     });

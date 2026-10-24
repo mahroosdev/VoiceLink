@@ -49,6 +49,7 @@ class UiRenderingTests {
         mvc.perform(get("/css/voicelink.css")).andExpect(status().isOk());
         mvc.perform(get("/app")).andExpect(status().isFound());
         mvc.perform(get("/js/room-live.js")).andExpect(status().isFound());
+        mvc.perform(get("/js/room-history.js")).andExpect(status().isFound());
     }
 
     @Test
@@ -362,6 +363,9 @@ class UiRenderingTests {
         assertThat(active.indexOf("id=\"conversation-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String historyScript = mvc.perform(get("/js/room-history.js").with(user(guest)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(historyScript).contains("history-translated", "history-quick", "aria-pressed");
         assertThat(roomScript).contains("speechSection.dataset.phase = \"listening\"",
                 "speechSection.dataset.phase = \"uploading\"",
                 "recordingStatus.textContent = \"Requesting microphone access\"",

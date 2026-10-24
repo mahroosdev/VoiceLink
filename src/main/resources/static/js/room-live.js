@@ -251,7 +251,7 @@
     const row = make("li", "turn-card turn-card--" + role.toLowerCase());
     row.dataset.index = String(turnIndex);
     row.dataset.timelineKind = "speech";
-    row.dataset.messageKind = "translated";
+    row.dataset.messageKind = "processing";
     if (senderId) row.dataset.senderId = senderId;
     const top = make("div", "turn-card__top");
     const meta = make("div", "turn-card__meta");
@@ -282,7 +282,7 @@
     const parts = { row, speaker, progress, sourceBlock, sourceLabel, source,
       targetBlock, targetLabel, target, playback };
     turnRows.set(turnId, parts);
-    window.voicelinkHistory?.changed(wasNearBottom, "translated");
+    window.voicelinkHistory?.changed(wasNearBottom, "processing");
     while (turnRows.size > 16) {
       let oldestId;
       let oldestIndex = Number.POSITIVE_INFINITY;
@@ -317,6 +317,8 @@
     if (language === "en" || language === "ta") content.lang = language;
     block.hidden = false;
     block.classList.add("turn-caption--revealed");
+    if (!isSource && typeof textValue === "string" && textValue.trim())
+      parts.row.dataset.messageKind = "translated";
   }
 
   function showAudio(parts, url) {
@@ -369,7 +371,9 @@
       parts.row.dataset.phase = "translating";
     }
     if (event.type === "TRANSLATION_READY") {
+      const wasNearBottom = window.voicelinkHistory?.beforeAppend();
       showCaption(parts, "target", payload.targetLanguage, payload.translatedText);
+      window.voicelinkHistory?.changed(wasNearBottom, "translated");
       parts.progress.textContent = "Creating voice";
       parts.row.dataset.phase = "voice";
     }

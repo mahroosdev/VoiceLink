@@ -633,6 +633,7 @@
     sharedDraftStatus.textContent = "Updating may continue until the participant sends or stops sharing.";
     sharedDraft.hidden = false;
     if (turnEmpty) turnEmpty.hidden = true;
+    window.voicelinkHistory?.refresh();
     if (first && sharedDraftAnnouncement)
       sharedDraftAnnouncement.textContent = sender + " started sharing a translated draft.";
   });
