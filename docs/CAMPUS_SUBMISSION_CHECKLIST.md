@@ -4,9 +4,9 @@
 
 - [x] Keep `main` at the tested J4/J4.1 release checkpoint until its separate production deployment is authorized and verified.
 - [x] Keep the integrated J5 Standard candidate on `release/standard-final`, with J5A/J5A.1 and J5B1 in its ancestry.
-- [x] Build with Java 21; pass 209 normal Java tests, 10 PostgreSQL integrations, 47 JavaScript behavior tests, and seven production syntax checks. The 11 real WebSocket tests are included in the 209.
+- [x] Build with Java 21; latest local verification reports 212 Java tests, 10 PostgreSQL integration tests, 55 JavaScript behavior tests, and eight JavaScript syntax checks passing. No live AI-provider tests are included.
 - [x] Verify Flyway V1–V8 on disposable PostgreSQL 17.11 and preservation of a synthetic pre-V8 participant row.
-- [x] Run a local app with Standard and Premium provider calls disabled. Complete 34 HTTP/session/WebSocket checks with synthetic accounts and messages.
+- [x] Run a local app with Standard and Premium provider calls disabled. Complete 40 HTTP/session/WebSocket checks with synthetic accounts and messages.
 - [x] Verify the illustrative homepage text and inspect 1440 px and 700 px local renders.
 - [ ] Complete final authenticated two-browser visual QA, including 390 px and 320 px device widths, keyboard focus, reduced motion, and screen-reader checks.
 - [ ] Complete owner-authorized, free-tier Standard English↔Tamil speech/text, caption, and translated-audio review using only non-sensitive examples. Record direction, outcome, and timing without private content or keys.
