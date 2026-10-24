@@ -94,7 +94,7 @@
         <div class="section-heading">
           <h2 id="join-heading" th:text="${joinPreview == null ? 'Join a conversation' : 'Join Conversation'}">Join a conversation</h2>
           <p th:if="${joinPreview == null}">Enter the private code shared with you. Its availability is checked before you choose your conversation name.</p>
-          <p th:if="${joinPreview != null}">Confirm the complementary language and choose the name you will use in this conversation.</p>
+          <p th:if="${joinPreview != null}">Choose your conversation name and the available speaking language.</p>
         </div>
         <p class="notice notice--error" th:if="${joinError}" th:text="${joinError}" role="alert"></p>
         <form th:if="${joinPreview == null}" th:action="@{/rooms/join/preview}" th:object="${joinCodeForm}" method="post">
@@ -127,9 +127,17 @@
                  th:errors="*{displayName}" role="alert"></p>
             </div>
             <div class="field">
-              <span class="field-label">Your speaking language</span>
-              <p class="read-only-value" th:text="${joinPreview.participantSpeaking == 'en' ? 'English' : 'Tamil'}"></p>
-              <p class="field-help">VoiceLink assigns the complementary supported language. It cannot be changed for this conversation.</p>
+              <label for="joinSpeaking">Your speaking language</label>
+              <select id="joinSpeaking" th:field="*{speaking}" required aria-describedby="join-speaking-help join-speaking-error"
+                      th:attr="aria-invalid=${#fields.hasErrors('speaking')}">
+                <option value="en" th:disabled="${joinPreview.ownerSpeaking == 'en'}"
+                        th:text="${joinPreview.ownerSpeaking == 'en' ? 'English — Used by conversation owner' : 'English — Available'}">English</option>
+                <option value="ta" th:disabled="${joinPreview.ownerSpeaking == 'ta'}"
+                        th:text="${joinPreview.ownerSpeaking == 'ta' ? 'Tamil — Used by conversation owner' : 'Tamil — Available'}">Tamil</option>
+              </select>
+              <p id="join-speaking-help" class="field-help">Each person speaks a different language. Only the complementary language is available.</p>
+              <p id="join-speaking-error" class="field-error" th:if="${#fields.hasErrors('speaking')}"
+                 th:errors="*{speaking}" role="alert"></p>
             </div>
             <div class="form-actions">
               <button class="button button--primary" type="submit">Join conversation</button>

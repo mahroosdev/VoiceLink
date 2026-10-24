@@ -388,6 +388,19 @@ class TextTranslationServiceTests {
         verify(standard, never()).translate(any());
     }
 
+    @Test void disabledStandardReportsConfigurationWithoutCallingProvider() {
+        doThrow(new ProviderFailure(ProviderFailure.Code.CONFIGURATION)).when(resolver)
+                .requirePaidStage(AiServiceProfile.STANDARD);
+        assertThatThrownBy(() -> service.review(userId, "session-a", roomId, "Hello", 1))
+                .isInstanceOfSatisfying(TextTranslationFailureException.class, ex -> {
+                    assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(ex.safeCode()).isEqualTo(TextTranslationFailureException.SafeCode.CONFIGURATION);
+                    assertThat(ex.getReason()).contains("provider access is not ready")
+                            .doesNotContain("key", "token");
+                });
+        verify(standard, never()).translate(any());
+    }
+
     @Test void glossaryChangeInvalidatesPendingReview() {
         var review = service.review(userId, "session-a", roomId, "Hello", 1);
         when(glossary.list(userId, roomId)).thenReturn(List.of(new RoomGlossaryService.EntryView(

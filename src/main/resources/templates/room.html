@@ -148,6 +148,11 @@
               <span class="eyebrow">Current conversation</span>
               <h3 id="turns-heading">Conversation</h3>
               <p class="turns-card__intro">Recent captions, messages, and audio are temporary and may disappear after expiry or restart.</p>
+              <div class="history-filters" role="group" aria-label="Filter conversation messages">
+                <button id="history-all" class="history-filters__button" type="button" aria-pressed="true" aria-controls="conversation-events">All messages</button>
+                <button id="history-translated" class="history-filters__button" type="button" aria-pressed="false" aria-controls="conversation-events">Translated</button>
+                <button id="history-quick" class="history-filters__button" type="button" aria-pressed="false" aria-controls="conversation-events">Quick chat</button>
+              </div>
               <p id="turn-empty" class="empty-state">No conversation activity yet.</p>
               <section id="shared-text-draft" class="shared-text-draft" aria-labelledby="shared-text-draft-heading" hidden>
                 <div class="shared-text-draft__header">
@@ -158,14 +163,17 @@
                 <p id="shared-text-draft-status" class="small">May update until the participant sends or stops sharing.</p>
               </section>
               <ol id="conversation-events" class="turn-list live-events" aria-label="Recent conversation activity"></ol>
+              <button id="history-latest" class="history-latest" type="button" hidden>New messages · Jump to latest</button>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
               <p id="shared-text-draft-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
-            <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-heading" hidden>
+            <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-workspace-heading" hidden>
+              <h3 id="type-workspace-heading">Message composer</h3>
               <div class="type-mode-bar">
-                <div class="type-mode" role="group" aria-label="Text translation mode">
-                  <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="type-composer">Total Translation</button>
-                  <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="type-composer">Live Translation</button>
+                <div class="type-mode" role="group" aria-label="Choose how to send text">
+                  <button id="text-mode-total" class="type-mode__button" type="button" aria-pressed="true" aria-controls="translation-composer">Translate message</button>
+                  <button id="text-mode-live" class="type-mode__button" type="button" aria-pressed="false" aria-controls="translation-composer">Live translation</button>
+                  <button id="text-mode-quick" class="type-mode__button" type="button" aria-pressed="false" aria-controls="live-text-section">Quick chat</button>
                 </div>
                 <div id="type-privacy-controls" class="type-privacy-controls" hidden>
                   <span class="type-privacy-controls__label">Preview visibility</span>
@@ -175,6 +183,7 @@
                   </div>
                 </div>
               </div>
+              <div id="translation-composer">
               <div id="type-sharing-notice" class="type-sharing-notice" hidden>
                 <div>
                   <strong>Sharing translated drafts</strong>
@@ -183,9 +192,9 @@
                 <button id="text-sharing-stop" class="button button--secondary" type="button">Stop sharing</button>
               </div>
               <div id="type-composer">
-                <span id="type-eyebrow" class="eyebrow">Total text translation</span>
+                <span id="type-eyebrow" class="eyebrow">Translate message</span>
                 <h3 id="type-heading">Type a complete message</h3>
-                <p id="type-intro" class="type-card__intro">Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.</p>
+                <p id="type-intro" class="type-card__intro">Translate and review your message before sending. Your partner sees it only after you select Send.</p>
               </div>
               <p class="type-direction" th:text="|Your direction: ${room.currentParticipant.speaking == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
               <div class="field">
@@ -205,6 +214,21 @@
                 <div class="turn-caption"><span class="turn-caption__label">Original</span><p id="type-review-original"></p></div>
                 <div class="turn-caption turn-caption--translated"><span class="turn-caption__label">Translation</span><p id="type-review-translation"></p></div>
                 <button id="type-send" class="button button--primary" type="button" disabled>Send translated message</button>
+              </section>
+              </div>
+              <section id="live-text-section" class="live-text" aria-labelledby="live-text-heading" hidden>
+                <h4 id="live-text-heading">Quick chat</h4>
+                <p>Send text as written, without translation. Messages are temporary and cannot be restored after a disconnect.</p>
+                <form id="live-text-form" class="live-text__form">
+                  <div class="field">
+                    <label for="live-text-input">Message</label>
+                    <input id="live-text-input" type="text" maxlength="1000" autocomplete="off" required
+                           th:disabled="${room.status.name() != 'ACTIVE'}">
+                  </div>
+                  <button id="live-send" class="button button--secondary" type="submit"
+                          th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
+                </form>
+                <p id="quick-status" class="small" role="status" aria-live="polite">Ready to send a quick message.</p>
               </section>
             </section>
             <section id="speech-section" class="recording-card" data-phase="idle" aria-labelledby="speech-heading">
@@ -241,21 +265,6 @@
                 </div>
               </section>
             </section>
-            <details id="live-text-section" class="live-text disclosure" aria-labelledby="live-text-heading">
-              <summary id="live-text-heading">Untranslated live text</summary>
-              <div class="live-text__body">
-                <p>This sends text as written without translation. Messages sent while you are disconnected cannot be restored.</p>
-                <form id="live-text-form" class="live-text__form">
-                  <div class="field">
-                    <label for="live-text-input">Text to send</label>
-                    <input id="live-text-input" type="text" maxlength="1000" autocomplete="off" required
-                           th:disabled="${room.status.name() != 'ACTIVE'}">
-                  </div>
-                  <button id="live-send" class="button button--secondary" type="submit"
-                          th:disabled="${room.status.name() != 'ACTIVE'}">Send</button>
-                </form>
-              </div>
-            </details>
           </section>
 
           <section id="closed-notice" class="room-closed" th:hidden="${room.status.name() != 'CLOSED'}"
@@ -279,6 +288,7 @@
       </div>
     </div>
   </main>
+  <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-history.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-text.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>

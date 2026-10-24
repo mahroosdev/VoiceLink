@@ -108,6 +108,16 @@ class AccountDeletionFlowTests {
         assertThat(second.isInvalid()).isTrue();
         mvc.perform(post("/login").param("email", email).param("password", PASSWORD).with(csrf()))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/login?error"));
+        RegistrationForm replacement = new RegistrationForm();
+        replacement.setDisplayName("New Account");
+        replacement.setEmail(email);
+        replacement.setPassword("a different replacement password");
+        UUID replacementId = registration.register(replacement);
+        assertThat(replacementId).isNotEqualTo(id);
+        mvc.perform(post("/login").param("email", email).param("password", PASSWORD).with(csrf()))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/login?error"));
+        mvc.perform(post("/login").param("email", email).param("password", replacement.getPassword()).with(csrf()))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/app"));
         assertThat(deletion.delete(id, PASSWORD, "DELETE")).isFalse();
     }
 

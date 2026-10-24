@@ -482,6 +482,10 @@ class RoomLiveWebSocketTests {
                 + id + "\",\"text\":\"room one\"}";
         aSocket.sendRaw(request);
         aSocket.sendRaw(request);
+        assertThat(aSocket.await("TEXT_MESSAGE").path("payload").path("clientMessageId").textValue())
+                .isEqualTo(id.toString());
+        assertThat(aSocket.await("TEXT_MESSAGE").path("payload").path("clientMessageId").textValue())
+                .isEqualTo(id.toString());
         assertThat(bSocket.await("TEXT_MESSAGE").path("payload").path("text").textValue())
                 .isEqualTo("room one");
         assertThat(bSocket.messages.poll(500, TimeUnit.MILLISECONDS)).isNull();

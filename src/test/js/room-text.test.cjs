@@ -11,11 +11,15 @@ const glossaryScript = fs.readFileSync(path.join(root, "static/js/room-glossary.
 const liveScript = fs.readFileSync(path.join(root, "static/js/room-live.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "static/css/voicelink.css"), "utf8");
 
-test("room keeps Speak, Total Translation, and Private Live defaults with explicit Shared Live consent", () => {
+test("room keeps Speak, Translate message, and Private Live defaults with explicit Shared Live consent", () => {
   assert.match(html, /id="mode-speak"[^>]*aria-pressed="true"/);
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
+  assert.match(html, /id="text-mode-total"[^>]*>Translate message/);
+  assert.match(html, /id="text-mode-quick"[^>]*>Quick chat/);
+  assert.match(html, /Translate and review your message before sending\./);
+  assert.doesNotMatch(html, /Total Translation/);
   assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
   assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Live/);
   assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
@@ -83,7 +87,8 @@ function element() {
 
 function setup(fetch, debounce = "800") {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
-    "text-mode-total", "speech-section", "type-section", "type-eyebrow", "type-heading",
+    "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section",
+    "live-text-input", "speech-section", "type-section", "type-eyebrow", "type-heading",
     "type-intro", "type-actions", "type-privacy-controls", "text-privacy-private",
     "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
     "type-translate", "type-retry", "type-send", "type-status",
@@ -98,6 +103,7 @@ function setup(fetch, debounce = "800") {
   nodes["mode-type"].attributes["aria-pressed"] = "false";
   nodes["text-mode-live"].attributes["aria-pressed"] = "false";
   nodes["text-mode-total"].attributes["aria-pressed"] = "true";
+  nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["text-privacy-private"].attributes["aria-pressed"] = "true";
   nodes["text-privacy-shared"].attributes["aria-pressed"] = "false";
   nodes["type-section"].hidden = true;
@@ -427,7 +433,7 @@ test("mode switching marks Live work stale and waits for it before restoring Tot
   await next();
   assert.equal(nodes["type-review"].hidden, true);
   assert.equal(nodes["type-translate"].disabled, false);
-  assert.match(nodes["type-status"].textContent, /Total mode selected/);
+  assert.match(nodes["type-status"].textContent, /Translate message selected/);
 });
 
 test("Live Send uses the reviewed result once and socket echo is deduplicated", async () => {

@@ -118,7 +118,9 @@ class PostgresIntegrationIT {
         UUID named = rooms.createRoomForSpeaker(creator.getId(), "உரிமையாளர்", "ta",
                 AiServiceProfile.STANDARD, true);
         String code = roomRepository.findById(named).orElseThrow().getJoinCode();
-        rooms.joinRoomWithSetup(joiner.getId(), code, "<Guest>");
+        assertThatThrownBy(() -> rooms.joinRoomWithSetup(joiner.getId(), code, "<Guest>", "ta"))
+                .isInstanceOf(com.mahroosdev.voicelink.room.JoinLanguageMismatchException.class);
+        rooms.joinRoomWithSetup(joiner.getId(), code, "<Guest>", "en");
         assertThat(jdbc.queryForList("SELECT conversation_display_name FROM room_participants "
                 + "WHERE room_id = ? ORDER BY participant_slot", String.class, named))
                 .containsExactly("உரிமையாளர்", "<Guest>");

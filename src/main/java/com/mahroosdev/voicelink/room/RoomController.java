@@ -86,6 +86,7 @@ public class RoomController {
             if (preview.alreadyMember()) return "redirect:/rooms/" + preview.roomId();
             JoinRoomForm joinRoomForm = new JoinRoomForm();
             joinRoomForm.setJoinCode(preview.joinCode());
+            joinRoomForm.setSpeaking(preview.participantSpeaking());
             model.addAttribute("joinRoomForm", joinRoomForm);
             model.addAttribute("joinPreview", preview);
         } catch (RoomInviteUnavailableException ex) {
@@ -112,7 +113,11 @@ public class RoomController {
         }
         try {
             return "redirect:/rooms/" + rooms.joinRoomWithSetup(principal.getUserId(),
-                    form.getJoinCode(), form.getDisplayName());
+                    form.getJoinCode(), form.getDisplayName(), form.getSpeaking());
+        } catch (JoinLanguageMismatchException ex) {
+            errors.rejectValue("speaking", "room.direction", "Choose the available language for this conversation.");
+            model.addAttribute("joinPreview", preview);
+            return index(principal, model);
         } catch (IllegalArgumentException ex) {
             errors.rejectValue("displayName", "room.displayName", ConversationDisplayName.VALIDATION_MESSAGE);
             model.addAttribute("joinPreview", preview);

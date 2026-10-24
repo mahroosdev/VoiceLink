@@ -194,7 +194,7 @@ class AccountFlowTests {
     }
 
     @Test
-    void duplicateRegistrationStaysOnFormWithGenericErrorAndNoSuccess() throws Exception {
+    void duplicateRegistrationStaysOnFormWithHelpfulErrorAndNoSuccess() throws Exception {
         String email = newEmail();
         registration.register(form(email));
         MvcResult duplicate = mvc.perform(post("/register").with(csrf())
@@ -203,7 +203,9 @@ class AccountFlowTests {
                 .param("password", PASSWORD))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "Registration could not be completed with those details.")))
+                        "An account with this email already exists.")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Sign in instead.")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("href=\"/login\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("value=\"Test User\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("value=\"" + email + "\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(PASSWORD))))
@@ -220,6 +222,12 @@ class AccountFlowTests {
         mvc.perform(post("/login").param("email", email).param("password", PASSWORD))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/login").with(csrf()).param("email", email).param("password", "wrong"))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/login?error"))
+                .andExpect(unauthenticated());
+        mvc.perform(get("/login").param("error", ""))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "We couldn't sign you in. Check your email and password, or create an account")));
+        mvc.perform(post("/login").with(csrf()).param("email", newEmail()).param("password", "wrong"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/login?error"))
                 .andExpect(unauthenticated());
         MvcResult login = mvc.perform(post("/login").with(csrf())

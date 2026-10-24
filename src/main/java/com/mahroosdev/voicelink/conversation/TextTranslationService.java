@@ -191,7 +191,7 @@ public class TextTranslationService {
                 case TIMED_OUT -> "Translation took too long. Your message remains here; try again.";
                 case CONNECTION_PROBLEM -> "Translation could not reach the service. Your message remains here; try again.";
                 case RESPONSE_INVALID -> "The translation response could not be processed. Your message remains here; try again.";
-                case CONFIGURATION -> "Translation is not configured for this room.";
+                case CONFIGURATION -> "Translation is unavailable because this server's provider access is not ready. Your message remains here.";
                 case TEMPORARILY_UNAVAILABLE -> "Translation is temporarily unavailable. Your message remains here; try again.";
             });
         } catch (ResponseStatusException ex) {
@@ -342,8 +342,9 @@ public class TextTranslationService {
         try {
             providers.requirePaidStage(profile);
         } catch (ProviderFailure failure) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Translation is not configured for this room.");
+            throw new TextTranslationFailureException(HttpStatus.SERVICE_UNAVAILABLE,
+                    TextTranslationFailureException.SafeCode.CONFIGURATION,
+                    "Translation is unavailable because this server's provider access is not ready. Your message remains here.");
         }
     }
 

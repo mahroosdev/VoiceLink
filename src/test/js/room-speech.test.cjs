@@ -36,9 +36,9 @@ function node() {
 function setup(fetchImpl, microphoneError) {
   const ids = ["room-page", "room-status", "connection-state", "participants-list",
     "waiting-section", "active-section", "live-text-section", "closed-notice",
-    "live-text-form", "live-text-input", "live-send", "conversation-events", "speech-section",
+    "live-text-form", "live-text-input", "live-send", "quick-status", "conversation-events", "speech-section",
     "glossary-section", "room-details", "record-start", "record-stop", "recording-status",
-    "recording-timer", "turn-empty", "turn-announcement", "mode-type",
+    "recording-timer", "turn-empty", "turn-announcement", "mode-type", "text-mode-quick",
     "speech-mode-live", "speech-mode-finish", "speech-mode-help", "speech-review",
     "speech-review-transcript", "speech-review-translation", "speech-review-expiry",
     "speech-review-send", "speech-review-record-again", "speech-review-cancel"];
@@ -46,6 +46,7 @@ function setup(fetchImpl, microphoneError) {
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-status"].textContent = "ACTIVE";
   nodes["mode-type"].attributes["aria-pressed"] = "false";
+  nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["record-start"].label = node();
   nodes["record-start"].label.textContent = "Start speaking";
   nodes["speech-mode-live"].attributes["aria-pressed"] = "true";
@@ -70,8 +71,8 @@ function setup(fetchImpl, microphoneError) {
   class FakeSocket {
     static OPEN = 1;
     static latest;
-    constructor() { this.readyState = FakeSocket.OPEN; FakeSocket.latest = this; }
-    send() {}
+    constructor() { this.readyState = FakeSocket.OPEN; this.sent = []; FakeSocket.latest = this; }
+    send(data) { this.sent.push(JSON.parse(data)); }
     close() { this.readyState = 3; }
   }
   class FakeEvent { constructor(type) { this.type = type; } }
@@ -200,9 +201,10 @@ test("server current marker keeps identical names distinct and attributes untran
     payload: { text: "<b>safe text</b>" } });
   const message = h.nodes["conversation-events"].children[0];
   assert.equal(message.dataset.senderRole, "Partner");
-  assert.equal(message.children[1].children[1].textContent, "<b>safe text</b>");
+  assert.equal(message.children[1].textContent, "<b>safe text</b>");
+  assert.equal(message.dataset.messageKind, "quick");
   assert.equal(h.nodes["turn-announcement"].textContent,
-    "Partner sent an untranslated message.");
+    "Partner sent a quick chat message.");
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 4, eventId: "event-4",
     roomId: "room-1", type: "TURN_ACCEPTED", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, sourceLanguage: "en", targetLanguage: "ta" } });
@@ -215,6 +217,52 @@ test("server current marker keeps identical names distinct and attributes untran
     roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "duplicate" } });
   assert.equal(h.nodes["conversation-events"].children.length, 2);
+});
+
+test("Quick chat waits for the server echo, stays open, and deduplicates retry echoes", async () => {
+  const h = setup(async () => response([]));
+  h.nodes["mode-type"].attributes["aria-pressed"] = "true";
+  h.nodes["text-mode-quick"].attributes["aria-pressed"] = "true";
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 1, eventId: "state", roomId: "room-1", type: "ROOM_STATE",
+    payload: { status: "ACTIVE", participants: [{ participantId: "person-1", current: true,
+      owner: true, displayName: "Same Name", speaking: "en", listening: "ta" }] } }) });
+  assert.equal(h.nodes["live-text-section"].hidden, false);
+  h.nodes["live-text-input"].value = "First quick message";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(h.nodes["live-text-input"].value, "First quick message");
+  assert.equal(h.nodes["live-text-input"].disabled, true);
+  assert.equal(h.socket.sent.length, 1);
+  const first = h.socket.sent[0];
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 2, eventId: "echo-1", roomId: "room-1", type: "TEXT_MESSAGE",
+    senderParticipantId: "person-1", payload: { clientMessageId: first.clientMessageId,
+      text: "First quick message" } }) });
+  assert.equal(h.nodes["live-text-input"].value, "");
+  assert.equal(h.nodes["live-text-input"].disabled, false);
+  assert.equal(h.nodes["live-text-section"].hidden, false);
+  assert.equal(h.nodes["conversation-events"].children.length, 1);
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-quick",
+    sequence: 3, eventId: "echo-retry", roomId: "room-1", type: "TEXT_MESSAGE",
+    senderParticipantId: "person-1", payload: { clientMessageId: first.clientMessageId,
+      text: "First quick message" } }) });
+  assert.equal(h.nodes["conversation-events"].children.length, 1);
+  h.nodes["live-text-input"].value = "Second quick message";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(h.socket.sent.length, 2);
+  assert.notEqual(h.socket.sent[1].clientMessageId, first.clientMessageId);
+});
+
+test("Quick chat keeps its draft when the server rejects a send", async () => {
+  const h = setup(async () => response([]));
+  h.nodes["live-text-input"].value = "Keep this draft";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  h.socket.onmessage({ data: JSON.stringify({ protocolVersion: 1, streamId: "stream-error",
+    sequence: 1, eventId: "error", roomId: "room-1", type: "ERROR",
+    payload: { code: "INVALID_MESSAGE", message: "Invalid live message." } }) });
+  assert.equal(h.nodes["live-text-input"].value, "Keep this draft");
+  assert.equal(h.nodes["live-text-input"].disabled, false);
+  assert.match(h.nodes["quick-status"].textContent, /not sent/);
 });
 
 test("explicit speech Send is single-action and mode change cancels an unsent review", async () => {

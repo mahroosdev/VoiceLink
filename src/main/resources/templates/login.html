@@ -23,7 +23,7 @@
       <span class="eyebrow">Welcome back</span>
       <h1 id="sign-in-heading">Sign in</h1>
       <p class="auth-card__intro">Continue your translated conversations.</p>
-      <p class="notice notice--error" th:if="${param.error}" role="alert">Email or password is incorrect.</p>
+      <p class="notice notice--error" th:if="${param.error}" role="alert">We couldn't sign you in. Check your email and password, or create an account if you're new to VoiceLink.</p>
       <p class="notice notice--success" th:if="${param.logout}" role="status">You have signed out.</p>
       <p class="notice notice--success" th:if="${registrationSuccess}" th:text="${registrationSuccess}" role="status" aria-live="polite"></p>
       <p class="notice notice--success" th:if="${param.reset}" role="status">Password updated. You can now sign in.</p>

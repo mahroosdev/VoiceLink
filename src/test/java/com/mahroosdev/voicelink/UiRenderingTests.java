@@ -343,7 +343,10 @@ class UiRenderingTests {
                 "You speak: ", "Partner receives: ", "Partner speaks: ", "You receive: ",
                 "You speak: </span><span>Tamil", "Partner receives: </span><span>English",
                 "Partner speaks: </span><span>English", "You receive: </span><span>Tamil",
-                "Total Translation", "Live Translation", "Private Live", "Shared Live",
+                "Translate message", "Live translation", "Private Live", "Shared Live",
+                "id=\"history-all\"", "id=\"history-translated\"", "id=\"history-quick\"",
+                "id=\"history-latest\"", "id=\"text-mode-quick\"",
+                "Translate and review your message before sending.",
                 "Record and send the translated turn.")
                 .doesNotContain("You hear: ", "Partner hears: ",
                         "Low latency", "Recent History", "Delete account");

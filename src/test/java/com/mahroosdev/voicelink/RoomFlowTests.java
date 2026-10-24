@@ -279,7 +279,7 @@ class RoomFlowTests {
                 .doesNotContain(creator.getEmail(), creator.getId().toString(), "Private Account Name");
 
         mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
-                        .param("joinCode", code).param("displayName", "Guest"))
+                        .param("joinCode", code).param("displayName", "Guest").param("speaking", "ta"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
         String denied = mvc.perform(post("/rooms/join/preview").with(user(principal(third))).with(csrf())
                         .param("joinCode", code))
@@ -316,9 +316,42 @@ class RoomFlowTests {
         mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
                         .param("joinCode", code).param("displayName", "Guest")
                         .param("speaking", "en").param("owner", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "Choose the available language for this conversation.")));
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest")
+                        .param("speaking", "fr"))
+                .andExpect(status().isOk());
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(1);
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest")
+                        .param("speaking", "ta"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
         assertThat(service.getRoomForMember(joiner.getId(), id).currentParticipant())
                 .extracting("speaking", "listening", "owner").containsExactly("ta", "en", false);
+    }
+
+    @Test
+    void tamilSpeakingOwnerRequiresEnglishSpeakingPartner() throws Exception {
+        UserAccount creator = account("Tamil owner");
+        UserAccount joiner = account("English guest");
+        UUID id = service.createRoomForSpeaker(creator.getId(), "Owner", "ta",
+                AiServiceProfile.STANDARD, true);
+        String code = rooms.findById(id).orElseThrow().getJoinCode();
+        String preview = mvc.perform(post("/rooms/join/preview").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(preview).contains("Tamil — Used by conversation owner", "English — Available");
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest").param("speaking", "ta"))
+                .andExpect(status().isOk());
+        assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id)).hasSize(1);
+        mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
+                        .param("joinCode", code).param("displayName", "Guest").param("speaking", "en"))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
+        assertThat(service.getRoomForMember(joiner.getId(), id).currentParticipant())
+                .extracting("speaking", "listening").containsExactly("en", "ta");
     }
 
     @Test
@@ -388,6 +421,7 @@ class RoomFlowTests {
                 .andExpect(status().isForbidden());
         mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
                 .param("joinCode", code).param("displayName", "Joiner")
+                .param("speaking", "ta")
                 .param("userId", creator.getId().toString()))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/rooms/" + id));
         assertThat(participants.findByRoom_IdOrderByParticipantSlotAsc(id).get(1).getUser().getId())
@@ -431,7 +465,8 @@ class RoomFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Join Conversation")));
         mvc.perform(post("/rooms/join/setup").with(user(principal(joiner))).with(csrf())
-                        .param("joinCode", code).param("displayName", "Room Guest"))
+                        .param("joinCode", code).param("displayName", "Room Guest")
+                        .param("speaking", "ta"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl(redirect));
         mvc.perform(get(redirect).with(user(principal(joiner))))
                 .andExpect(status().isOk())

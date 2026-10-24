@@ -78,9 +78,9 @@ The final local candidate passed 209 Java tests (including 11 real WebSocket tes
 
 1. Open the public homepage, then register or sign in with two separate accounts in two browser sessions.
 2. Create a **Standard** conversation, choose a per-conversation name and the creator's speaking language, and share the private invite code directly with the other account.
-3. Enter the invite code with the second account, verify the owner and complementary language preview, and choose the second conversation name.
+3. Enter the invite code with the second account, verify the owner and complementary language preview, select the available speaking language, and choose the second conversation name.
 4. Confirm both participants see their own **You** identity, the other person's name, and the correct speaking/receiving languages.
-5. In **Type**, review and explicitly send a Total or Live Private translation. Opt into Shared Live only when both participants agree to provisional drafts.
+5. In **Type**, use **Quick chat** to exchange untranslated temporary messages and switch the single timeline between All messages, Translated, and Quick chat. Use **Translate message** or **Live translation** to review and explicitly send a translation. Opt into Shared Live only when both participants agree to provisional drafts.
 6. In **Speak**, record a short synthetic utterance, review recognized and translated captions, send it, and play the temporary audio. Repeat in the opposite language.
 7. Try a room glossary term, then close the room and confirm the glossary is removed. No permanent conversation history should appear after refresh.
 

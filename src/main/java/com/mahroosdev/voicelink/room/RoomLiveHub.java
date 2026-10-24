@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -115,11 +115,18 @@ public class RoomLiveHub {
                 errorLocked(connection, "ROOM_NOT_ACTIVE", "This room is not active.");
                 return;
             }
-            LinkedHashSet<UUID> seen = stream.clientIds.computeIfAbsent(connection.userId,
-                    ignored -> new LinkedHashSet<>());
-            if (!seen.add(clientMessageId)) return;
+            LinkedHashMap<UUID, TextReceipt> seen = stream.clientIds.computeIfAbsent(connection.userId,
+                    ignored -> new LinkedHashMap<>());
+            TextReceipt prior = seen.get(clientMessageId);
+            if (prior != null) {
+                send(stream, connection, event(stream, connection.roomId, "TEXT_MESSAGE",
+                        prior.senderParticipantId(), UUID.randomUUID(),
+                        Map.of("text", prior.text(), "clientMessageId", clientMessageId)));
+                return;
+            }
+            seen.put(clientMessageId, new TextReceipt(member.participantId(), text));
             if (seen.size() > 128) {
-                Iterator<UUID> ids = seen.iterator();
+                Iterator<UUID> ids = seen.keySet().iterator();
                 ids.next();
                 ids.remove();
             }
@@ -355,10 +362,12 @@ public class RoomLiveHub {
     private static final class Stream {
         final UUID streamId = UUID.randomUUID();
         final Map<UUID, Connection> members = new HashMap<>();
-        final Map<UUID, LinkedHashSet<UUID>> clientIds = new HashMap<>();
+        final Map<UUID, LinkedHashMap<UUID, TextReceipt>> clientIds = new HashMap<>();
         long sequence;
         boolean closed;
     }
+
+    private record TextReceipt(UUID senderParticipantId, String text) {}
 
     public static final class Connection {
         final WebSocketSession socket;

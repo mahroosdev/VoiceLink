@@ -89,7 +89,17 @@ public class RoomService {
         return joinRoom(userId, inputCode, ConversationDisplayName.normalize(displayName));
     }
 
+    @Transactional
+    public UUID joinRoomWithSetup(UUID userId, String inputCode, String displayName, String selectedSpeaking) {
+        if (selectedSpeaking == null || selectedSpeaking.isBlank()) throw new JoinLanguageMismatchException();
+        return joinRoom(userId, inputCode, ConversationDisplayName.normalize(displayName), selectedSpeaking);
+    }
+
     private UUID joinRoom(UUID userId, String inputCode, String displayName) {
+        return joinRoom(userId, inputCode, displayName, null);
+    }
+
+    private UUID joinRoom(UUID userId, String inputCode, String displayName, String selectedSpeaking) {
         String code = RoomCode.canonicalize(inputCode);
         if (code == null) throw new RoomInviteUnavailableException();
         ConversationRoom room = rooms.findByJoinCode(code).orElseThrow(RoomInviteUnavailableException::new);
@@ -108,6 +118,14 @@ public class RoomService {
                 .orElseThrow(RoomInviteUnavailableException::new);
         var direction = languages.validate(creator.getSpeakingLanguageTag(),
                 creator.getListeningLanguageTag()).reverse();
+        if (selectedSpeaking != null) {
+            try {
+                if (!direction.speaking().equals(languages.forSpeaker(selectedSpeaking).speaking()))
+                    throw new JoinLanguageMismatchException();
+            } catch (IllegalArgumentException ex) {
+                throw new JoinLanguageMismatchException();
+            }
+        }
         UserAccount joiner = accounts.findById(userId).orElseThrow(this::notFound);
         participants.saveAndFlush(new RoomParticipant(room, joiner, (short) 2,
                 direction.speaking(), direction.listening(), displayName, now));

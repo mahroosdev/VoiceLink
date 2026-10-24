@@ -12,6 +12,10 @@
   const typeButton = document.getElementById("mode-type");
   const liveButton = document.getElementById("text-mode-live");
   const totalButton = document.getElementById("text-mode-total");
+  const quickButton = document.getElementById("text-mode-quick");
+  const translationComposer = document.getElementById("translation-composer");
+  const quickComposer = document.getElementById("live-text-section");
+  const quickInput = document.getElementById("live-text-input");
   const speakSection = document.getElementById("speech-section");
   const typeSection = document.getElementById("type-section");
   const typeEyebrow = document.getElementById("type-eyebrow");
@@ -40,7 +44,7 @@
   const sharedDraftText = document.getElementById("shared-text-draft-text");
   const sharedDraftStatus = document.getElementById("shared-text-draft-status");
   const sharedDraftAnnouncement = document.getElementById("shared-text-draft-announcement");
-  if (!typeButton || !typeSection || !liveButton || !totalButton) return;
+  if (!typeButton || !typeSection || !liveButton || !totalButton || !quickButton) return;
 
   const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
   const csrfHeader = document.querySelector('meta[name="_csrf_header"]')?.content;
@@ -87,6 +91,7 @@
     sharedDraftText.textContent = "";
     sharedDraftText.removeAttribute?.("lang");
     if (turnEmpty) turnEmpty.hidden = finalEvents.childElementCount !== 0;
+    window.voicelinkHistory?.refresh();
     if (existed && message && sharedDraftAnnouncement)
       sharedDraftAnnouncement.textContent = message;
   }
@@ -117,7 +122,9 @@
     const available = current();
     speakSection.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "speak";
     typeSection.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "type";
-    typeActions.hidden = textMode === "live";
+    translationComposer.hidden = textMode === "quick";
+    quickComposer.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "type" || textMode !== "quick";
+    typeActions.hidden = textMode !== "total";
     privacyControls.hidden = textMode !== "live";
     privateButton.setAttribute("aria-pressed", String(privacyMode === "private"));
     sharedButton.setAttribute("aria-pressed", String(privacyMode === "shared"));
@@ -153,9 +160,9 @@
   }
 
   function totalCopy() {
-    typeEyebrow.textContent = "Total text translation";
+    typeEyebrow.textContent = "Translate message";
     typeHeading.textContent = "Type a complete message";
-    typeIntro.textContent = "Translate privately to review. Your partner sees it only after you select Send. Gemini processes text when you select Translate.";
+    typeIntro.textContent = "Translate and review your message before sending. Your partner sees it only after you select Send.";
     reviewHeading.textContent = "Translated — Not sent";
   }
 
@@ -169,27 +176,30 @@
     speakSection.hidden = mode !== "speak";
     typeSection.hidden = mode !== "type";
     invalidate(mode === "type" ? (textMode === "live"
-      ? "Live private preview is ready for input." : "Ready to translate.")
+      ? "Live private preview is ready for input." : textMode === "quick"
+        ? "Quick chat is ready." : "Ready to translate.")
       : "Text translation paused while Speak is selected.", "idle");
     update();
     if (mode === "type") {
-      source.focus();
+      (textMode === "quick" ? quickInput : source).focus();
       if (textMode === "live") scheduleLive();
     } else speakButton.focus();
   }
 
   function selectTextMode(next) {
     if (next === textMode) return;
-    if (next === "total" && privacyMode === "shared")
-      stopSharing("Shared Live stopped. Total mode is private until Send.");
+    if (next !== "live" && privacyMode === "shared")
+      stopSharing("Shared Live stopped. Translation drafts are private until Send.");
     textMode = next;
     typeSection.dataset.textMode = next;
     liveButton.setAttribute("aria-pressed", String(next === "live"));
     totalButton.setAttribute("aria-pressed", String(next === "total"));
-    if (next === "live") liveCopy(); else totalCopy();
+    quickButton.setAttribute("aria-pressed", String(next === "quick"));
+    if (next === "live") liveCopy(); else if (next === "total") totalCopy();
     invalidate(next === "live" ? "Live private preview is ready for input."
-      : "Total mode selected. Select Translate when your message is complete.", "idle");
-    source.focus();
+      : next === "quick" ? "Quick chat is ready. Messages are sent as written."
+        : "Translate message selected. Select Translate when your message is complete.", "idle");
+    (next === "quick" ? quickInput : source).focus();
     if (next === "live") scheduleLive();
   }
 
@@ -476,12 +486,14 @@
 
   function appendFinal(message, sender) {
     if (!message?.finalId || seen.has(message.finalId)) return;
+    const wasNearBottom = window.voicelinkHistory?.beforeAppend();
     seen.add(message.finalId);
     if (seen.size > 256) seen.delete(seen.values().next().value);
     const row = document.createElement("li");
     row.className = "turn-card text-turn-card turn-card--" + sender.toLowerCase();
     row.dataset.senderRole = sender;
     row.dataset.timelineKind = "text";
+    row.dataset.messageKind = "translated";
     const heading = document.createElement("strong");
     heading.className = "turn-card__speaker";
     heading.textContent = sender + " · Sent translated text";
@@ -506,15 +518,18 @@
     row.append(heading, sourceBlock, targetBlock);
     finalEvents.append(row);
     if (turnEmpty) turnEmpty.hidden = true;
+    window.voicelinkHistory?.refresh();
     const textRows = [...finalEvents.children].filter(item => item.dataset.timelineKind === "text");
     while (textRows.length > 16) textRows.shift().remove();
     if (announcement) announcement.textContent = sender + " sent translated text.";
+    window.voicelinkHistory?.changed(wasNearBottom, "translated");
   }
 
   speakButton.addEventListener("click", () => selectMode("speak"));
   typeButton.addEventListener("click", () => selectMode("type"));
   liveButton.addEventListener("click", () => selectTextMode("live"));
   totalButton.addEventListener("click", () => selectTextMode("total"));
+  quickButton.addEventListener("click", () => selectTextMode("quick"));
   privateButton.addEventListener("click", () => stopSharing());
   sharedButton.addEventListener("click", startSharing);
   stopSharingButton.addEventListener("click", () => stopSharing());
