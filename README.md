@@ -22,6 +22,10 @@ These are implemented capabilities. They do not establish provider availability,
 
 Java 21, Spring Boot, Spring Security, Spring Data JPA, Maven Wrapper, PostgreSQL, Flyway, Thymeleaf, CSS, vanilla JavaScript, and authenticated same-origin WebSockets. See the [architecture](docs/ARCHITECTURE.md) and [HTTP/WebSocket reference](docs/API_REFERENCE.md).
 
+## User guide
+
+Read the [VoiceLink User Guide](docs/USER_GUIDE.md) or download the [PDF user guide](docs/VoiceLink-User-Guide.pdf).
+
 ## Local setup
 
 Prerequisites: JDK 21, Docker with Compose, and Node.js for JavaScript tests. Maven is supplied by the wrapper.
