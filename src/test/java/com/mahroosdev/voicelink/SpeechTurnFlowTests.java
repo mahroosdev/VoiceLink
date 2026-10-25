@@ -300,7 +300,7 @@ class SpeechTurnFlowTests {
             assertThat(failed.failedStage()).isEqualTo("TRANSLATION");
             assertThat(failed.transcript()).isNotBlank();
             assertThat(turns.recent(partner.getId(), room)).isEmpty();
-            verify(hub).publishTurnToSender(
+            verify(hub, timeout(5_000)).publishTurnToSender(
                     eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
                     eq("TURN_FAILED"), org.mockito.ArgumentMatchers.argThat(payload ->
                             "TRANSLATION".equals(payload.get("stage"))
@@ -315,7 +315,7 @@ class SpeechTurnFlowTests {
             assertThat(repeatedFailure.transcript()).isEqualTo(failed.transcript());
             assertThat(repeatedFailure.failedStage()).isEqualTo("TRANSLATION");
             assertThat(turns.recent(partner.getId(), room)).isEmpty();
-            verify(hub, times(2)).publishTurnToSender(
+            verify(hub, timeout(5_000).times(2)).publishTurnToSender(
                     eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
                     eq("TURN_FAILED"), org.mockito.ArgumentMatchers.argThat(payload ->
                             "TRANSLATION".equals(payload.get("stage"))
