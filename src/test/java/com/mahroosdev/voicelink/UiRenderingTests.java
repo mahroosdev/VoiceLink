@@ -344,12 +344,12 @@ class UiRenderingTests {
                 "You speak: ", "Partner receives: ", "Partner speaks: ", "You receive: ",
                 "You speak: </span><span>Tamil", "Partner receives: </span><span>English",
                 "Partner speaks: </span><span>English", "You receive: </span><span>Tamil",
-                "Translate message", "Live translation", "Private Live", "Shared Live",
-                "id=\"history-all\"", "id=\"history-translated\"", "id=\"history-quick\"",
+                "Translate message", "Live translation", "id=\"history-translated\"", "id=\"history-quick\"",
                 "id=\"history-latest\"", "id=\"text-mode-quick\"",
                 "Translate and review your message before sending.",
                 "Record and send the translated turn.")
-                .doesNotContain("You hear: ", "Partner hears: ",
+                .doesNotContain("You hear: ", "Partner hears: ", "Private Live", "Shared Live",
+                        "history-all", "All messages", "Live translation draft",
                         "Low latency", "Recent History", "Delete account");
         String ownerActive = mvc.perform(get(path).with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

@@ -8,6 +8,7 @@
   const LIVE_DEBOUNCE_MS = configuredDebounce >= 700 && configuredDebounce <= 2000
     ? configuredDebounce : 800;
   const roomStatus = document.getElementById("room-status");
+  const sourceLanguage = page.dataset.sourceLanguage || "en";
   const speakButton = document.getElementById("mode-speak");
   const typeButton = document.getElementById("mode-type");
   const liveButton = document.getElementById("text-mode-live");
@@ -22,12 +23,8 @@
   const typeHeading = document.getElementById("type-heading");
   const typeIntro = document.getElementById("type-intro");
   const typeActions = document.getElementById("type-actions");
-  const privacyControls = document.getElementById("type-privacy-controls");
-  const visibilityHelp = document.getElementById("live-visibility-help");
-  const privateButton = document.getElementById("text-privacy-private");
-  const sharedButton = document.getElementById("text-privacy-shared");
-  const sharingNotice = document.getElementById("type-sharing-notice");
-  const stopSharingButton = document.getElementById("text-sharing-stop");
+  const romanizedToggle = document.getElementById("romanized-tamil");
+  const sourceLabel = document.getElementById("type-source-label");
   const source = document.getElementById("type-source");
   const translate = document.getElementById("type-translate");
   const retry = document.getElementById("type-retry");
@@ -35,16 +32,12 @@
   const status = document.getElementById("type-status");
   const reviewSection = document.getElementById("type-review");
   const reviewHeading = document.getElementById("type-review-heading");
+  const originalLabel = document.getElementById("type-review-original-label");
   const original = document.getElementById("type-review-original");
   const translated = document.getElementById("type-review-translation");
   const finalEvents = document.getElementById("conversation-events");
   const turnEmpty = document.getElementById("turn-empty");
   const announcement = document.getElementById("turn-announcement");
-  const sharedDraft = document.getElementById("shared-text-draft");
-  const sharedDraftHeading = document.getElementById("shared-text-draft-heading");
-  const sharedDraftText = document.getElementById("shared-text-draft-text");
-  const sharedDraftStatus = document.getElementById("shared-text-draft-status");
-  const sharedDraftAnnouncement = document.getElementById("shared-text-draft-announcement");
   if (!typeButton || !typeSection || !liveButton || !totalButton || !quickButton) return;
 
   const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
@@ -57,13 +50,8 @@
   let composing = false;
   let mode = "speak";
   let textMode = "total";
-  let privacyMode = "private";
-  let sharingEpoch = null;
-  let sharingChanging = false;
-  let sharingOperation = 0;
-  let sharedServerCurrent = false;
-  let sharedInvalidation = Promise.resolve();
-  let receivedDraft = null;
+  let romanizedTamil = false;
+  source.lang = sourceLanguage;
   let debounceTimer = null;
   let lastInputValue = source.value;
   let lastAutomaticKey = null;
@@ -83,18 +71,6 @@
     original.textContent = "";
     translated.textContent = "";
     send.disabled = true;
-  }
-
-  function clearReceivedDraft(message) {
-    const existed = receivedDraft !== null;
-    receivedDraft = null;
-    sharedDraft.hidden = true;
-    sharedDraftText.textContent = "";
-    sharedDraftText.removeAttribute?.("lang");
-    if (turnEmpty) turnEmpty.hidden = finalEvents.childElementCount !== 0;
-    window.voicelinkHistory?.refresh();
-    if (existed && message && sharedDraftAnnouncement)
-      sharedDraftAnnouncement.textContent = message;
   }
 
   function cancelPending() {
@@ -126,13 +102,8 @@
     translationComposer.hidden = textMode === "quick";
     quickComposer.hidden = roomStatus.textContent !== "ACTIVE" || mode !== "type" || textMode !== "quick";
     typeActions.hidden = textMode !== "total";
-    privacyControls.hidden = textMode !== "live";
-    privateButton.setAttribute("aria-pressed", String(privacyMode === "private"));
-    sharedButton.setAttribute("aria-pressed", String(privacyMode === "shared"));
-    privateButton.disabled = !available || sharingChanging;
-    sharedButton.disabled = !available || sharingChanging;
-    sharingNotice.hidden = textMode !== "live" || privacyMode !== "shared";
-    source.disabled = !available || sending || sharingChanging;
+    if (romanizedToggle) romanizedToggle.disabled = !available || translating || sending;
+    source.disabled = !available || sending;
     translate.disabled = !available || textMode !== "total" || translating || sending;
     retry.disabled = !available || translating || sending || !retryRequest;
     send.disabled = !available || sending || translating || !review || review.revision !== revision
@@ -150,17 +121,10 @@
   }
 
   function liveCopy() {
-    visibilityHelp.textContent = privacyMode === "shared"
-      ? "Your partner can see provisional translated drafts. Only Send makes a final message."
-      : "Only you see the live preview until you send.";
-    typeEyebrow.textContent = privacyMode === "shared"
-      ? "Shared live translation" : "Live private translation";
+    typeEyebrow.textContent = "Live private translation";
     typeHeading.textContent = "Type and pause to preview";
-    typeIntro.textContent = privacyMode === "shared"
-      ? "Your translated drafts are visible to the other participant. Nothing is final until you send."
-      : "Only you can see this preview until you send. Gemini processes text after a short typing pause.";
-    reviewHeading.textContent = privacyMode === "shared"
-      ? "Shared live draft — Not sent" : "Private preview — Not sent";
+    typeIntro.textContent = "Only you can see this preview until you select Send. Gemini processes text after a short typing pause.";
+    reviewHeading.textContent = "Private preview — Not sent";
   }
 
   function totalCopy() {
@@ -173,7 +137,6 @@
   function selectMode(next) {
     if (next === mode) return;
     if (next === "type") window.dispatchEvent(new Event("voicelink-speech-cancel-private"));
-    if (next === "speak" && privacyMode === "shared") stopSharing("Text sharing stopped in Speak mode.");
     mode = next;
     speakButton.setAttribute("aria-pressed", String(mode === "speak"));
     typeButton.setAttribute("aria-pressed", String(mode === "type"));
@@ -192,8 +155,6 @@
 
   function selectTextMode(next) {
     if (next === textMode) return;
-    if (next !== "live" && privacyMode === "shared")
-      stopSharing("Shared Live stopped. Translation drafts are private until Send.");
     textMode = next;
     typeSection.dataset.textMode = next;
     liveButton.setAttribute("aria-pressed", String(next === "live"));
@@ -227,118 +188,6 @@
     return { response, result };
   }
 
-  async function sharingRequest(path, method, body, keepalive = false) {
-    const response = await fetch("/api/rooms/" + roomId + "/text/" + path, {
-      method, credentials: "same-origin", keepalive,
-      headers: { Accept: "application/json",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(csrfHeader && csrfToken ? { [csrfHeader]: csrfToken } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {})
-    });
-    let result;
-    try { result = await response.json(); } catch { result = {}; }
-    return { response, result };
-  }
-
-  function sharingFailure(message) {
-    privacyMode = "private";
-    sharingEpoch = null;
-    sharedServerCurrent = false;
-    sharedInvalidation = Promise.resolve();
-    liveCopy();
-    setStatus(message, "error");
-    window.dispatchEvent(new Event("voicelink-force-live-disconnect"));
-    update();
-  }
-
-  async function startSharing() {
-    if (!current("live") || privacyMode === "shared" || sharingChanging) return;
-    const operation = ++sharingOperation;
-    invalidate("Enabling Shared Live…", "waiting");
-    sharingChanging = true;
-    update();
-    try {
-      const { response, result } = await sharingRequest("sharing", "POST");
-      if (!response.ok || !result.sharingEpoch) {
-        if (operation === sharingOperation)
-          setStatus(messageFor(response, result, "Shared Live could not be enabled."), "error");
-        return;
-      }
-      if (operation !== sharingOperation || !current("live")) {
-        await sharingRequest("sharing/" + result.sharingEpoch, "DELETE");
-        return;
-      }
-      privacyMode = "shared";
-      sharingEpoch = result.sharingEpoch;
-      sharedServerCurrent = false;
-      sharedInvalidation = Promise.resolve();
-      liveCopy();
-      setStatus("Sharing translated drafts. Type and pause to update.", "ready");
-      scheduleLive();
-    } catch {
-      if (operation === sharingOperation)
-        setStatus("Shared Live could not be enabled. Check the live connection.", "error");
-    } finally {
-      if (operation === sharingOperation) sharingChanging = false;
-      update();
-    }
-  }
-
-  async function stopSharing(message = "Shared Live stopped. Preview is private.") {
-    const epoch = sharingEpoch;
-    const operation = ++sharingOperation;
-    privacyMode = "private";
-    sharingEpoch = null;
-    sharedServerCurrent = false;
-    sharedInvalidation = Promise.resolve();
-    sharingChanging = !!epoch;
-    invalidate(message, "idle");
-    liveCopy();
-    update();
-    if (!epoch) {
-      sharingChanging = false;
-      update();
-      return;
-    }
-    try {
-      const { response, result } = await sharingRequest("sharing/" + epoch, "DELETE");
-      if (!response.ok && response.status !== 409)
-        sharingFailure(messageFor(response, result,
-          "Sharing stop could not be confirmed. The live connection was reset."));
-    } catch {
-      sharingFailure("Sharing stop could not be confirmed. The live connection was reset.");
-    } finally {
-      if (operation === sharingOperation) sharingChanging = false;
-      update();
-    }
-  }
-
-  async function clearSharedDraft(clearRevision) {
-    const epoch = sharingEpoch;
-    if (!epoch || privacyMode !== "shared") return;
-    try {
-      const { response, result } = await sharingRequest(
-        "sharing/" + epoch + "/clear", "POST", { revision: clearRevision });
-      if (!response.ok) sharingFailure(messageFor(response, result,
-        "Draft clearing could not be confirmed. The live connection was reset."));
-      else if (epoch === sharingEpoch) sharedServerCurrent = false;
-    } catch {
-      sharingFailure("Draft clearing could not be confirmed. The live connection was reset.");
-    }
-  }
-
-  async function invalidateSharedRevision(invalidRevision, epoch) {
-    try {
-      const { response, result } = await sharingRequest(
-        "sharing/" + epoch + "/invalidate", "POST", { revision: invalidRevision });
-      if (!response.ok && epoch === sharingEpoch) sharingFailure(messageFor(response, result,
-        "Draft invalidation could not be confirmed. The live connection was reset."));
-    } catch {
-      if (epoch === sharingEpoch)
-        sharingFailure("Draft invalidation could not be confirmed. The live connection was reset.");
-    }
-  }
-
   function retryAllowed(response, result) {
     return ["TIMED_OUT", "TEMPORARILY_UNAVAILABLE", "CONNECTION_PROBLEM",
       "RESPONSE_INVALID"].includes(result?.code)
@@ -361,11 +210,12 @@
       text.trim() ? "error" : "idle");
       return;
     }
+    const requestRomanized = savedRequest?.romanizedTamil ?? !!romanizedToggle?.checked;
     if (savedRequest) {
       if (source.value !== savedRequest.text || revision !== savedRequest.revision
-          || privacyMode !== savedRequest.privacy || sharingEpoch !== savedRequest.sharingEpoch) {
+          || requestRomanized !== !!romanizedToggle?.checked) {
         clearRetry();
-        setStatus("The message or sharing mode changed. Translate the current message instead.", "error");
+        setStatus("The message or language mode changed. Translate the current message instead.", "error");
         update();
         return;
       }
@@ -373,35 +223,21 @@
       clearRetry();
     } else invalidate();
     const requestRevision = savedRequest?.revision ?? revision;
-    const requestPrivacy = savedRequest?.privacy ?? privacyMode;
-    const requestSharingEpoch = savedRequest?.sharingEpoch ?? sharingEpoch;
     const request = { mode: requestMode, text, revision: requestRevision,
-      privacy: requestPrivacy, sharingEpoch: requestSharingEpoch };
-    if (requestMode === "live" && requestPrivacy === "shared" && !requestSharingEpoch) {
-      setStatus("Enable Shared Live again before translating.", "error");
-      return;
-    }
-    if (requestSharingEpoch) {
-      await sharedInvalidation;
-      if (requestRevision !== revision || !current(requestMode) || source.value !== text
-          || requestPrivacy !== privacyMode || requestSharingEpoch !== sharingEpoch) return;
-      sharedServerCurrent = true;
-    }
+      romanizedTamil: requestRomanized };
     translating = true;
     pendingLive = false;
     if (requestMode === "live") lastAutomaticKey = requestRevision + "\n" + text;
     const requestId = ++requestSequence;
     activeRequest = requestId;
-    setStatus(requestMode === "live" ? (requestPrivacy === "shared"
-      ? "Updating the shared translated draft…" : "Creating your private live preview…")
+    setStatus(requestMode === "live" ? "Creating your private live preview…"
       : "Translating for private review…", "translating");
     update();
     try {
       const { response, result } = await post("reviews",
-        { sourceText: text, revision: requestRevision,
-          ...(requestSharingEpoch ? { sharingEpoch: requestSharingEpoch } : {}) });
+        { sourceText: text, revision: requestRevision, romanizedTamil: requestRomanized });
       if (requestRevision !== revision || !current(requestMode) || source.value !== text
-          || requestPrivacy !== privacyMode || requestSharingEpoch !== sharingEpoch) return;
+          || requestRomanized !== !!romanizedToggle?.checked) return;
       if (!response.ok) {
         setStatus(messageFor(response, result, "Translation could not finish. Try again."),
           response.status === 429 ? "rate-limited" : "error");
@@ -415,12 +251,12 @@
       review = result;
       original.textContent = result.originalText;
       translated.textContent = result.translatedText;
-      original.lang = result.sourceLanguage;
+      if (originalLabel) originalLabel.textContent = result.romanizedTamil
+        ? "Original · Romanized Tamil" : "Original · " + (result.sourceLanguage === "ta" ? "Tamil" : "English");
+      original.lang = result.romanizedTamil ? "ta-Latn" : result.sourceLanguage;
       translated.lang = result.targetLanguage;
       reviewSection.hidden = false;
-      setStatus(requestMode === "live" ? (requestPrivacy === "shared"
-        ? "Shared live draft updated — Not sent."
-        : "Private preview ready — Not sent.")
+      setStatus(requestMode === "live" ? "Private preview ready — Not sent."
         : "Translated — Not sent. Review before sending.", "ready");
       if (requestMode === "total") send.focus();
     } catch (error) {
@@ -476,15 +312,6 @@
     invalidate(composing ? "Composing text…" : (textMode === "live"
       ? "Waiting for typing to pause…" : "Message changed. Select Translate to review it."),
     composing ? "typing" : (textMode === "live" ? "waiting" : "idle"));
-    if (textMode === "live" && privacyMode === "shared" && !composing) {
-      if (!source.value.trim()) {
-        sharedServerCurrent = false;
-        sharedInvalidation = clearSharedDraft(revision);
-      } else if (sharedServerCurrent && sharingEpoch) {
-        sharedServerCurrent = false;
-        sharedInvalidation = invalidateSharedRevision(revision, sharingEpoch);
-      }
-    }
     if (textMode === "live" && !composing) scheduleLive();
   }
 
@@ -505,10 +332,11 @@
     sourceBlock.className = "turn-caption";
     const sourceLabel = document.createElement("span");
     sourceLabel.className = "turn-caption__label";
-    sourceLabel.textContent = "Original · " + (message.sourceLanguage === "ta" ? "Tamil" : "English");
+    sourceLabel.textContent = "Original · " + (message.romanizedTamil ? "Romanized Tamil" :
+      message.sourceLanguage === "ta" ? "Tamil" : "English");
     const sourceText = document.createElement("p");
     sourceText.textContent = message.originalText;
-    sourceText.lang = message.sourceLanguage;
+    sourceText.lang = message.romanizedTamil ? "ta-Latn" : message.sourceLanguage;
     sourceBlock.append(sourceLabel, sourceText);
     const targetBlock = document.createElement("div");
     targetBlock.className = "turn-caption turn-caption--translated";
@@ -534,16 +362,9 @@
   liveButton.addEventListener("click", () => selectTextMode("live"));
   totalButton.addEventListener("click", () => selectTextMode("total"));
   quickButton.addEventListener("click", () => selectTextMode("quick"));
-  privateButton.addEventListener("click", () => stopSharing());
-  sharedButton.addEventListener("click", startSharing);
-  stopSharingButton.addEventListener("click", () => stopSharing());
   source.addEventListener("compositionstart", () => {
     composing = true;
     invalidate("Composing text…", "typing");
-    if (textMode === "live" && privacyMode === "shared" && sharedServerCurrent && sharingEpoch) {
-      sharedServerCurrent = false;
-      sharedInvalidation = invalidateSharedRevision(revision, sharingEpoch);
-    }
   });
   source.addEventListener("compositionend", () => {
     composing = false;
@@ -585,11 +406,7 @@
       appendFinal(result, "You");
       source.value = "";
       lastInputValue = "";
-      sharedServerCurrent = false;
-      sharedInvalidation = Promise.resolve();
-      invalidate(privacyMode === "shared"
-        ? "Sent. The shared draft was finalized and cleared; sharing remains on."
-        : "Sent. Both connected participants can see the translated message.", "sent");
+      invalidate("Sent. Both connected participants can see the translated message.", "sent");
       if (mode === "type" && textMode === selectedMode) source.focus();
     } catch {
       setStatus("Connection failed. You can retry Send; it will not duplicate a successful message.", "error");
@@ -602,85 +419,35 @@
   window.addEventListener("voicelink-final-text", ({ detail: event }) => {
     const payload = event?.payload;
     if (!payload || event.roomId !== roomId) return;
-    const participant = document.querySelector("#participants-list [data-participant-id='" +
+    const participant = document.querySelector("#participants-list [data-participant-id]='" +
       event.senderParticipantId + "']");
-    if (receivedDraft?.senderParticipantId === event.senderParticipantId)
-      clearReceivedDraft("The shared draft was finalized.");
     appendFinal({ ...payload, finalId: event.turnId }, participant?.dataset.role || "Partner");
-  });
-  window.addEventListener("voicelink-text-draft", ({ detail: event }) => {
-    if (!event || event.roomId !== roomId) return;
-    if (event.type === "TEXT_DRAFT_CLEARED") {
-      if (receivedDraft?.draftId === event.turnId
-          && Number(event.payload?.revision) >= receivedDraft.revision)
-        clearReceivedDraft("The participant's shared draft was cleared.");
-      return;
-    }
-    const payload = event.payload;
-    const incomingRevision = Number(payload?.revision);
-    if (event.type !== "TEXT_DRAFT_UPDATED" || payload?.provisional !== true
-        || typeof payload.translatedText !== "string" || !Number.isSafeInteger(incomingRevision)) return;
-    if (receivedDraft?.draftId === event.turnId && incomingRevision <= receivedDraft.revision) return;
-    const first = receivedDraft === null || receivedDraft.draftId !== event.turnId;
-    receivedDraft = { draftId: event.turnId, revision: incomingRevision,
-      senderParticipantId: event.senderParticipantId };
-    const participant = document.querySelector("#participants-list [data-participant-id='" +
-      event.senderParticipantId + "']");
-    const sender = participant?.dataset.role || "Partner";
-    if (sharedDraftHeading) sharedDraftHeading.textContent = sender + " · Live translation draft";
-    sharedDraftText.textContent = payload.translatedText;
-    sharedDraftText.lang = payload.targetLanguage;
-    sharedDraftStatus.textContent = "Updating may continue until the participant sends or stops sharing.";
-    sharedDraft.hidden = false;
-    if (turnEmpty) turnEmpty.hidden = true;
-    window.voicelinkHistory?.refresh();
-    if (first && sharedDraftAnnouncement)
-      sharedDraftAnnouncement.textContent = sender + " started sharing a translated draft.";
-  });
-  window.addEventListener("voicelink-text-draft-reset", () => {
-    clearReceivedDraft("Shared draft cleared after the live connection changed.");
-    if (privacyMode === "shared" || sharingEpoch) {
-      sharingOperation++;
-      privacyMode = "private";
-      sharingEpoch = null;
-      sharedServerCurrent = false;
-      sharedInvalidation = Promise.resolve();
-      sharingChanging = false;
-      invalidate("Shared Live ended when the live connection changed. Enable it again to share.", "error");
-      liveCopy();
-      update();
-    }
   });
   window.addEventListener("voicelink-glossary-changed", () => {
     if (mode !== "type") return;
     invalidate("The glossary changed. A fresh translation is required.", "waiting");
-    if (textMode === "live" && privacyMode === "shared") {
-      sharedInvalidation = clearSharedDraft(revision);
-      sharedInvalidation.then(scheduleLive);
-    } else if (textMode === "live") scheduleLive();
+    if (textMode === "live") scheduleLive();
   });
   window.addEventListener("voicelink-room-state", () => {
     if (roomStatus.textContent === "CLOSED") {
-      sharingOperation++;
-      privacyMode = "private";
-      sharingEpoch = null;
-      sharedServerCurrent = false;
-      sharedInvalidation = Promise.resolve();
       invalidate("This room is closed.", "error");
       finalEvents.replaceChildren();
       seen.clear();
-      clearReceivedDraft("Shared draft cleared because the room closed.");
     }
     update();
+  });
+  romanizedToggle?.addEventListener("change", () => {
+    romanizedTamil = romanizedToggle.checked;
+    sourceLabel.textContent = romanizedTamil ? "Your message · Romanized Tamil" : "Your message";
+    source.lang = romanizedTamil ? "ta-Latn" : sourceLanguage;
+    invalidate(romanizedTamil ? "Romanized Tamil input selected. Translate to review it."
+      : "Tamil input selected. Translate to review it.", "idle");
+    if (textMode === "live") scheduleLive();
   });
   setInterval(() => {
     if (review && Date.now() >= Date.parse(review.expiresAt))
       invalidate("Private review expired. Translate again.", "error");
   }, 1000);
-  window.addEventListener("pagehide", () => {
-    if (sharingEpoch) sharingRequest("sharing/" + sharingEpoch, "DELETE", null, true)
-      .catch(() => {});
-  });
   totalCopy();
   setStatus("Ready to translate.", "idle");
   update();

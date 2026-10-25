@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -164,7 +165,10 @@ public class SpeechTurnService {
                 Iterator<String> ids = room.byRequest.keySet().iterator();
                 ids.next(); ids.remove();
             }
-            if (workflow == Workflow.LIVE_SEND) publishAccepted(turn);
+            if (workflow == Workflow.LIVE_SEND) hub.publishTurnToSender(roomId, userId,
+                    member.participantId(), turn.id, "TURN_ACCEPTED",
+                    Map.of("turnIndex", turn.index, "sourceLanguage", turn.source,
+                            "targetLanguage", turn.target));
             if (!room.processing) {
                 room.processing = true;
                 RoomQueue selected = room;
@@ -202,7 +206,9 @@ public class SpeechTurnService {
             Turn turn = work.turn;
             metrics.duration(turn.profile, "queue_wait", turn.receivedNanos);
             try {
-                if (work.kind == WorkKind.PROCESS) process(turn); else synthesize(turn);
+                if (work.kind == WorkKind.PROCESS) process(turn);
+                else if (work.kind == WorkKind.RETRY_TRANSLATION) retryTranslationWork(turn);
+                else synthesize(turn);
             } finally {
                 synchronized (this) { room.pending--; turn.rawAudio = null; }
                 metrics.count(turn.profile, "READY".equals(turn.status) || "READY_FOR_REVIEW".equals(turn.status) ? "ready" :
@@ -220,8 +226,10 @@ public class SpeechTurnService {
             AiProviderBundle bundle = providers.resolve(turn.profile);
             long stageStarted = System.nanoTime();
             SpeechToTextProvider.Result transcript;
+            String terminologyHints = glossarySpeechHints(turn.roomId, turn.userId, turn.source);
             try {
-                transcript = bundle.stt().transcribe(new SpeechToTextProvider.Input(turn.rawAudio, turn.source));
+                transcript = bundle.stt().transcribe(new SpeechToTextProvider.Input(
+                        turn.rawAudio, turn.source, terminologyHints));
             } finally {
                 metrics.duration(turn.profile, "stt", stageStarted);
             }
@@ -238,10 +246,6 @@ public class SpeechTurnService {
                 throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
             }
             if (!stillActive(turn)) return;
-            if (turn.workflow == Workflow.LIVE_SEND)
-                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
-                        Map.of("turnIndex", turn.index, "transcript", turn.transcript,
-                                "sourceLanguage", turn.source));
             requireTime(deadline);
             stage = "TRANSLATION";
             List<TranslationProvider.ContextTurn> context = sharedContext.snapshot(turn.roomId);
@@ -282,6 +286,12 @@ public class SpeechTurnService {
             if (!stillActive(turn)) return;
             if (turn.workflow == Workflow.FINISH_AND_SEND) return;
             sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
+            if (turn.workflow == Workflow.LIVE_SEND) {
+                publishAccepted(turn);
+                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
+                        Map.of("turnIndex", turn.index, "transcript", turn.transcript,
+                                "sourceLanguage", turn.source));
+            }
             hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
                     Map.of("turnIndex", turn.index, "translatedText", turn.translation,
                             "targetLanguage", turn.target));
@@ -303,8 +313,109 @@ public class SpeechTurnService {
             turn.failedStage = stage;
             turn.errorCode = code;
         }
-        if ((turn.workflow == Workflow.LIVE_SEND || turn.sent) && stillActive(turn)) hub.publishTurn(turn.roomId, turn.userId, turn.participantId,
-                turn.id, "TURN_FAILED", failurePayload(turn, message));
+        if ((turn.workflow == Workflow.LIVE_SEND || turn.sent) && stillActive(turn)) {
+            if ("TRANSLATION".equals(stage) && turn.workflow == Workflow.LIVE_SEND) {
+                hub.publishTurnToSender(turn.roomId, turn.userId, turn.participantId, turn.id,
+                        "TURN_FAILED", failurePayload(turn, message));
+            } else {
+                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id,
+                        "TURN_FAILED", failurePayload(turn, message));
+            }
+        }
+    }
+
+    private String glossarySpeechHints(UUID roomId, UUID userId, String sourceLanguage) {
+        String prefix = "Recognize these room terminology hints when clearly heard: ";
+        StringBuilder terms = new StringBuilder();
+        for (RoomGlossaryService.EntryView term : glossary.list(userId, roomId)) {
+            if (!sourceLanguage.equals(term.sourceLanguage())) continue;
+            String candidate = term.sourceTerm();
+            int additionLength = candidate.length() + (terms.isEmpty() ? 0 : 2);
+            if (prefix.length() + terms.length() + additionLength > 224) break;
+            if (!terms.isEmpty()) terms.append(", ");
+            terms.append(candidate);
+        }
+        return terms.isEmpty() ? "" : prefix + terms;
+    }
+
+    public RetryAccepted retryTranslation(UUID userId, String sessionId, UUID roomId, UUID turnId) {
+        RoomLiveAuthorizer.Member member = activeMember(userId, roomId);
+        synchronized (this) {
+            expireLocked(clock.instant());
+            RoomQueue room = states.get(roomId);
+            Turn turn = room == null ? null : room.recent.stream()
+                    .filter(candidate -> candidate.id.equals(turnId)).findFirst().orElse(null);
+            if (turn == null || turn.workflow != Workflow.LIVE_SEND || !turn.userId.equals(userId)
+                    || !turn.participantId.equals(member.participantId())
+                    || !java.util.Objects.equals(turn.sessionId, sessionId)) throw reviewGone();
+            if (!"FAILED".equals(turn.status) || !"TRANSLATION".equals(turn.failedStage)
+                    || turn.transcript == null || turn.transcript.isBlank()
+                    || !clock.instant().isBefore(turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS)))
+                throw conflict("This recognized turn is no longer available for translation retry.");
+            if (member.profile() != turn.profile || !member.speaking().equals(turn.source)
+                    || !member.listening().equals(turn.target))
+                throw conflict("The room language or service profile changed. Record a new turn.");
+            if (room.closed || room.pending >= MAX_PENDING_PER_ROOM) throw unavailable();
+            if (!rateLimiter.tryAcquire(userId)) throw rateLimited();
+            turn.status = "TRANSLATING";
+            turn.failedStage = null;
+            turn.errorCode = null;
+            room.queue.addLast(new Work(turn, WorkKind.RETRY_TRANSLATION));
+            room.pending++;
+            scheduleLocked(room, turn, false);
+            return new RetryAccepted(turn.id, "TRANSLATING");
+        }
+    }
+
+    private void retryTranslationWork(Turn turn) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PIPELINE_SECONDS);
+        String stage = "TRANSLATION";
+        try {
+            if (!stillActive(turn)) return;
+            requireTime(deadline);
+            List<TranslationProvider.ContextTurn> context = sharedContext.snapshot(turn.roomId);
+            List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
+                    turn.roomId, turn.source, turn.target, turn.transcript);
+            AiProviderBundle bundle = providers.resolve(turn.profile);
+            requirePaidStage(turn);
+            long started = System.nanoTime();
+            TranslationProvider.Result translated;
+            try (PremiumUsageGuard.Permit permit = premiumUsage.acquire(turn.profile, turn.userId, turn.roomId,
+                    PremiumUsageGuard.Operation.TRANSLATION, turn.premiumCostSaverEnabled, false)) {
+                translated = bundle.translation().translate(new TranslationProvider.TranslationRequest(
+                        turn.transcript, turn.source, turn.target, context, terms,
+                        translationBudget(deadline - System.nanoTime(), true)));
+                permit.success();
+            } finally { metrics.duration(turn.profile, "translation", started); }
+            premiumUsage.recordTranslationUsage(turn.profile, turn.premiumCostSaverEnabled,
+                    translated.usage().inputTokens(), translated.usage().outputTokens(),
+                    translated.usage().thinkingTokens());
+            if (translated.translatedText() == null || translated.translatedText().isBlank()
+                    || translated.translatedText().codePointCount(0, translated.translatedText().length()) > 6000)
+                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+            synchronized (this) {
+                if (turn.cancelled || turn.status.equals("EXPIRED")) return;
+                turn.translation = translated.translatedText();
+                turn.translationSucceeded = true;
+                turn.status = "TRANSLATED";
+            }
+            if (!stillActive(turn)) return;
+            sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
+            publishAccepted(turn);
+            hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
+                    Map.of("turnIndex", turn.index, "transcript", turn.transcript,
+                            "sourceLanguage", turn.source));
+            hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
+                    Map.of("turnIndex", turn.index, "translatedText", turn.translation,
+                            "targetLanguage", turn.target));
+            metrics.duration(turn.profile, "caption_event", turn.receivedNanos);
+            stage = "TTS";
+            synthesize(turn, bundle, deadline);
+        } catch (ProviderFailure ex) {
+            fail(turn, stage, ex.code().name(), ex.getMessage());
+        } catch (RuntimeException ex) {
+            fail(turn, stage, "UNAVAILABLE", "The speech service is temporarily unavailable.");
+        }
     }
 
     private void synthesize(Turn turn) {
@@ -356,8 +467,15 @@ public class SpeechTurnService {
     }
 
     private static Map<String, ?> failurePayload(Turn turn, String message) {
-        return Map.of("turnIndex", turn.index, "stage", turn.failedStage,
-                "code", turn.errorCode, "message", message);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("turnIndex", turn.index);
+        payload.put("stage", turn.failedStage);
+        payload.put("code", turn.errorCode);
+        payload.put("message", message == null ? "Speech processing could not finish." : message);
+        if ("TRANSLATION".equals(turn.failedStage) && turn.transcript != null)
+            payload.put("transcript", turn.transcript);
+        if ("TRANSLATION".equals(turn.failedStage)) payload.put("sourceLanguage", turn.source);
+        return Map.copyOf(payload);
     }
 
     private boolean stillActive(Turn turn) {
@@ -395,7 +513,11 @@ public class SpeechTurnService {
             if (room == null) return List.of();
             List<Snapshot> result = new ArrayList<>();
             for (Turn turn : room.recent) {
-                if (turn.workflow == Workflow.LIVE_SEND || turn.sent) result.add(snapshot(turn));
+                if ((turn.workflow == Workflow.LIVE_SEND || turn.sent)
+                        && !(turn.workflow == Workflow.LIVE_SEND && !turn.translationSucceeded
+                        && !turn.userId.equals(userId)
+                        && ("TRANSLATION".equals(turn.failedStage) || "TRANSLATING".equals(turn.status))))
+                    result.add(snapshot(turn));
             }
             return result;
         }
@@ -655,6 +777,7 @@ public class SpeechTurnService {
                          String translatedText, String sourceLanguage, String targetLanguage,
                          String profile, Instant expiresAt, String failedStage, String errorCode) {}
     public record Sent(UUID turnId, long turnIndex, boolean duplicate, String profile) {}
+    public record RetryAccepted(UUID turnId, String status) {}
     public record Audio(byte[] bytes, String mediaType) {}
     public record Snapshot(UUID turnId, long turnIndex, UUID senderParticipantId,
                            String sourceLanguage, String targetLanguage, String status,
@@ -675,7 +798,7 @@ public class SpeechTurnService {
     }
 
     public enum Workflow { LIVE_SEND, FINISH_AND_SEND }
-    private enum WorkKind { PROCESS, TTS }
+    private enum WorkKind { PROCESS, RETRY_TRANSLATION, TTS }
     private record Work(Turn turn, WorkKind kind) {}
 
     private static final class Turn {

@@ -150,14 +150,13 @@ class RoomLiveWebSocketTests {
         UUID requestId = UUID.randomUUID();
         assertThat(first.upload(roomId, requestId, smallWebm())).isEqualTo(202);
         JsonNode acceptedA = aSocket.await("TURN_ACCEPTED");
-        JsonNode acceptedB = bSocket.await("TURN_ACCEPTED");
-        assertThat(acceptedA.path("eventId").asText()).isEqualTo(acceptedB.path("eventId").asText());
         assertThat(acceptedA.path("payload").path("sourceLanguage").asText()).isEqualTo("en");
         assertThat(acceptedA.path("payload").path("targetLanguage").asText()).isEqualTo("ta");
         JsonNode failed = bSocket.await("TURN_FAILED");
+        assertThat(bSocket.history).noneMatch(event -> "TURN_ACCEPTED".equals(event.path("type").asText()));
+        assertThat(failed.path("payload").has("transcript")).isFalse();
         assertThat(failed.path("payload").path("stage").asText()).isEqualTo("STT");
         assertThat(failed.path("payload").path("code").asText()).isEqualTo("CONFIGURATION");
-        assertThat(failed.path("sequence").longValue()).isGreaterThan(acceptedB.path("sequence").longValue());
         assertThat(failed.toString()).doesNotContain("replace-with", "Bearer", "api.groq.com");
     }
 
@@ -252,7 +251,7 @@ class RoomLiveWebSocketTests {
     }
 
     @Test
-    void sharedDraftUsesOrderedPeerOnlyEventsAndDisconnectClearsWithoutReplay() throws Exception {
+    void livePreviewDraftIsNeverBroadcastToRoomPeers() throws Exception {
         var a = account("Draft sender");
         var b = account("Draft receiver");
         var other = account("Separate receiver");
@@ -270,32 +269,16 @@ class RoomLiveWebSocketTests {
 
         var sharing = textSharing.start(roomId, a.getId(), participant, sender.sessionId(),
                 liveHub::publishDraftClear);
-        var firstLease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
+        var lease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
                 sharing.sharingEpoch(), 1, liveHub::publishDraftClear);
-        assertThat(textSharing.publish(firstLease, "வணக்கம்", "en", "ta",
-                liveHub::publishDraft)).isTrue();
-        JsonNode first = receiverSocket.await("TEXT_DRAFT_UPDATED");
-        assertThat(first.path("payload").path("translatedText").asText()).isEqualTo("வணக்கம்");
-        assertThat(first.path("payload").path("provisional").asBoolean()).isTrue();
-        assertThat(first.path("payload").has("originalText")).isFalse();
-        assertThat(first.toString()).doesNotContain(sender.sessionId(), "reviewId", "sharingEpoch");
+        assertThat(textSharing.publish(lease, "வணக்கம்", "en", "ta",
+                liveHub::publishDraft)).isFalse();
         assertThat(senderSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(receiverSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
         assertThat(separateSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
 
-        var secondLease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
-                sharing.sharingEpoch(), 2, liveHub::publishDraftClear);
-        assertThat(textSharing.publish(secondLease, "வணக்கம் நண்பரே", "en", "ta",
-                liveHub::publishDraft)).isTrue();
-        JsonNode second = receiverSocket.await("TEXT_DRAFT_UPDATED");
-        assertThat(second.path("sequence").asLong()).isGreaterThan(first.path("sequence").asLong());
-        assertThat(second.path("turnId").asText()).isEqualTo(first.path("turnId").asText());
-        assertThat(second.path("payload").path("revision").asLong()).isEqualTo(2);
-
         senderSocket.socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
-        JsonNode cleared = receiverSocket.await("TEXT_DRAFT_CLEARED");
-        assertThat(cleared.path("sequence").asLong()).isGreaterThan(second.path("sequence").asLong());
-        assertThat(cleared.path("turnId").asText()).isEqualTo(second.path("turnId").asText());
-        assertThat(cleared.path("payload").path("reason").asText()).isEqualTo("DISCONNECTED");
+        assertThat(receiverSocket.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
 
         LiveSocket reconnected = sender.connect(roomId, sender.base);
         reconnected.await("ROOM_STATE");
@@ -667,6 +650,7 @@ class RoomLiveWebSocketTests {
     private static final class LiveSocket implements WebSocket.Listener {
         final ObjectMapper json;
         final BlockingQueue<JsonNode> messages = new LinkedBlockingQueue<>();
+        final java.util.concurrent.CopyOnWriteArrayList<JsonNode> history = new java.util.concurrent.CopyOnWriteArrayList<>();
         final java.util.concurrent.CompletableFuture<Void> closed = new java.util.concurrent.CompletableFuture<>();
         final StringBuilder current = new StringBuilder();
         WebSocket socket;
@@ -681,7 +665,11 @@ class RoomLiveWebSocketTests {
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
             current.append(data);
             if (last) {
-                try { messages.add(json.readTree(current.toString())); }
+                try {
+                    JsonNode event = json.readTree(current.toString());
+                    history.add(event);
+                    messages.add(event);
+                }
                 catch (Exception ex) { closed.completeExceptionally(ex); }
                 current.setLength(0);
             }

@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div th:replace="~{fragments/app-shell :: chrome(${room.status.name() == 'CLOSED' ? 'rooms' : 'conversations'}, 'Conversation', ${email})}"></div>
   <main id="main" class="workspace workspace--conversation room-page">
-    <div id="room-page" th:attr="data-room-id=${room.id},data-live-text-debounce-ms=${room.profile.name() == 'PREMIUM' && room.premiumCostSaverEnabled ? 1500 : 800}">
+    <div id="room-page" th:attr="data-room-id=${room.id},data-source-language=${room.currentParticipant.speaking},data-live-text-debounce-ms=${room.profile.name() == 'PREMIUM' && room.premiumCostSaverEnabled ? 1500 : 800}">
       <a class="room-back" th:if="${room.status.name() != 'CLOSED'}" th:href="@{/app}">← Back to conversations</a>
       <a class="room-back" th:if="${room.status.name() == 'CLOSED'}" th:href="@{/rooms}">← Back to rooms</a>
       <section class="room-header" aria-labelledby="room-heading">
@@ -148,25 +148,15 @@
               <span class="eyebrow">Current conversation</span>
               <h3 id="turns-heading">Conversation</h3>
               <p class="turns-card__intro">Recent captions, messages, and audio are temporary and may disappear after expiry or restart.</p>
-              <div class="history-filters" role="group" aria-label="Filter conversation messages">
-                <button id="history-all" class="history-filters__button" type="button" aria-pressed="true" aria-controls="conversation-events">All messages</button>
-                <button id="history-translated" class="history-filters__button" type="button" aria-pressed="false" aria-controls="conversation-events">Translated</button>
+              <div class="history-filters" role="group" aria-label="Conversation messages">
+                <button id="history-translated" class="history-filters__button" type="button" aria-pressed="true" aria-controls="conversation-events">Translated</button>
                 <button id="history-quick" class="history-filters__button" type="button" aria-pressed="false" aria-controls="conversation-events">Quick chat</button>
               </div>
               <p id="history-filter-status" class="sr-only" role="status" aria-live="polite"></p>
               <p id="turn-empty" class="empty-state" role="status">No conversation activity yet.</p>
-              <section id="shared-text-draft" class="shared-text-draft" aria-labelledby="shared-text-draft-heading" hidden>
-                <div class="shared-text-draft__header">
-                  <h4 id="shared-text-draft-heading">Partner · Live translation draft</h4>
-                  <span>Provisional</span>
-                </div>
-                <p id="shared-text-draft-text"></p>
-                <p id="shared-text-draft-status" class="small">May update until the participant sends or stops sharing.</p>
-              </section>
               <ol id="conversation-events" class="turn-list live-events" aria-label="Recent conversation activity"></ol>
               <button id="history-latest" class="history-latest" type="button" hidden>New messages · Jump to latest</button>
               <p id="turn-announcement" class="sr-only" role="status" aria-live="polite"></p>
-              <p id="shared-text-draft-announcement" class="sr-only" role="status" aria-live="polite"></p>
             </section>
             <section id="type-section" class="type-card" data-text-mode="total" aria-labelledby="type-workspace-heading" hidden>
               <h3 id="type-workspace-heading">Message composer</h3>
@@ -178,29 +168,21 @@
                 </div>
               </div>
               <div id="translation-composer">
-              <div id="type-privacy-controls" class="type-privacy-controls" hidden>
-                <span id="live-visibility-label" class="type-privacy-controls__label">Live preview visibility</span>
-                <div class="type-privacy-mode" role="group" aria-labelledby="live-visibility-label" aria-describedby="live-visibility-help">
-                  <button id="text-privacy-private" class="type-privacy-mode__button" type="button" aria-pressed="true">Private Live</button>
-                  <button id="text-privacy-shared" class="type-privacy-mode__button" type="button" aria-pressed="false">Shared Live</button>
-                </div>
-                <p id="live-visibility-help" class="type-privacy-controls__help">Only you see the live preview until you send.</p>
-              </div>
-              <div id="type-sharing-notice" class="type-sharing-notice" hidden>
-                <div>
-                  <strong>Sharing translated drafts</strong>
-                  <p>Your translated drafts will be visible to the other participant until you stop sharing or send the final message.</p>
-                </div>
-                <button id="text-sharing-stop" class="button button--secondary" type="button">Stop sharing</button>
-              </div>
               <div id="type-composer">
                 <span id="type-eyebrow" class="eyebrow">Translate message</span>
                 <h3 id="type-heading">Type a complete message</h3>
                 <p id="type-intro" class="type-card__intro">Translate and review your message before sending. Your partner sees it only after you select Send.</p>
               </div>
               <p class="type-direction" th:text="|Your direction: ${room.currentParticipant.speaking == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
+              <div class="field romanized-tamil-option" th:if="${room.currentParticipant.speaking == 'ta'}">
+                <label class="checkbox-label" for="romanized-tamil">
+                  <input id="romanized-tamil" type="checkbox" aria-describedby="romanized-tamil-help">
+                  <span>Type Tamil using English letters</span>
+                </label>
+                <p id="romanized-tamil-help" class="field-help">Optional. Live and message translation will interpret your input as Romanized Tamil. Quick chat remains unchanged.</p>
+              </div>
               <div class="field">
-                <label for="type-source">Your message</label>
+                <label for="type-source"><span id="type-source-label">Your message</span></label>
                 <textarea id="type-source" rows="4" maxlength="2000" autocomplete="off" aria-describedby="type-limit"></textarea>
                 <p id="type-limit" class="small muted">Up to 1,000 Unicode characters. Review expires after 2 minutes.</p>
               </div>
@@ -213,7 +195,7 @@
               </div>
               <section id="type-review" class="type-review" aria-labelledby="type-review-heading" hidden>
                 <h4 id="type-review-heading">Translated — Not sent</h4>
-                <div class="turn-caption"><span class="turn-caption__label">Original</span><p id="type-review-original"></p></div>
+                <div class="turn-caption"><span id="type-review-original-label" class="turn-caption__label">Original</span><p id="type-review-original"></p></div>
                 <div class="turn-caption turn-caption--translated"><span class="turn-caption__label">Translation</span><p id="type-review-translation"></p></div>
                 <button id="type-send" class="button button--primary" type="button" disabled>Send translated message</button>
               </section>
@@ -252,6 +234,12 @@
                 <output id="recording-timer" class="recording-timer" aria-hidden="true" hidden></output>
               </div>
               <p id="recording-status" class="recording-status" role="status" aria-live="polite">Checking microphone support</p>
+              <section id="speech-translation-retry" class="speech-translation-retry" aria-labelledby="speech-translation-retry-heading" hidden>
+                <h4 id="speech-translation-retry-heading">Translation failed</h4>
+                <p id="speech-translation-retry-transcript" class="turn-caption__text"></p>
+                <p id="speech-translation-retry-status" role="status" aria-live="polite">Your recognized text is kept temporarily for retry.</p>
+                <button id="speech-translation-retry-button" class="button button--secondary" type="button">Retry translation</button>
+              </section>
               <section id="speech-review" class="speech-review" aria-labelledby="speech-review-heading" hidden>
                 <div class="speech-review__heading">
                   <div><span class="eyebrow">Private review</span><h4 id="speech-review-heading">Ready to send</h4></div>

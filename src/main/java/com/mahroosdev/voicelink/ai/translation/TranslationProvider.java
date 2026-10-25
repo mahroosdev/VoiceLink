@@ -8,10 +8,16 @@ public interface TranslationProvider {
 
     record TranslationRequest(String currentUtterance, String sourceLanguage, String targetLanguage,
                               List<ContextTurn> recentContext, List<GlossaryTerm> glossary,
-                              Duration timeout) {
+                              Duration timeout, boolean romanizedTamil) {
         public TranslationRequest(String currentUtterance, String sourceLanguage, String targetLanguage,
                                   List<ContextTurn> recentContext, List<GlossaryTerm> glossary) {
-            this(currentUtterance, sourceLanguage, targetLanguage, recentContext, glossary, null);
+            this(currentUtterance, sourceLanguage, targetLanguage, recentContext, glossary, null, false);
+        }
+
+        public TranslationRequest(String currentUtterance, String sourceLanguage, String targetLanguage,
+                                  List<ContextTurn> recentContext, List<GlossaryTerm> glossary,
+                                  Duration timeout) {
+            this(currentUtterance, sourceLanguage, targetLanguage, recentContext, glossary, timeout, false);
         }
 
         public TranslationRequest {
