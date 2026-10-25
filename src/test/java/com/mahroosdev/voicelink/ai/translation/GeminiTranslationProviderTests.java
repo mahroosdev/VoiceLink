@@ -130,6 +130,27 @@ class GeminiTranslationProviderTests {
                 .isEqualTo("translation");
     }
 
+    @Test void romanizedTamilIsExplicitlyTranslatedAsTamilAndNeverAutoDetectedAsEnglish() throws Exception {
+        var input = new TranslationProvider.TranslationRequest(
+                "ungalukku enna project update vivarangal venum", "ta", "en", List.of(),
+                List.of(new TranslationProvider.GlossaryTerm("ta", "en", "project update", "project update")),
+                null, true);
+        var body = json.readTree(GeminiTranslationProvider.requestBody(json, input));
+        String instruction = body.path("systemInstruction").path("parts").get(0).path("text").asText();
+        var data = json.readTree(body.path("contents").get(0).path("parts").get(0).path("text").asText());
+        assertThat(instruction).contains("Translate only currentUtterance from Tamil into English",
+                "Tamil written phonetically with Latin characters (Romanized Tamil)",
+                "Interpret it as Tamil, not English", "translate its meaning", "Retain natural technical English terms");
+        assertThat(instruction).doesNotContain("auto-detect", "detect the language");
+        assertThat(data.path("sourceLanguage").asText()).isEqualTo("ta");
+        assertThat(data.path("targetLanguage").asText()).isEqualTo("en");
+        assertThat(data.path("romanizedTamil").asBoolean()).isTrue();
+        assertThat(data.path("currentUtterance").asText()).startsWith("ungalukku");
+        assertThat(GeminiTranslationProvider.parseTranslation(json,
+                "{\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"{\\\"translation\\\":\\\"What project update details do you need?\\\"}\"}]}}]}"))
+                .isEqualTo("What project update details do you need?");
+    }
+
     @Test void parsesStructuredTranslationAndRejectsMissingMalformedOrTruncatedResults() {
         String good = "{\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"{\\\"translation\\\":\\\"வணக்கம்\\\"}\"}]}}]}";
         assertThat(GeminiTranslationProvider.parseTranslation(json, good)).isEqualTo("வணக்கம்");

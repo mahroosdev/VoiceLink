@@ -41,7 +41,9 @@ function setup(fetchImpl, microphoneError) {
     "recording-timer", "turn-empty", "turn-announcement", "mode-type", "text-mode-quick",
     "speech-mode-live", "speech-mode-finish", "speech-mode-help", "speech-review",
     "speech-review-transcript", "speech-review-translation", "speech-review-expiry",
-    "speech-review-send", "speech-review-record-again", "speech-review-cancel"];
+    "speech-review-send", "speech-review-record-again", "speech-review-cancel",
+    "speech-translation-retry", "speech-translation-retry-transcript",
+    "speech-translation-retry-status", "speech-translation-retry-button"];
   const nodes = Object.fromEntries(ids.map(id => [id, node()]));
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-status"].textContent = "ACTIVE";
@@ -56,6 +58,9 @@ function setup(fetchImpl, microphoneError) {
   const listeners = {};
   const timers = new Map();
   let timerId = 1, now = 1000, uuid = 0;
+  let confirmResult = true;
+  const confirmationMessages = [];
+  class FakeDate extends Date { static now() { return now; } }
   class FakeFormData {
     constructor() { this.values = new Map(); }
     append(name, value) { this.values.set(name, value); }
@@ -97,7 +102,7 @@ function setup(fetchImpl, microphoneError) {
     MediaRecorder: FakeRecorder,
     addEventListener(type, fn) { listeners[type] = fn; },
     dispatchEvent(event) { listeners[event.type]?.(event); },
-    confirm: () => true
+    confirm(message) { confirmationMessages.push(message); return confirmResult; }
   };
   const setTimeout = (fn, delay) => { const id = timerId++; timers.set(id, { fn, delay }); return id; };
   const clearTimeout = id => timers.delete(id);
@@ -109,11 +114,13 @@ function setup(fetchImpl, microphoneError) {
   vm.runInNewContext(script, { document, window, navigator, MediaRecorder: FakeRecorder,
     WebSocket: FakeSocket, location: { protocol: "https:", host: "example.test" },
     fetch: fetchImpl, FormData: FakeFormData, Blob, Date, Event: FakeEvent,
-    CustomEvent: FakeCustomEvent, crypto: { randomUUID: () => "id-" + (++uuid) },
+    CustomEvent: FakeCustomEvent, Date: FakeDate, crypto: { randomUUID: () => "id-" + (++uuid) },
     performance: { now: () => now }, setTimeout, clearTimeout, setInterval: () => 1,
     clearInterval: () => {} });
   FakeSocket.latest.onopen();
-  return { nodes, listeners, timers, runTimer, socket: FakeSocket.latest,
+  return { nodes, listeners, timers, runTimer, confirmationMessages,
+    setConfirm(value) { confirmResult = value; }, socket: FakeSocket.latest,
+    currentSocket() { return FakeSocket.latest; },
     recorder: () => FakeRecorder.instances.at(-1),
     advance(ms) { now += ms; } };
 }
@@ -121,6 +128,36 @@ function setup(fetchImpl, microphoneError) {
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const response = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
   json: async () => body, redirected: false });
+
+test("translation failure keeps recognized text sender-only and retry posts the same turn ID", async () => {
+  const calls = [];
+  const h = setup(async (url, options = {}) => {
+    calls.push({ url, options });
+    return url.endsWith("/retry-translation") ? response({}, 202) : response([]);
+  });
+  const receive = event => h.socket.onmessage({ data: JSON.stringify(event) });
+  receive({ protocolVersion: 1, streamId: "stream-retry", sequence: 1, eventId: "state",
+    roomId: "room-1", type: "ROOM_STATE", payload: { status: "ACTIVE", participants: [
+      { participantId: "sender", current: true, owner: true, speaking: "ta", listening: "en" },
+      { participantId: "partner", current: false, owner: false, speaking: "en", listening: "ta" }
+    ] } });
+  receive({ protocolVersion: 1, streamId: "stream-retry", sequence: 2, eventId: "failed",
+    roomId: "room-1", type: "TURN_FAILED", senderParticipantId: "sender", turnId: "turn-retry",
+    payload: { turnIndex: 1, stage: "TRANSLATION", sourceLanguage: "ta",
+      transcript: "ungalukku project update venuma", message: "Translation unavailable." } });
+  assert.equal(h.nodes["speech-translation-retry"].hidden, false);
+  assert.equal(h.nodes["speech-translation-retry-transcript"].textContent,
+    "ungalukku project update venuma");
+  assert.equal(h.nodes["speech-translation-retry-transcript"].lang, "ta");
+  assert.equal(h.nodes["conversation-events"].children.length, 0);
+  assert.match(h.nodes["speech-translation-retry-status"].textContent, /Translation unavailable/);
+  await h.nodes["speech-translation-retry-button"].click();
+  const retryCall = calls.find(call => call.url.endsWith("/retry-translation"));
+  assert.equal(retryCall.url, "/api/rooms/room-1/turns/turn-retry/retry-translation");
+  assert.equal(retryCall.options.method, "POST");
+  assert.equal(retryCall.options.headers["X-CSRF-TOKEN"], "token");
+  assert.match(h.nodes["speech-translation-retry-status"].textContent, /Translation is processing/);
+});
 
 async function finishRecording(harness) {
   harness.nodes["record-start"].callbacks.click();
@@ -265,6 +302,46 @@ test("Quick chat keeps its draft when the server rejects a send", async () => {
   assert.equal(h.nodes["live-text-input"].value, "Keep this draft");
   assert.equal(h.nodes["live-text-input"].disabled, false);
   assert.match(h.nodes["quick-status"].textContent, /not sent/);
+});
+
+test("Quick chat retries keep the message ID for 30 minutes and expired resend warns before a new ID", async () => {
+  const h = setup(async () => response([]));
+  h.nodes["live-text-input"].value = "Pending quick message";
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  const firstId = h.socket.sent[0].clientMessageId;
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(h.socket.sent[1].clientMessageId, firstId);
+  assert.equal(h.confirmationMessages.length, 0);
+
+  h.socket.onclose({ code: 1006 });
+  await tick();
+  assert.equal(h.runTimer(1000), true);
+  const reconnectedSocket = h.currentSocket();
+  reconnectedSocket.onopen();
+  assert.equal(reconnectedSocket.sent[0].clientMessageId, firstId);
+
+  h.advance(30 * 60 * 1000);
+  assert.equal(h.runTimer(30 * 60 * 1000), true);
+  assert.match(h.nodes["quick-status"].textContent, /Delivery unconfirmed.*Automatic Quick chat retries stopped/);
+  assert.equal(h.nodes["live-send"].textContent, "Send again (may duplicate)");
+
+  reconnectedSocket.onclose({ code: 1006 });
+  await tick();
+  assert.equal(h.runTimer(1000), true);
+  const afterDeadlineSocket = h.currentSocket();
+  afterDeadlineSocket.onopen();
+  assert.equal(afterDeadlineSocket.sent.length, 0);
+
+  h.setConfirm(false);
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(afterDeadlineSocket.sent.length, 0);
+  assert.match(h.confirmationMessages[0], /may create a duplicate/);
+
+  h.setConfirm(true);
+  h.nodes["live-text-form"].callbacks.submit({ preventDefault() {} });
+  assert.equal(afterDeadlineSocket.sent.length, 1);
+  assert.notEqual(afterDeadlineSocket.sent[0].clientMessageId, firstId);
+  assert.equal(h.confirmationMessages.length, 2);
 });
 
 test("explicit speech Send is single-action and mode change cancels an unsent review", async () => {

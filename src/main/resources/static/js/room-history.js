@@ -2,16 +2,14 @@
   "use strict";
   const list = document.getElementById("conversation-events");
   const empty = document.getElementById("turn-empty");
-  const draft = document.getElementById("shared-text-draft");
   const latest = document.getElementById("history-latest");
   const filterStatus = document.getElementById("history-filter-status");
   const buttons = {
-    all: document.getElementById("history-all"),
     translated: document.getElementById("history-translated"),
     quick: document.getElementById("history-quick")
   };
   if (!list || Object.values(buttons).some(button => !button)) return;
-  let filter = "all";
+  let filter = "translated";
 
   function nearBottom() {
     return list.scrollHeight - list.scrollTop - list.clientHeight <= 80;
@@ -21,16 +19,13 @@
     let visible = 0;
     for (const row of list.children) {
       const kind = row.dataset.messageKind;
-      row.hidden = filter !== "all" && kind !== filter;
+      row.hidden = kind !== filter;
       if (!row.hidden) visible++;
     }
-    draft?.classList.toggle("history-filtered", filter !== "all");
-    const showingDraft = draft && !draft.hidden && filter === "all";
     if (empty) {
-      empty.hidden = visible > 0 || !!showingDraft;
+      empty.hidden = visible > 0;
       empty.textContent = filter === "quick" ? "No quick chat messages yet."
-        : filter === "translated" ? "No translated messages yet."
-          : "No conversation activity yet.";
+        : "No translated messages yet.";
     }
     if (nearBottom()) latest.hidden = true;
   }
@@ -68,5 +63,7 @@
     },
     refresh: applyFilter
   };
+  for (const [name, button] of Object.entries(buttons))
+    button.setAttribute("aria-pressed", String(name === filter));
   applyFilter();
 })();

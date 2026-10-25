@@ -99,6 +99,10 @@ public class GeminiTranslationProvider implements TranslationProvider {
                 && !("ta".equals(input.sourceLanguage()) && "en".equals(input.targetLanguage()))) {
             throw new ProviderFailure(ProviderFailure.Code.UNSUPPORTED_LANGUAGE);
         }
+        if (input.romanizedTamil() && !("ta".equals(input.sourceLanguage())
+                && "en".equals(input.targetLanguage()))) {
+            throw new ProviderFailure(ProviderFailure.Code.UNSUPPORTED_LANGUAGE);
+        }
         if (input.currentUtterance() == null || input.currentUtterance().isBlank()
                 || input.currentUtterance().codePointCount(0, input.currentUtterance().length()) > 4000) {
             throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
@@ -209,8 +213,13 @@ public class GeminiTranslationProvider implements TranslationProvider {
                         + "may remain in Latin script when that sounds natural, including familiar loanwords; "
                         + "do not insert English words or force code-switching when Tamil is more natural. "
                 : "Use natural conversational English rather than mechanically mirroring Tamil sentence structure. ";
+        String sourceMode = input.romanizedTamil()
+                ? "The current utterance is Tamil written phonetically with Latin characters (Romanized Tamil). "
+                        + "Interpret it as Tamil, not English, and translate its meaning into natural conversational English. "
+                        + "Do not claim deterministic transliteration or invent unclear words. Retain natural technical English terms. "
+                : "";
         String instruction = "Translate only currentUtterance from " + source + " into " + target
-                + ". The source and target languages are explicit; do not detect or change them. "
+                + ". The source and target languages are explicit; do not detect or change them. " + sourceMode
                 + "Preserve the speaker's actual meaning and intent, tone, politeness level, "
                 + "question or statement intent, and conversational style. Produce natural spoken language "
                 + "for a real person-to-person conversation. " + targetStyle
@@ -233,6 +242,7 @@ public class GeminiTranslationProvider implements TranslationProvider {
         Map<String, Object> data = Map.of(
                 "currentUtterance", input.currentUtterance(),
                 "sourceLanguage", input.sourceLanguage(), "targetLanguage", input.targetLanguage(),
+                "romanizedTamil", input.romanizedTamil(),
                 "recentContext", input.recentContext().stream().map(turn -> Map.of(
                         "turnIndex", turn.turnIndex(), "sourceLanguage", turn.sourceLanguage(),
                         "targetLanguage", turn.targetLanguage(), "sourceTranscript", turn.sourceTranscript())).toList(),

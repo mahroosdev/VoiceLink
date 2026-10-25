@@ -270,6 +270,117 @@ class SpeechTurnFlowTests {
         verify(premiumTts, never()).synthesize(any());
     }
 
+    @Test void failedSpeechTranslationIsPrivateAndCanRetryInEitherLanguageDirection() throws Exception {
+        when(stt.transcribe(any())).thenAnswer(invocation -> {
+            SpeechToTextProvider.Input input = invocation.getArgument(0);
+            return new SpeechToTextProvider.Result("en".equals(input.sourceLanguage())
+                    ? "Could you share the project update?" : "ungalukku project update venuma",
+                    "GROQ", "whisper-large-v3", 1);
+        });
+        when(translation.translate(any()))
+                .thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE))
+                .thenThrow(new ProviderFailure(ProviderFailure.Code.TIMEOUT))
+                .thenReturn(new TranslationProvider.Result("project update-ஐ share பண்ண முடியுமா?",
+                        "GEMINI", "gemini-3.1-flash-lite", 1))
+                .thenThrow(new ProviderFailure(ProviderFailure.Code.QUOTA))
+                .thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE))
+                .thenReturn(new TranslationProvider.Result("Would you like the project update?",
+                        "GEMINI", "gemini-3.1-flash-lite", 1));
+        when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
+
+        for (String source : java.util.List.of("en", "ta")) {
+            UserAccount sender = account("Sender"), partner = account("Partner");
+            UUID room = activeRoom(sender, partner, source);
+            when(hub.hasCurrentConnection(room, sender.getId(), "sender-session")).thenReturn(true);
+            var accepted = turns.accept(sender.getId(), "sender-session", room, UUID.randomUUID(),
+                    SpeechTurnService.Workflow.LIVE_SEND, webm(), "audio/webm;codecs=opus", 1000);
+            var failed = await(sender.getId(), room, "FAILED");
+            assertThat(failed.turnId()).isEqualTo(accepted.turnId());
+            assertThat(failed.failedStage()).isEqualTo("TRANSLATION");
+            assertThat(failed.transcript()).isNotBlank();
+            assertThat(turns.recent(partner.getId(), room)).isEmpty();
+            verify(hub).publishTurnToSender(
+                    eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
+                    eq("TURN_FAILED"), org.mockito.ArgumentMatchers.argThat(payload ->
+                            "TRANSLATION".equals(payload.get("stage"))
+                                    && failed.transcript().equals(payload.get("transcript"))));
+            verify(hub, never()).publishTurn(eq(room), any(), any(), eq(accepted.turnId()),
+                    eq("TRANSCRIPT_READY"), any());
+            verify(hub, never()).publishTurn(eq(room), any(), any(), eq(accepted.turnId()),
+                    eq("TRANSLATION_READY"), any());
+
+            turns.retryTranslation(sender.getId(), "sender-session", room, accepted.turnId());
+            var repeatedFailure = await(sender.getId(), room, "FAILED");
+            assertThat(repeatedFailure.transcript()).isEqualTo(failed.transcript());
+            assertThat(repeatedFailure.failedStage()).isEqualTo("TRANSLATION");
+            assertThat(turns.recent(partner.getId(), room)).isEmpty();
+            verify(hub, times(2)).publishTurnToSender(
+                    eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
+                    eq("TURN_FAILED"), org.mockito.ArgumentMatchers.argThat(payload ->
+                            "TRANSLATION".equals(payload.get("stage"))
+                                    && failed.transcript().equals(payload.get("transcript"))));
+            turns.retryTranslation(sender.getId(), "sender-session", room, accepted.turnId());
+            var completed = await(sender.getId(), room, "READY");
+            assertThat(completed.transcript()).isEqualTo(failed.transcript());
+            assertThat(turns.recent(partner.getId(), room)).singleElement()
+                    .satisfies(view -> {
+                        assertThat(view.turnId()).isEqualTo(accepted.turnId());
+                        assertThat(view.transcript()).isEqualTo(failed.transcript());
+                        assertThat(view.translatedText()).isNotBlank();
+                    });
+            verify(stt, times(source.equals("en") ? 1 : 2)).transcribe(any());
+            verify(hub, times(1)).publishTurn(eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
+                    eq("TRANSCRIPT_READY"), any());
+            verify(hub, times(1)).publishTurn(eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
+                    eq("TRANSLATION_READY"), any());
+            var requests = org.mockito.ArgumentCaptor.forClass(TranslationProvider.TranslationRequest.class);
+            // The same recognized utterance and server-assigned direction are used on each attempt.
+            verify(translation, source.equals("en") ? times(3) : times(6)).translate(requests.capture());
+            var last = requests.getAllValues().get(requests.getAllValues().size() - 1);
+            assertThat(last.currentUtterance()).isEqualTo(failed.transcript());
+            assertThat(last.sourceLanguage()).isEqualTo(source);
+            assertThat(last.targetLanguage()).isEqualTo("en".equals(source) ? "ta" : "en");
+        }
+    }
+
+    @Test void concurrentTranslationRetriesCannotQueueDuplicateDelivery() throws Exception {
+        UserAccount sender = account("Sender"), partner = account("Partner");
+        UUID room = activeRoom(sender, partner, "ta");
+        when(stt.transcribe(any())).thenReturn(new SpeechToTextProvider.Result(
+                "ungalukku project update venuma", "GROQ", "whisper-large-v3", 1));
+        CountDownLatch retryEntered = new CountDownLatch(1), releaseRetry = new CountDownLatch(1);
+        when(translation.translate(any())).thenThrow(new ProviderFailure(ProviderFailure.Code.UNAVAILABLE))
+                .thenAnswer(invocation -> {
+                    retryEntered.countDown();
+                    if (!releaseRetry.await(15, TimeUnit.SECONDS)) throw new AssertionError("retry test timed out");
+                    return new TranslationProvider.Result("Would you like the project update?",
+                            "GEMINI", "gemini-3.1-flash-lite", 1);
+                });
+        when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
+                new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1));
+        var accepted = turns.accept(sender.getId(), "sender-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.LIVE_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        var failed = await(sender.getId(), room, "FAILED");
+        turns.retryTranslation(sender.getId(), "sender-session", room, accepted.turnId());
+        try {
+            assertThat(retryEntered.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> turns.retryTranslation(sender.getId(), "sender-session", room, accepted.turnId()))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        } finally {
+            releaseRetry.countDown();
+        }
+        await(sender.getId(), room, "READY");
+        assertThat(turns.recent(partner.getId(), room)).singleElement()
+                .satisfies(view -> assertThat(view.turnId()).isEqualTo(accepted.turnId()));
+        verify(stt, times(1)).transcribe(any());
+        verify(translation, times(2)).translate(any());
+        verify(hub, times(1)).publishTurn(eq(room), eq(sender.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSLATION_READY"), any());
+        assertThat(failed.transcript()).isEqualTo("ungalukku project update venuma");
+    }
+
     @Test void successIsIdempotentAndAudioIsMemberOnly() throws Exception {
         UserAccount a = account("A"), b = account("B"), outsider = account("Outsider");
         UUID roomId = activeRoom(a, b, "en");

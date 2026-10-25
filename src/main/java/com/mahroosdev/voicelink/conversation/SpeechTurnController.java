@@ -58,6 +58,14 @@ public class SpeechTurnController {
                 .body(turns.send(principal.getUserId(), sessionId(request), roomId, turnId));
     }
 
+    @PostMapping("/api/rooms/{roomId}/turns/{turnId}/retry-translation")
+    ResponseEntity<SpeechTurnService.RetryAccepted> retryTranslation(
+            @AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID roomId,
+            @PathVariable UUID turnId, HttpServletRequest request) {
+        return ResponseEntity.accepted().cacheControl(CacheControl.noStore())
+                .body(turns.retryTranslation(principal.getUserId(), sessionId(request), roomId, turnId));
+    }
+
     @DeleteMapping("/api/rooms/{roomId}/turns/{turnId}/review")
     ResponseEntity<Void> cancel(@AuthenticationPrincipal AccountPrincipal principal,
             @PathVariable UUID roomId, @PathVariable UUID turnId, HttpServletRequest request) {

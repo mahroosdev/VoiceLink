@@ -79,14 +79,22 @@ public class TextTranslationService {
     }
 
     public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText, long revision) {
-        return review(userId, sessionId, roomId, sourceText, revision, null);
+        return review(userId, sessionId, roomId, sourceText, revision, null, false);
     }
 
     public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText,
                              long revision, UUID sharingEpoch) {
+        return review(userId, sessionId, roomId, sourceText, revision, sharingEpoch, false);
+    }
+
+    public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText,
+                             long revision, UUID sharingEpoch, boolean romanizedTamil) {
         validText(sourceText);
-        if (revision < 0 || sessionId == null || sessionId.isBlank()) throw badRequest();
+        if (revision < 0 || sessionId == null || sessionId.isBlank() || sharingEpoch != null) throw badRequest();
         RoomLiveAuthorizer.Member member = active(userId, roomId);
+        if (romanizedTamil && !("ta".equals(member.speaking()) && "en".equals(member.listening())))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Romanized Tamil is only available for Tamil-to-English translation.");
         requireProviderAvailable(member.profile());
         List<RoomGlossaryService.EntryView> glossaryVersion = glossary.list(userId, roomId);
         RoomReviews room;
@@ -117,6 +125,7 @@ public class TextTranslationService {
                     && existing.sourceLanguage.equals(member.speaking())
                     && existing.targetLanguage.equals(member.listening())
                     && existing.glossaryVersion.equals(glossaryVersion)
+                    && existing.romanizedTamil == romanizedTamil
                     && java.util.Objects.equals(existing.sharingEpoch, activeSharingEpoch)
                     && clock.instant().isBefore(existing.expiresAt)) {
                 return view(existing);
@@ -124,13 +133,15 @@ public class TextTranslationService {
             PendingReview pending = user.pending;
             if (pending != null && pending.sessionId.equals(sessionId)
                     && pending.source.equals(sourceText) && pending.revision == revision
-                    && java.util.Objects.equals(pending.sharingEpoch, activeSharingEpoch)) {
+                    && java.util.Objects.equals(pending.sharingEpoch, activeSharingEpoch)
+                    && pending.romanizedTamil == romanizedTamil) {
                 throw conflict("This translation is already in progress.");
             }
             if (user.inFlight >= MAX_IN_FLIGHT_PER_USER || inFlight >= MAX_IN_FLIGHT) throw busy();
             if (!limiter.tryAcquire(userId)) throw busy();
             generation = ++user.generation;
-            user.pending = new PendingReview(generation, sessionId, sourceText, revision, activeSharingEpoch);
+            user.pending = new PendingReview(generation, sessionId, sourceText, revision,
+                    activeSharingEpoch, romanizedTamil);
             user.review = null;
             user.inFlight++;
             inFlight++;
@@ -144,7 +155,7 @@ public class TextTranslationService {
                     PremiumUsageGuard.Operation.TRANSLATION, member.premiumCostSaverEnabled(), true)) {
                 result = providers.resolve(member.profile()).translation().translate(
                         new TranslationProvider.TranslationRequest(sourceText, member.speaking(),
-                                member.listening(), prior, terms));
+                                member.listening(), prior, terms, null, romanizedTamil));
                 permit.success();
             }
             premiumUsage.recordTranslationUsage(member.profile(), member.premiumCostSaverEnabled(),
@@ -164,7 +175,7 @@ public class TextTranslationService {
                         translated, member.speaking(), member.listening(), member.profile(),
                         revision, glossaryVersion, now, now.plusSeconds(REVIEW_SECONDS),
                         sharingLease == null ? null : sharingLease.epoch(),
-                        sharingLease == null ? null : sharingLease.draftId());
+                        sharingLease == null ? null : sharingLease.draftId(), romanizedTamil);
                 if (sharingLease != null && !sharing.publish(sharingLease, translated,
                         member.speaking(), member.listening(), hub::publishDraft))
                     throw conflict("Shared Live authorization changed. Enable sharing again.");
@@ -250,7 +261,8 @@ public class TextTranslationService {
             hub.publishTurn(roomId, userId, member.participantId(), review.finalId,
                     "TEXT_TRANSLATION_SENT", Map.of("originalText", review.source,
                             "translatedText", review.translation, "sourceLanguage", review.sourceLanguage,
-                            "targetLanguage", review.targetLanguage, "profile", review.profile.name()));
+                            "targetLanguage", review.targetLanguage, "profile", review.profile.name(),
+                            "romanizedTamil", review.romanizedTamil));
             return sent(review, false);
         }
     }
@@ -324,12 +336,13 @@ public class TextTranslationService {
 
     private static SentView sent(Review review, boolean duplicate) {
         return new SentView(review.finalId, review.source, review.translation, review.sourceLanguage,
-                review.targetLanguage, review.profile.name(), duplicate);
+                review.targetLanguage, review.profile.name(), duplicate, review.romanizedTamil);
     }
 
     private static ReviewView view(Review review) {
         return new ReviewView(review.id, review.source, review.translation, review.sourceLanguage,
-                review.targetLanguage, review.profile.name(), review.revision, review.expiresAt);
+                review.targetLanguage, review.profile.name(), review.revision, review.expiresAt,
+                review.romanizedTamil);
     }
 
     private RoomLiveAuthorizer.Member active(UUID userId, UUID roomId) {
@@ -394,13 +407,14 @@ public class TextTranslationService {
 
     public record ReviewView(UUID reviewId, String originalText, String translatedText,
                              String sourceLanguage, String targetLanguage, String profile,
-                             long revision, Instant expiresAt) {}
+                             long revision, Instant expiresAt, boolean romanizedTamil) {}
     public record SentView(UUID finalId, String originalText, String translatedText,
-                           String sourceLanguage, String targetLanguage, String profile, boolean duplicate) {}
+                           String sourceLanguage, String targetLanguage, String profile, boolean duplicate,
+                           boolean romanizedTamil) {}
     private static final class RoomReviews { final Map<UUID, UserReviews> users = new HashMap<>(); }
     private static final class UserReviews { long generation; int inFlight; Review review; PendingReview pending; }
     private record PendingReview(long generation, String sessionId, String source,
-                                 long revision, UUID sharingEpoch) {}
+                                 long revision, UUID sharingEpoch, boolean romanizedTamil) {}
     private static final class Review {
         final UUID id, finalId;
         final String sessionId, source, translation, sourceLanguage, targetLanguage;
@@ -409,17 +423,19 @@ public class TextTranslationService {
         final List<RoomGlossaryService.EntryView> glossaryVersion;
         final UUID sharingEpoch, draftId;
         final Instant createdAt, expiresAt;
+        final boolean romanizedTamil;
         boolean sent;
         Review(UUID id, UUID finalId, String sessionId, String source, String translation,
                String sourceLanguage, String targetLanguage, AiServiceProfile profile, long revision,
                List<RoomGlossaryService.EntryView> glossaryVersion, Instant createdAt, Instant expiresAt,
-               UUID sharingEpoch, UUID draftId) {
+               UUID sharingEpoch, UUID draftId, boolean romanizedTamil) {
             this.id = id; this.finalId = finalId; this.sessionId = sessionId; this.source = source;
             this.translation = translation; this.sourceLanguage = sourceLanguage;
             this.targetLanguage = targetLanguage; this.profile = profile; this.revision = revision;
             this.glossaryVersion = List.copyOf(glossaryVersion);
             this.createdAt = createdAt; this.expiresAt = expiresAt;
             this.sharingEpoch = sharingEpoch; this.draftId = draftId;
+            this.romanizedTamil = romanizedTamil;
         }
     }
 }

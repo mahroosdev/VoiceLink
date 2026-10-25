@@ -43,7 +43,7 @@ public class GroqSpeechToTextProvider implements SpeechToTextProvider {
         String key = settings.groqKey();
         long start = System.nanoTime();
         String boundary = "voicelink-" + UUID.randomUUID();
-        byte[] body = multipart(boundary, input.webmOpus(), input.sourceLanguage());
+        byte[] body = multipart(boundary, input.webmOpus(), input.sourceLanguage(), input.terminologyHints());
         HttpRequest request = HttpRequest.newBuilder(ENDPOINT)
                 .timeout(Duration.ofSeconds(20))
                 .header("Authorization", "Bearer " + key)
@@ -69,13 +69,15 @@ public class GroqSpeechToTextProvider implements SpeechToTextProvider {
         }
     }
 
-    private static byte[] multipart(String boundary, byte[] audio, String language) {
+    static byte[] multipart(String boundary, byte[] audio, String language, String terminologyHints) {
         if (audio == null || audio.length == 0 || audio.length > 1024 * 1024) {
             throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream(audio.length + 1024);
         part(out, boundary, "model", StandardProfile.STT_MODEL);
         part(out, boundary, "language", language);
+        if (terminologyHints != null && !terminologyHints.isBlank())
+            part(out, boundary, "prompt", terminologyHints.substring(0, Math.min(terminologyHints.length(), 224)));
         out.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"turn.webm\"\r\n"
                 + "Content-Type: audio/webm\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         out.writeBytes(audio);

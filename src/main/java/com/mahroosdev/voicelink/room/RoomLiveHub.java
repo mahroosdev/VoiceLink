@@ -1,6 +1,8 @@
 package com.mahroosdev.voicelink.room;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -19,6 +21,8 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -31,18 +35,30 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class RoomLiveHub {
     private static final CloseStatus REPLACED = new CloseStatus(4001, "Replaced by a newer connection");
+    static final Duration STREAM_IDLE_RETENTION = Duration.ofMinutes(35);
+    static final Duration RECEIPT_RETENTION = Duration.ofMinutes(35);
+    static final int MAX_RECEIPTS_PER_PARTICIPANT = 64;
+    static final int MAX_QUICK_CHAT_MESSAGES_PER_PARTICIPANT = 60;
     private final ConcurrentHashMap<UUID, Stream> streams = new ConcurrentHashMap<>();
     private final RoomLiveAuthorizer authorizer;
     private final ObjectMapper json;
     private final UserAccountRepository accounts;
     private final TextSharingState textSharing;
+    private final Clock clock;
 
+    @Autowired
     public RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json, UserAccountRepository accounts,
                        TextSharingState textSharing) {
+        this(authorizer, json, accounts, textSharing, Clock.systemUTC());
+    }
+
+    RoomLiveHub(RoomLiveAuthorizer authorizer, ObjectMapper json, UserAccountRepository accounts,
+                TextSharingState textSharing, Clock clock) {
         this.authorizer = authorizer;
         this.json = json;
         this.accounts = accounts;
         this.textSharing = textSharing;
+        this.clock = clock;
     }
 
     public Connection register(WebSocketSession socket, UUID roomId, UUID userId, HttpSession httpSession) {
@@ -52,6 +68,7 @@ public class RoomLiveHub {
         synchronized (stream) {
             if (!connection.valid()) {
                 close(connection, CloseStatus.POLICY_VIOLATION);
+                markIdleIfEmpty(stream);
                 return null;
             }
             RoomLiveAuthorizer.Snapshot snapshot;
@@ -59,13 +76,17 @@ public class RoomLiveHub {
                 snapshot = authorizer.snapshot(userId, roomId);
             } catch (RuntimeException ex) {
                 close(connection, CloseStatus.POLICY_VIOLATION);
+                markIdleIfEmpty(stream);
                 return null;
             }
-            if (stream.closed || snapshot.status() == RoomStatus.CLOSED) {
+            if (snapshot.status() == RoomStatus.CLOSED) closeStreamLocked(stream, roomId);
+            if (stream.closed) {
                 close(connection, CloseStatus.POLICY_VIOLATION);
+                streams.remove(roomId, stream);
                 return null;
             }
             previous = stream.members.put(userId, connection);
+            stream.idleSince = null;
             send(stream, connection, event(stream, roomId, "ROOM_STATE", null, null,
                     Map.of("status", snapshot.status().name(), "participants", snapshot.participants())));
         }
@@ -79,7 +100,7 @@ public class RoomLiveHub {
     public void unregister(Connection connection) {
         Stream stream = connection.stream;
         synchronized (stream) {
-            stream.members.remove(connection.userId, connection);
+            removeMemberLocked(stream, connection);
         }
         textSharing.disconnect(connection.roomId, connection.userId,
                 connection.httpSessionId, this::publishDraftClear);
@@ -99,7 +120,7 @@ public class RoomLiveHub {
         synchronized (stream) {
             if (stream.members.get(connection.userId) != connection) return;
             if (!connection.valid()) {
-                stream.members.remove(connection.userId, connection);
+                removeMemberLocked(stream, connection);
                 close(connection, CloseStatus.POLICY_VIOLATION);
                 return;
             }
@@ -117,6 +138,7 @@ public class RoomLiveHub {
             }
             LinkedHashMap<UUID, TextReceipt> seen = stream.clientIds.computeIfAbsent(connection.userId,
                     ignored -> new LinkedHashMap<>());
+            pruneReceipts(seen, clock.instant());
             TextReceipt prior = seen.get(clientMessageId);
             if (prior != null) {
                 send(stream, connection, event(stream, connection.roomId, "TEXT_MESSAGE",
@@ -124,18 +146,23 @@ public class RoomLiveHub {
                         Map.of("text", prior.text(), "clientMessageId", clientMessageId)));
                 return;
             }
-            seen.put(clientMessageId, new TextReceipt(member.participantId(), text));
-            if (seen.size() > 128) {
-                Iterator<UUID> ids = seen.keySet().iterator();
-                ids.next();
-                ids.remove();
+            if (seen.size() >= MAX_QUICK_CHAT_MESSAGES_PER_PARTICIPANT) {
+                errorLocked(connection, "RATE_LIMITED",
+                        "Quick chat limit reached. Try again after older messages expire.");
+                return;
             }
+            if (seen.size() >= MAX_RECEIPTS_PER_PARTICIPANT) {
+                errorLocked(connection, "RATE_LIMITED",
+                        "Quick chat receipts are full. Try again after older messages expire.");
+                return;
+            }
+            seen.put(clientMessageId, new TextReceipt(member.participantId(), text, clock.instant()));
             LiveRoomEvent event = event(stream, connection.roomId, "TEXT_MESSAGE",
                     member.participantId(), UUID.randomUUID(),
                     Map.of("text", text, "clientMessageId", clientMessageId));
             for (Connection receiver : List.copyOf(stream.members.values())) {
                 if (!receiver.valid()) {
-                    stream.members.remove(receiver.userId, receiver);
+                    removeMemberLocked(stream, receiver);
                     close(receiver, CloseStatus.POLICY_VIOLATION);
                 } else {
                     send(stream, receiver, event);
@@ -154,6 +181,16 @@ public class RoomLiveHub {
 
     public void publishTurn(UUID roomId, UUID userId, UUID participantId, UUID turnId,
                             String type, Map<String, ?> payload) {
+        publishTurn(roomId, userId, participantId, turnId, type, payload, false);
+    }
+
+    public void publishTurnToSender(UUID roomId, UUID userId, UUID participantId, UUID turnId,
+                                    String type, Map<String, ?> payload) {
+        publishTurn(roomId, userId, participantId, turnId, type, payload, true);
+    }
+
+    private void publishTurn(UUID roomId, UUID userId, UUID participantId, UUID turnId,
+                             String type, Map<String, ?> payload, boolean senderOnly) {
         RoomLiveAuthorizer.Member member;
         try {
             member = authorizer.authorize(userId, roomId);
@@ -167,8 +204,9 @@ public class RoomLiveHub {
             if (stream.closed) return;
             LiveRoomEvent event = event(stream, roomId, type, participantId, turnId, payload);
             for (Connection receiver : List.copyOf(stream.members.values())) {
+                if (senderOnly && !receiver.userId.equals(userId)) continue;
                 if (!receiver.valid()) {
-                    stream.members.remove(receiver.userId, receiver);
+                    removeMemberLocked(stream, receiver);
                     close(receiver, CloseStatus.POLICY_VIOLATION);
                 } else {
                     send(stream, receiver, event);
@@ -178,65 +216,11 @@ public class RoomLiveHub {
     }
 
     public boolean publishDraft(TextSharingState.DraftUpdate draft) {
-        RoomLiveAuthorizer.Member member;
-        try {
-            member = authorizer.authorize(draft.userId(), draft.roomId());
-        } catch (RuntimeException ex) {
-            return false;
-        }
-        if (member == null || member.status() != RoomStatus.ACTIVE
-                || !member.participantId().equals(draft.participantId())
-                || !member.speaking().equals(draft.sourceLanguage())
-                || !member.listening().equals(draft.targetLanguage())) return false;
-        Stream stream = streams.get(draft.roomId());
-        if (stream == null) return false;
-        synchronized (stream) {
-            Connection sender = stream.members.get(draft.userId());
-            if (stream.closed || sender == null || !sender.httpSessionId.equals(draft.sessionId())
-                    || !sender.valid()) return false;
-            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_UPDATED",
-                    draft.participantId(), draft.draftId(), Map.of(
-                            "translatedText", draft.translatedText(),
-                            "sourceLanguage", draft.sourceLanguage(),
-                            "targetLanguage", draft.targetLanguage(),
-                            "revision", draft.revision(),
-                            "provisional", true,
-                            "expiresAt", draft.expiresAt().toString()));
-            sendToPeers(stream, draft.userId(), event);
-            return true;
-        }
+        return false;
     }
 
     public void publishDraftClear(TextSharingState.DraftClear draft) {
-        RoomLiveAuthorizer.Member member;
-        try {
-            member = authorizer.authorize(draft.userId(), draft.roomId());
-        } catch (RuntimeException ex) {
-            return;
-        }
-        if (member == null || member.status() != RoomStatus.ACTIVE
-                || !member.participantId().equals(draft.participantId())) return;
-        Stream stream = streams.get(draft.roomId());
-        if (stream == null) return;
-        synchronized (stream) {
-            if (stream.closed) return;
-            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_CLEARED",
-                    draft.participantId(), draft.draftId(), Map.of(
-                            "revision", draft.revision(), "reason", draft.reason()));
-            sendToPeers(stream, draft.userId(), event);
-        }
-    }
-
-    private void sendToPeers(Stream stream, UUID senderUserId, LiveRoomEvent event) {
-        for (Connection receiver : List.copyOf(stream.members.values())) {
-            if (receiver.userId.equals(senderUserId)) continue;
-            if (!receiver.valid()) {
-                stream.members.remove(receiver.userId, receiver);
-                close(receiver, CloseStatus.POLICY_VIOLATION);
-            } else {
-                send(stream, receiver, event);
-            }
-        }
+        // Live previews are private and are never emitted as WebSocket events.
     }
 
     private void errorLocked(Connection connection, String code, String message) {
@@ -253,7 +237,7 @@ public class RoomLiveHub {
             if (stream.closed) return;
             for (Connection connection : List.copyOf(stream.members.values())) {
                 if (!connection.valid()) {
-                    stream.members.remove(connection.userId, connection);
+                    removeMemberLocked(stream, connection);
                     close(connection, CloseStatus.POLICY_VIOLATION);
                     continue;
                 }
@@ -263,7 +247,7 @@ public class RoomLiveHub {
                             Map.of("status", snapshot.status().name(),
                                     "participants", snapshot.participants())));
                 } catch (RuntimeException ex) {
-                    stream.members.remove(connection.userId, connection);
+                    removeMemberLocked(stream, connection);
                     close(connection, CloseStatus.POLICY_VIOLATION);
                 }
             }
@@ -275,14 +259,7 @@ public class RoomLiveHub {
         Stream stream = streams.get(closed.roomId());
         if (stream == null) return;
         synchronized (stream) {
-            if (stream.closed) return;
-            stream.closed = true;
-            LiveRoomEvent event = event(stream, closed.roomId(), "ROOM_CLOSED", null, null, Map.of());
-            for (Connection connection : List.copyOf(stream.members.values())) {
-                if (connection.valid()) send(stream, connection, event);
-                close(connection, CloseStatus.NORMAL);
-            }
-            stream.members.clear();
+            closeStreamLocked(stream, closed.roomId());
         }
         streams.remove(closed.roomId(), stream);
     }
@@ -293,7 +270,7 @@ public class RoomLiveHub {
             synchronized (stream) {
                 for (Connection connection : List.copyOf(stream.members.values())) {
                     if (connection.httpSessionId.equals(sessionId)) {
-                        stream.members.remove(connection.userId, connection);
+                        removeMemberLocked(stream, connection);
                         removed.add(connection);
                         close(connection, CloseStatus.POLICY_VIOLATION);
                     }
@@ -311,6 +288,7 @@ public class RoomLiveHub {
             synchronized (stream) {
                 Connection connection = stream.members.remove(reset.userId());
                 if (connection != null) {
+                    markIdleIfEmpty(stream);
                     removed.add(connection);
                     close(connection, CloseStatus.POLICY_VIOLATION);
                 }
@@ -327,6 +305,7 @@ public class RoomLiveHub {
             synchronized (stream) {
                 Connection connection = stream.members.remove(deleted.userId());
                 if (connection != null) {
+                    markIdleIfEmpty(stream);
                     removed.add(connection);
                     close(connection, CloseStatus.POLICY_VIOLATION);
                 }
@@ -334,6 +313,62 @@ public class RoomLiveHub {
         }
         removed.forEach(connection -> textSharing.disconnect(connection.roomId, connection.userId,
                 connection.httpSessionId, this::publishDraftClear));
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    public void cleanupInactiveStreams() {
+        cleanupInactiveStreams(clock.instant());
+    }
+
+    void cleanupInactiveStreams(Instant now) {
+        for (Map.Entry<UUID, Stream> entry : streams.entrySet()) {
+            UUID roomId = entry.getKey();
+            Stream stream = entry.getValue();
+            boolean expired = false;
+            synchronized (stream) {
+                for (LinkedHashMap<UUID, TextReceipt> receipts : stream.clientIds.values()) {
+                    pruneReceipts(receipts, now);
+                }
+                stream.clientIds.values().removeIf(Map::isEmpty);
+                if (!stream.closed && stream.members.isEmpty() && stream.idleSince != null
+                        && !now.isBefore(stream.idleSince.plus(STREAM_IDLE_RETENTION))) {
+                    stream.closed = true;
+                    stream.clientIds.clear();
+                    expired = true;
+                }
+            }
+            if (expired) streams.remove(roomId, stream);
+        }
+    }
+
+    int streamCount() { return streams.size(); }
+
+    private void removeMemberLocked(Stream stream, Connection connection) {
+        if (stream.members.remove(connection.userId, connection)) markIdleIfEmpty(stream);
+    }
+
+    private void closeStreamLocked(Stream stream, UUID roomId) {
+        if (stream.closed) return;
+        stream.closed = true;
+        LiveRoomEvent event = event(stream, roomId, "ROOM_CLOSED", null, null, Map.of());
+        for (Connection connection : List.copyOf(stream.members.values())) {
+            if (connection.valid()) send(stream, connection, event);
+            close(connection, CloseStatus.NORMAL);
+        }
+        stream.members.clear();
+        stream.clientIds.clear();
+    }
+
+    private void markIdleIfEmpty(Stream stream) {
+        if (stream.members.isEmpty() && stream.idleSince == null) stream.idleSince = clock.instant();
+    }
+
+    private static void pruneReceipts(LinkedHashMap<UUID, TextReceipt> receipts, Instant now) {
+        Iterator<Map.Entry<UUID, TextReceipt>> iterator = receipts.entrySet().iterator();
+        while (iterator.hasNext()) {
+            TextReceipt receipt = iterator.next().getValue();
+            if (!now.isBefore(receipt.processedAt().plus(RECEIPT_RETENTION))) iterator.remove();
+        }
     }
 
     private LiveRoomEvent event(Stream stream, UUID roomId, String type,
@@ -346,7 +381,7 @@ public class RoomLiveHub {
         try {
             connection.outbound.sendMessage(new TextMessage(json.writeValueAsString(event)));
         } catch (Exception ex) {
-            stream.members.remove(connection.userId, connection);
+            removeMemberLocked(stream, connection);
             close(connection, CloseStatus.SERVER_ERROR);
         }
     }
@@ -363,11 +398,12 @@ public class RoomLiveHub {
         final UUID streamId = UUID.randomUUID();
         final Map<UUID, Connection> members = new HashMap<>();
         final Map<UUID, LinkedHashMap<UUID, TextReceipt>> clientIds = new HashMap<>();
+        Instant idleSince;
         long sequence;
         boolean closed;
     }
 
-    private record TextReceipt(UUID senderParticipantId, String text) {}
+    private record TextReceipt(UUID senderParticipantId, String text, Instant processedAt) {}
 
     public static final class Connection {
         final WebSocketSession socket;

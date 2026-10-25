@@ -11,34 +11,27 @@ const glossaryScript = fs.readFileSync(path.join(root, "static/js/room-glossary.
 const liveScript = fs.readFileSync(path.join(root, "static/js/room-live.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "static/css/voicelink.css"), "utf8");
 
-test("room keeps Speak, Translate message, and Private Live defaults with explicit Shared Live consent", () => {
+test("room keeps stable composer modes and always-private Live translation", () => {
   assert.match(html, /id="mode-speak"[^>]*aria-pressed="true"/);
   assert.match(html, /id="mode-type"[^>]*aria-pressed="false"/);
   assert.match(html, /id="text-mode-live"[^>]*type="button"[^>]*aria-pressed="false"/);
-  assert.match(html, /id="text-mode-total"[^>]*type="button"[^>]*aria-pressed="true"/);
-  assert.match(html, /id="text-mode-total"[^>]*>Translate message/);
+  assert.match(html, /id="text-mode-total"[^>]*aria-pressed="true"[^>]*>Translate message/);
   assert.match(html, /id="text-mode-quick"[^>]*>Quick chat/);
-  assert.match(html, /Translate and review your message before sending\./);
-  assert.doesNotMatch(html, /Total Translation/);
-  assert.match(html, /data-live-text-debounce-ms=\$\{room\.profile\.name\(\) == 'PREMIUM'/);
-  assert.match(html, /id="text-privacy-private"[^>]*aria-pressed="true"[^>]*>Private Live/);
-  assert.match(html, /id="text-privacy-shared"[^>]*aria-pressed="false"[^>]*>Shared Live/);
-  assert.match(html, /<div class="type-mode-bar">[\s\S]*?<\/div>\s*<\/div>\s*<div id="translation-composer">\s*<div id="type-privacy-controls"/);
-  assert.match(html, /Live preview visibility/);
-  assert.match(html, /id="live-visibility-help"[^>]*>Only you see the live preview until you send/);
-  assert.match(html, /Your translated drafts will be visible/);
-  assert.match(html, /id="shared-text-draft"[^>]*hidden/);
+  assert.doesNotMatch(html, /Private Live|Shared Live|Live preview visibility|Your translated drafts will be visible/);
+  assert.match(script, /Only you can see this preview until you select Send/);
+  assert.doesNotMatch(script, /text\/sharing|TEXT_DRAFT_UPDATED|startSharing|stopSharing/);
+  assert.doesNotMatch(html, /id="history-all"|>All messages</);
+  assert.doesNotMatch(html, /shared-text-draft|Shared Live|Private Live/);
+  assert.match(html, /id="history-translated"[^>]*aria-pressed="true"/);
   assert.match(html, /id="type-section"[^>]*data-text-mode="total"[^>]*hidden/);
-  assert.match(html, /Translated — Not sent/);
   assert.match(html, /id="type-retry"[^>]*type="button"[^>]*hidden/);
   assert.match(html, /id="type-send"[^>]*disabled/);
   assert.match(html, /id="speech-section"/);
   assert.match(html, /id="live-text-section"/);
-  assert.match(liveScript, /TEXT_TRANSLATION_SENT/);
-  assert.match(liveScript, /TEXT_DRAFT_UPDATED/);
-  assert.match(liveScript, /TEXT_DRAFT_CLEARED/);
-  assert.match(liveScript, /row\.dataset\.messageKind = "processing"/);
-  assert.match(liveScript, /parts\.row\.dataset\.messageKind = "translated"/);
+  assert.doesNotMatch(liveScript, /TEXT_DRAFT_UPDATED|TEXT_DRAFT_CLEARED/);
+  assert.match(html, /id="romanized-tamil"[^>]*type="checkbox"/);
+  assert.match(html, /th:if="\$\{room\.currentParticipant\.speaking == 'ta'\}"/);
+  assert.match(html, /th:attr="data-room-id=.*data-source-language=/);
   assert.equal((html.match(/id="conversation-events"/g) || []).length, 1);
   assert.match(liveScript, /getElementById\("conversation-events"\)/);
   assert.match(script, /getElementById\("conversation-events"\)/);
@@ -46,13 +39,15 @@ test("room keeps Speak, Translate message, and Private Live defaults with explic
   assert.match(glossaryScript, /voicelink-glossary-changed/);
   assert.match(css, /type-mode__button:focus-visible/);
   assert.match(css, /max-width: 390px/);
-  assert.match(css, /Gate J5A: server-attributed two-person conversation workspace/);
+  assert.match(css, /\.room-page #room-page \{ box-sizing: border-box; width: min\(100%, 960px\)/);
+  assert.match(css, /\.room-tool-bar \{[^}]*flex-wrap: wrap/);
+  assert.match(css, /\.room-main-grid #active-section \{ box-sizing: border-box; width: min\(100%, 960px\)/);
+  assert.match(css, /\.turn-caption--translated p \{ font-size: clamp\(\.94rem, \.92rem \+ \.15vw, 1\.05rem\)/);
   assert.match(css, /recording-card\[data-phase="listening"\] #record-stop \{ position: static/);
   assert.match(css, /\.type-mode \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.type-mode \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.turn-card \{ transition: none !important; \}/);
 });
-
 test("speech Finish and Send is explicit, private by default, bounded, and safely rendered", () => {
   assert.match(html, /id="speech-mode-live"[^>]*aria-pressed="true"[^>]*>Live Send/);
   assert.match(html, /id="speech-mode-finish"[^>]*aria-pressed="false"[^>]*>Finish &amp; Send/);
@@ -93,25 +88,23 @@ function element() {
 
 function setup(fetch, debounce = "800") {
   const ids = ["room-page", "room-status", "mode-speak", "mode-type", "text-mode-live",
-    "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section",
+    "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section", "romanized-tamil",
     "live-text-input", "speech-section", "type-section", "type-eyebrow", "type-heading",
-    "type-intro", "type-actions", "type-privacy-controls", "live-visibility-help", "text-privacy-private",
-    "text-privacy-shared", "type-sharing-notice", "text-sharing-stop", "type-source",
+    "type-intro", "type-actions", "type-source-label", "type-source",
     "type-translate", "type-retry", "type-send", "type-status",
-    "type-review", "type-review-heading", "type-review-original", "type-review-translation",
-    "conversation-events", "turn-empty", "turn-announcement", "shared-text-draft", "shared-text-draft-text",
-    "shared-text-draft-status", "shared-text-draft-heading", "shared-text-draft-announcement"];
+    "type-review", "type-review-heading", "type-review-original", "type-review-original-label", "type-review-translation",
+    "conversation-events", "turn-empty", "turn-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
   nodes["room-page"].dataset.roomId = "room-1";
   nodes["room-page"].dataset.liveTextDebounceMs = debounce;
+  nodes["room-page"].dataset.sourceLanguage = "en";
   nodes["room-status"].textContent = "ACTIVE";
   nodes["mode-speak"].attributes["aria-pressed"] = "true";
   nodes["mode-type"].attributes["aria-pressed"] = "false";
   nodes["text-mode-live"].attributes["aria-pressed"] = "false";
   nodes["text-mode-total"].attributes["aria-pressed"] = "true";
   nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
-  nodes["text-privacy-private"].attributes["aria-pressed"] = "true";
-  nodes["text-privacy-shared"].attributes["aria-pressed"] = "false";
+  nodes["romanized-tamil"].checked = false;
   nodes["type-section"].hidden = true;
   const listeners = {};
   const intervals = [];
@@ -158,10 +151,10 @@ function setup(fetch, debounce = "800") {
 
 const next = () => new Promise(resolve => setImmediate(resolve));
 const response = (body, ok = true, status = 200) => ({ ok, status, json: async () => body });
-const privateReview = (sourceText, revision, reviewId = "review-1") => ({
-  reviewId, originalText: sourceText, translatedText: "வணக்கம்", sourceLanguage: "en",
+const privateReview = (sourceText, revision, reviewId = "review-1", romanizedTamil = false) => ({
+  reviewId, originalText: sourceText, translatedText: "வணக்கம்", sourceLanguage: romanizedTamil ? "ta" : "en",
   targetLanguage: "ta", profile: "STANDARD", revision,
-  expiresAt: "2099-01-01T00:00:00Z"
+  expiresAt: "2099-01-01T00:00:00Z", romanizedTamil
 });
 
 test("Total remains explicit and source edits or Speak switching invalidate Send", async () => {
@@ -203,7 +196,7 @@ test("Live waits 800ms, collapses rapid typing, and does not repeat unchanged te
   nodes["mode-type"].callbacks.click();
   nodes["text-mode-live"].callbacks.click();
   assert.equal(nodes["type-actions"].hidden, true);
-  assert.match(nodes["type-intro"].textContent, /Only you can see this preview until you send/);
+  assert.match(nodes["type-intro"].textContent, /Only you can see this preview until you select Send/);
   nodes["type-source"].value = "Hel";
   nodes["type-source"].callbacks.input();
   nodes["type-source"].value = "Hello";
@@ -265,129 +258,75 @@ test("Tamil IME composition never requests until composition ends and pause elap
   assert.equal(JSON.parse(calls[0].request.body).sourceText, "வணக்கம்");
 });
 
-test("Shared Live requires explicit opt-in and binds translated reviews to its epoch", async () => {
-  const calls = [];
-  const { nodes, runTimeouts } = setup(async (url, request) => {
-    calls.push({ url, request });
-    if (url.endsWith("/sharing"))
-      return response({ sharingEpoch: "epoch-1", expiresAt: "2099-01-01T00:00:00Z" }, true, 201);
-    const body = JSON.parse(request.body);
-    return response(privateReview(body.sourceText, body.revision));
-  });
-  nodes["mode-type"].callbacks.click();
-  nodes["text-mode-live"].callbacks.click();
-  assert.equal(nodes["type-privacy-controls"].hidden, false);
-  assert.match(nodes["live-visibility-help"].textContent, /Only you see/);
-  assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
-  nodes["text-privacy-shared"].callbacks.click();
-  await next();
-  assert.equal(calls[0].url, "/api/rooms/room-1/text/sharing");
-  assert.equal(calls[0].request.method, "POST");
-  assert.equal(nodes["text-privacy-shared"].attributes["aria-pressed"], "true");
-  assert.match(nodes["live-visibility-help"].textContent, /partner can see provisional/);
-  assert.equal(nodes["type-sharing-notice"].hidden, false);
-  assert.match(nodes["type-intro"].textContent, /visible to the other participant/);
-  nodes["type-source"].value = "Hello";
-  nodes["type-source"].callbacks.input();
-  runTimeouts(800);
-  await next();
-  const review = JSON.parse(calls[1].request.body);
-  assert.equal(review.sharingEpoch, "epoch-1");
-  assert.equal(review.sourceText, "Hello");
-  assert.match(nodes["type-status"].textContent, /Shared live draft updated/);
-});
-
-test("Shared-to-Private stops server sharing and ignores a delayed shared review", async () => {
-  const deferred = [];
-  const calls = [];
-  const { nodes, runTimeouts } = setup((url, request) => {
-    calls.push({ url, request });
-    if (url.endsWith("/sharing"))
-      return Promise.resolve(response({ sharingEpoch: "epoch-2" }, true, 201));
-    if (request.method === "DELETE") return Promise.resolve(response({}, true, 204));
-    return new Promise(resolve => deferred.push(resolve));
-  });
-  nodes["mode-type"].callbacks.click();
-  nodes["text-mode-live"].callbacks.click();
-  nodes["text-privacy-shared"].callbacks.click();
-  await next();
-  nodes["type-source"].value = "Pending";
-  nodes["type-source"].callbacks.input();
-  runTimeouts(800);
-  await next();
-  assert.equal(deferred.length, 1);
-  nodes["text-privacy-private"].callbacks.click();
-  await next();
-  assert.equal(calls.at(-1).url, "/api/rooms/room-1/text/sharing/epoch-2");
-  assert.equal(calls.at(-1).request.method, "DELETE");
-  assert.equal(nodes["text-privacy-private"].attributes["aria-pressed"], "true");
-  const body = JSON.parse(calls[1].request.body);
-  deferred[0](response(privateReview("Pending", body.revision)));
-  await next();
-  assert.equal(nodes["type-review"].hidden, true);
-  assert.equal(nodes["type-send"].disabled, true);
-});
-
-test("editing a shared request invalidates its server revision without sending source text", async () => {
-  const calls = [];
-  const deferredReviews = [];
-  const { nodes, runTimeouts } = setup((url, request) => {
-    calls.push({ url, request });
-    if (url.endsWith("/sharing"))
-      return Promise.resolve(response({ sharingEpoch: "epoch-race" }, true, 201));
-    if (url.endsWith("/invalidate")) return Promise.resolve(response({}, true, 204));
-    return new Promise(resolve => deferredReviews.push({ resolve, request }));
-  });
-  nodes["mode-type"].callbacks.click();
-  nodes["text-mode-live"].callbacks.click();
-  nodes["text-privacy-shared"].callbacks.click();
-  await next();
-  nodes["type-source"].value = "First";
-  nodes["type-source"].callbacks.input();
-  runTimeouts(800);
-  await next();
-  assert.equal(deferredReviews.length, 1);
-
-  nodes["type-source"].value = "Second";
-  nodes["type-source"].callbacks.input();
-  await next();
-  const invalidation = calls.find(call => call.url.endsWith("/invalidate"));
-  assert.ok(invalidation);
-  assert.deepEqual(Object.keys(JSON.parse(invalidation.request.body)), ["revision"]);
-  const stale = JSON.parse(deferredReviews[0].request.body);
-  deferredReviews[0].resolve(response(privateReview("First", stale.revision)));
-  await next();
-  assert.equal(nodes["type-review"].hidden, true);
-
-  runTimeouts(800);
-  await next();
-  assert.equal(deferredReviews.length, 2);
-  const latest = JSON.parse(deferredReviews[1].request.body);
-  assert.equal(latest.sourceText, "Second");
-  assert.equal(latest.revision > JSON.parse(invalidation.request.body).revision, true);
-});
-
-test("clearing Shared Live input requests an authoritative draft clear without provider work", async () => {
+test("Romanized Tamil is explicit Tamil-to-English input and keeps source labeling", async () => {
   const calls = [];
   const { nodes } = setup(async (url, request) => {
     calls.push({ url, request });
-    if (url.endsWith("/sharing")) return response({ sharingEpoch: "epoch-3" }, true, 201);
-    return response({}, true, 204);
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision, "review-romanized", body.romanizedTamil));
   });
+  nodes["room-page"].dataset.sourceLanguage = "ta";
+  nodes["romanized-tamil"].checked = true;
   nodes["mode-type"].callbacks.click();
-  nodes["text-mode-live"].callbacks.click();
-  nodes["text-privacy-shared"].callbacks.click();
+  nodes["romanized-tamil"].callbacks.change();
+  nodes["type-source"].value = "ungalukku enna project update vivarangal venum";
+  nodes["type-translate"].callbacks.click();
   await next();
-  nodes["type-source"].value = "Draft";
-  nodes["type-source"].callbacks.input();
-  nodes["type-source"].value = "";
-  nodes["type-source"].callbacks.input();
-  await next();
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].url, "/api/rooms/room-1/text/sharing/epoch-3/clear");
-  assert.equal(JSON.parse(calls[1].request.body).revision > 0, true);
+  const body = JSON.parse(calls[0].request.body);
+  assert.equal(body.romanizedTamil, true);
+  assert.equal(body.sourceText, "ungalukku enna project update vivarangal venum");
+  assert.equal(nodes["type-source"].lang, "ta-Latn");
+  assert.equal(nodes["type-review-original-label"].textContent, "Original · Romanized Tamil");
+  assert.equal(nodes["type-review-original"].lang, "ta-Latn");
 });
 
+test("Romanized Tamil defaults off and Quick chat stays untranslated", async () => {
+  const calls = [];
+  const { nodes } = setup(async (url, request) => {
+    calls.push(JSON.parse(request.body));
+    return response(privateReview("வணக்கம்", 1));
+  });
+  nodes["room-page"].dataset.sourceLanguage = "ta";
+  assert.equal(nodes["romanized-tamil"].checked, false);
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-total"].callbacks.click();
+  nodes["type-source"].value = "வணக்கம்";
+  nodes["type-translate"].callbacks.click();
+  await next();
+  assert.equal(calls[0].romanizedTamil, false);
+  nodes["text-mode-quick"].callbacks.click();
+  assert.equal(nodes["translation-composer"].hidden, true);
+  assert.equal(calls.length, 1);
+});
+
+test("Romanized mode handles empty input and retains the mode for an explicit retry", async () => {
+  const calls = [];
+  let fail = true;
+  const { nodes } = setup(async (url, request) => {
+    const body = JSON.parse(request.body);
+    calls.push(body);
+    if (fail) return response({ error: "temporarily unavailable", code: "TEMPORARILY_UNAVAILABLE" }, false, 503);
+    return response(privateReview(body.sourceText, body.revision, "review-romanized", body.romanizedTamil));
+  });
+  nodes["room-page"].dataset.sourceLanguage = "ta";
+  nodes["mode-type"].callbacks.click();
+  nodes["romanized-tamil"].checked = true;
+  nodes["romanized-tamil"].callbacks.change();
+  nodes["type-translate"].callbacks.click();
+  assert.equal(calls.length, 0);
+  assert.match(nodes["type-status"].textContent, /Enter 1 to 1,000/);
+  nodes["type-source"].value = "enna update";
+  nodes["type-translate"].callbacks.click();
+  await next();
+  assert.equal(calls[0].romanizedTamil, true);
+  assert.equal(nodes["type-retry"].hidden, false);
+  fail = false;
+  nodes["type-retry"].callbacks.click();
+  await next();
+  assert.equal(calls[1].romanizedTamil, true);
+  assert.equal(calls[1].sourceText, "enna update");
+  assert.equal(nodes["type-review-original-label"].textContent, "Original · Romanized Tamil");
+});
 test("Live coalesces edits behind one request and only the latest pending text is translated", async () => {
   const deferred = [];
   const requests = [];
@@ -474,60 +413,6 @@ test("Live Send uses the reviewed result once and socket echo is deduplicated", 
   assert.equal(nodes["turn-announcement"].textContent, "You sent translated text.");
 });
 
-test("receiver replaces a shared draft, rejects older revisions, and clears it before final text", () => {
-  const { nodes, listeners } = setup(async () => response({}));
-  const update = revision => ({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
-    turnId: "draft-1", senderParticipantId: "person-1", payload: { translatedText: "draft-" + revision,
-      sourceLanguage: "en", targetLanguage: "ta", revision, provisional: true } } });
-  listeners["voicelink-text-draft"](update(2));
-  assert.equal(nodes["shared-text-draft"].hidden, false);
-  assert.equal(nodes["turn-empty"].hidden, true);
-  assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
-  assert.equal(nodes["shared-text-draft-text"].lang, "ta");
-  listeners["voicelink-text-draft"](update(1));
-  assert.equal(nodes["shared-text-draft-text"].textContent, "draft-2");
-  listeners["voicelink-final-text"]({ detail: { roomId: "room-1", turnId: "final-1",
-    senderParticipantId: "person-1", payload: { originalText: "Hello",
-      translatedText: "வணக்கம்", sourceLanguage: "en", targetLanguage: "ta" } } });
-  assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["conversation-events"].childElementCount, 1);
-  assert.equal(nodes["turn-empty"].hidden, true);
-  assert.match(nodes["shared-text-draft-announcement"].textContent, /finalized/);
-});
-
-test("incoming shared draft refreshes the selected history view", () => {
-  const { nodes, listeners, window } = setup(async () => response({}));
-  let refreshes = 0;
-  window.voicelinkHistory = { refresh() {
-    refreshes++;
-    nodes["turn-empty"].hidden = false; // Translated filter has no final message.
-  } };
-  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
-    turnId: "draft-filter", senderParticipantId: "person-2", payload: { translatedText: "temporary",
-      sourceLanguage: "ta", targetLanguage: "en", revision: 1, provisional: true } } });
-  assert.equal(refreshes, 1);
-  assert.equal(nodes["shared-text-draft"].hidden, false);
-  assert.equal(nodes["turn-empty"].hidden, false);
-});
-
-test("draft clear and reconnect reset remove provisional content without creating history", () => {
-  const { nodes, listeners } = setup(async () => response({}));
-  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
-    turnId: "draft-2", senderParticipantId: "person-2", payload: { translatedText: "temporary",
-      sourceLanguage: "ta", targetLanguage: "en", revision: 3, provisional: true } } });
-  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_CLEARED", roomId: "room-1",
-    turnId: "draft-2", senderParticipantId: "person-2", payload: { revision: 3 } } });
-  assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["conversation-events"].childElementCount, 0);
-  assert.equal(nodes["turn-empty"].hidden, false);
-  listeners["voicelink-text-draft"]({ detail: { type: "TEXT_DRAFT_UPDATED", roomId: "room-1",
-    turnId: "draft-3", senderParticipantId: "person-2", payload: { translatedText: "again",
-      sourceLanguage: "ta", targetLanguage: "en", revision: 4, provisional: true } } });
-  listeners["voicelink-text-draft-reset"]();
-  assert.equal(nodes["shared-text-draft"].hidden, true);
-  assert.equal(nodes["shared-text-draft-text"].textContent, "");
-});
-
 test("rate-limit and provider failures leave Live editable but unsendable", async () => {
   let attempts = 0;
   const { nodes, runTimeouts } = setup(async () => {
@@ -611,36 +496,6 @@ test("glossary changes invalidate a ready review and request a fresh Live previe
   await next();
   assert.equal(calls.length, 2);
   assert.equal(nodes["type-send"].disabled, false);
-});
-
-test("Shared Live clears the old glossary draft before scheduling its replacement", async () => {
-  const calls = [];
-  let finishClear;
-  const { nodes, listeners, timeouts, runTimeouts } = setup(async (url, request) => {
-    calls.push({ url, request });
-    if (url.endsWith("/sharing")) return response({ sharingEpoch: "epoch-glossary" }, true, 201);
-    if (url.endsWith("/clear"))
-      return new Promise(resolve => { finishClear = () => resolve(response({}, true, 204)); });
-    const body = JSON.parse(request.body);
-    return response(privateReview(body.sourceText, body.revision, "review-glossary"));
-  });
-  nodes["mode-type"].callbacks.click();
-  nodes["text-mode-live"].callbacks.click();
-  nodes["text-privacy-shared"].callbacks.click();
-  await next();
-  nodes["type-source"].value = "REST API";
-  nodes["type-source"].callbacks.input();
-  runTimeouts(800);
-  await next();
-  listeners["voicelink-glossary-changed"]();
-  assert.equal(typeof finishClear, "function");
-  assert.equal(timeouts.size, 0);
-  finishClear();
-  await next();
-  assert.equal(timeouts.size, 1);
-  runTimeouts(800);
-  await next();
-  assert.equal(calls.filter(call => call.url.endsWith("/reviews")).length, 2);
 });
 
 test("expiry and room closure clear private state and make pending responses stale", async () => {

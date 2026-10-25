@@ -35,6 +35,10 @@
   const speechReviewSend = document.getElementById("speech-review-send");
   const speechReviewRecordAgain = document.getElementById("speech-review-record-again");
   const speechReviewCancel = document.getElementById("speech-review-cancel");
+  const translationRetryPanel = document.getElementById("speech-translation-retry");
+  const translationRetryTranscript = document.getElementById("speech-translation-retry-transcript");
+  const translationRetryStatus = document.getElementById("speech-translation-retry-status");
+  const translationRetryButton = document.getElementById("speech-translation-retry-button");
   const recordingStatus = document.getElementById("recording-status");
   const recordingTimer = document.getElementById("recording-timer");
   const speechEvents = document.getElementById("conversation-events");
@@ -69,7 +73,11 @@
   let lastSequence = 0;
   const seen = new Set();
   const seenQuickIds = new Set();
+  const QUICK_RETRY_WINDOW_MS = 30 * 60 * 1000;
   let pendingQuick = null;
+  let pendingQuickExpiryTimer;
+  let failedTranslationTurnId = null;
+  let translationRetryBusy = false;
 
   function make(tag, className, value) {
     const element = document.createElement(tag);
@@ -106,6 +114,43 @@
     speechReviewTranslation.textContent = "";
     speechReviewExpiry.textContent = "";
     speechReviewSend.disabled = false;
+  }
+
+  function clearQuickExpiryTimer() {
+    clearTimeout(pendingQuickExpiryTimer);
+    pendingQuickExpiryTimer = undefined;
+  }
+
+  function refreshQuickRetryState() {
+    if (!pendingQuick || pendingQuick.expired) return;
+    const elapsed = Math.max(performance.now() - pendingQuick.firstAttemptAt,
+      Date.now() - pendingQuick.firstAttemptWallAt);
+    if (elapsed < QUICK_RETRY_WINDOW_MS) return;
+    pendingQuick.expired = true;
+    clearQuickExpiryTimer();
+    quickStatus.textContent = "Delivery unconfirmed after 30 minutes. Automatic Quick chat retries stopped. Sending again may create a duplicate.";
+    send.textContent = "Send again (may duplicate)";
+  }
+
+  function beginQuickAttempt(id, text) {
+    clearQuickExpiryTimer();
+    pendingQuick = { id, text, firstAttemptAt: performance.now(),
+      firstAttemptWallAt: Date.now(), expired: false };
+    pendingQuickExpiryTimer = setTimeout(refreshQuickRetryState, QUICK_RETRY_WINDOW_MS);
+  }
+
+  function transmitPendingQuick() {
+    refreshQuickRetryState();
+    if (!pendingQuick || pendingQuick.expired || !connected || !socketOpen()
+        || status.textContent !== "ACTIVE") return;
+    try {
+      socket.send(JSON.stringify({
+        protocolVersion: 1, type: "SEND_TEXT", clientMessageId: pendingQuick.id, text: pendingQuick.text
+      }));
+      quickStatus.textContent = "Sending quick chat message…";
+    } catch {
+      quickStatus.textContent = "Delivery is unconfirmed. Your message remains here; retry uses the same ID before the 30-minute deadline.";
+    }
   }
 
   async function cancelPrivateReview() {
@@ -214,9 +259,10 @@
     if (closeForm) closeForm.hidden = value === "CLOSED";
     if (closeButton) closeButton.textContent =
       value === "WAITING" ? "Cancel room" : "Leave and close room";
+    refreshQuickRetryState();
     input.disabled = value !== "ACTIVE" || !connected || !socketOpen() || !!pendingQuick;
     send.disabled = value !== "ACTIVE" || !connected || !socketOpen();
-    send.textContent = pendingQuick ? "Retry send" : "Send";
+    send.textContent = pendingQuick?.expired ? "Send again (may duplicate)" : pendingQuick ? "Retry send" : "Send";
     recordStart.disabled = value !== "ACTIVE" || !connected ||
       !socketOpen() || !speechSupported || busy;
     if (value !== "ACTIVE" && recorder?.state === "recording") {
@@ -225,6 +271,7 @@
     }
     if (value === "CLOSED") {
       resetPrivateReview();
+      clearQuickExpiryTimer();
       speechSection.dataset.phase = "idle";
       stopped = true;
       speechEvents.replaceChildren();
@@ -362,8 +409,21 @@
   function receiveTurn(event) {
     const payload = event.payload || {};
     if (!Number.isSafeInteger(payload.turnIndex) || !event.turnId) return;
+    if (event.type === "TURN_FAILED" && payload.stage === "TRANSLATION"
+        && typeof payload.transcript === "string") {
+      showTranslationRetry(event.turnId, payload.transcript, payload.sourceLanguage, payload.message);
+      return;
+    }
     const parts = rowFor(event.turnId, payload.turnIndex, event.senderParticipantId);
-    if (event.type === "TURN_ACCEPTED") parts.progress.textContent = "Recognizing speech";
+    if (event.type === "TURN_ACCEPTED") {
+      if (failedTranslationTurnId === event.turnId) {
+        translationRetryPanel.hidden = true;
+        translationRetryStatus.textContent = "Your recognized text is kept temporarily for retry.";
+        translationRetryButton.disabled = false;
+        failedTranslationTurnId = null;
+      }
+      parts.progress.textContent = "Recognizing speech";
+    }
     if (event.type === "TURN_ACCEPTED") parts.row.dataset.phase = "recognizing";
     if (event.type === "TRANSCRIPT_READY") {
       showCaption(parts, "source", payload.sourceLanguage, payload.transcript);
@@ -390,6 +450,17 @@
     turnAnnouncement.textContent = "Turn " + payload.turnIndex + ": " + parts.progress.textContent;
   }
 
+  function showTranslationRetry(turnId, transcript, sourceLanguage, message) {
+    failedTranslationTurnId = turnId;
+    translationRetryTranscript.textContent = transcript;
+    translationRetryTranscript.lang = sourceLanguage === "ta" ? "ta" : "en";
+    translationRetryStatus.textContent = message || "Translation failed. Your recognized text is kept temporarily.";
+    translationRetryButton.disabled = translationRetryBusy;
+    translationRetryPanel.hidden = false;
+    recordingStatus.textContent = "Translation failed. Retry with the recognized text, or record a new turn.";
+    turnAnnouncement.textContent = "Translation failed. The recognized speech is available only to you for retry.";
+  }
+
   async function refreshTurns() {
     try {
       const knownIdsAtStart = new Set(turnRows.keys());
@@ -400,6 +471,12 @@
       if (status.textContent === "CLOSED") return;
       const currentIds = new Set(recent.map(turn => turn.turnId));
       for (const turn of recent) {
+        if (turn.status === "FAILED" && turn.failedStage === "TRANSLATION"
+            && typeof turn.transcript === "string") {
+          showTranslationRetry(turn.turnId, turn.transcript, turn.sourceLanguage,
+            "Translation failed. Your recognized text is kept temporarily.");
+          continue;
+        }
         const parts = rowFor(turn.turnId, turn.turnIndex, turn.senderParticipantId);
         if (turn.transcript) showCaption(parts, "source", turn.sourceLanguage, turn.transcript);
         if (turn.translatedText) showCaption(parts, "target", turn.targetLanguage, turn.translatedText);
@@ -421,13 +498,41 @@
           turnRows.delete(turnId);
         }
       }
-      turnEmpty.hidden = speechEvents.childElementCount !== 0
-        || document.getElementById("shared-text-draft")?.hidden === false;
+      turnEmpty.hidden = speechEvents.childElementCount !== 0;
       window.voicelinkHistory?.refresh();
     } catch {
       // The live connection can remain available if the snapshot request fails.
     }
   }
+
+  translationRetryButton.addEventListener("click", async () => {
+    if (!failedTranslationTurnId || translationRetryBusy || !connected
+        || status.textContent !== "ACTIVE") return;
+    translationRetryBusy = true;
+    translationRetryButton.disabled = true;
+    translationRetryStatus.textContent = "Retrying translation with the recognized text…";
+    try {
+      const response = await fetch("/api/rooms/" + roomId + "/turns/"
+        + failedTranslationTurnId + "/retry-translation", {
+        method: "POST", credentials: "same-origin", headers: csrfHeaders()
+      });
+      if (response.ok) {
+        translationRetryStatus.textContent = "Translation is processing. Your partner will see the turn only if translation succeeds.";
+      } else {
+        let body = {};
+        try { body = await response.json(); } catch { /* response may have no JSON body */ }
+        translationRetryStatus.textContent = body.message || body.error
+          || "Retry is unavailable. Your recognized text remains here while this room is open.";
+        translationRetryButton.disabled = response.status === 404 || response.status === 409;
+      }
+    } catch {
+      translationRetryStatus.textContent = "Retry could not reach the server. Reconnect and try again.";
+      translationRetryButton.disabled = false;
+    } finally {
+      translationRetryBusy = false;
+      if (!translationRetryButton.disabled) translationRetryButton.disabled = false;
+    }
+  });
 
   function showParticipants(people) {
     if (!Array.isArray(people)) return;
@@ -509,7 +614,6 @@
       lastSequence = 0;
       seen.clear();
       seenQuickIds.clear();
-      window.dispatchEvent(new Event("voicelink-text-draft-reset"));
     }
     if (event.sequence <= lastSequence || seen.has(event.eventId)) return;
     lastSequence = event.sequence;
@@ -523,8 +627,6 @@
       addText(event);
     } else if (event.type === "TEXT_TRANSLATION_SENT") {
       window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
-    } else if (event.type === "TEXT_DRAFT_UPDATED" || event.type === "TEXT_DRAFT_CLEARED") {
-      window.dispatchEvent(new CustomEvent("voicelink-text-draft", { detail: event }));
     } else if (event.type === "ROOM_CLOSED") {
       setStatus("CLOSED");
       window.dispatchEvent(new Event("voicelink-room-state"));
@@ -536,8 +638,14 @@
           ? "disconnected" : "connected");
       if (pendingQuick && ["INVALID_MESSAGE", "MESSAGE_TOO_LARGE", "ROOM_NOT_ACTIVE", "NOT_AUTHORIZED"]
           .includes(event.payload?.code)) {
+        clearQuickExpiryTimer();
         pendingQuick = null;
         quickStatus.textContent = "Quick chat was not sent. Your message remains here; check it and try again.";
+        setStatus(status.textContent);
+      } else if (pendingQuick && event.payload?.code === "RATE_LIMITED") {
+        clearQuickExpiryTimer();
+        pendingQuick = null;
+        quickStatus.textContent = event.payload.message || "Quick chat is temporarily limited. Your message remains here.";
         setStatus(status.textContent);
       }
     } else if (["TURN_ACCEPTED", "TRANSCRIPT_READY", "TRANSLATION_READY",
@@ -579,7 +687,11 @@
       retry = 0;
       updateConnection("Connected", "connected");
       setStatus(status.textContent);
-      if (pendingQuick) quickStatus.textContent = "Delivery is unconfirmed. Retry uses the same message, but a server restart could resend it.";
+      refreshQuickRetryState();
+      if (pendingQuick && !pendingQuick.expired) {
+        quickStatus.textContent = "Delivery is unconfirmed. Retrying with the same message ID.";
+        transmitPendingQuick();
+      }
       refreshTurns();
       window.dispatchEvent(new Event("voicelink-room-state"));
       window.dispatchEvent(new Event("voicelink-live-connected"));
@@ -587,10 +699,10 @@
     socket.onmessage = message => receive(message.data);
     socket.onclose = async event => {
       connected = false;
-      window.dispatchEvent(new Event("voicelink-text-draft-reset"));
       input.disabled = true;
       send.disabled = true;
-      if (pendingQuick) quickStatus.textContent = "Delivery is unconfirmed. Your message remains here until you reconnect.";
+      refreshQuickRetryState();
+      if (pendingQuick && !pendingQuick.expired) quickStatus.textContent = "Delivery is unconfirmed. Your message remains here; the same ID is used for retries for up to 30 minutes.";
       recordStart.disabled = true;
       if (recorder?.state === "recording") {
         discardRecording = true;
@@ -622,21 +734,20 @@
 
   form.addEventListener("submit", event => {
     event.preventDefault();
+    refreshQuickRetryState();
     if (!connected || !socketOpen() ||
         status.textContent !== "ACTIVE") return;
     const value = input.value.trim();
     if (!value || [...value].length > 1000) return;
     if (pendingQuick && pendingQuick.text !== value) return;
-    if (!pendingQuick) pendingQuick = { id: crypto.randomUUID(), text: value };
-    setStatus(status.textContent);
-    quickStatus.textContent = "Sending quick chat message…";
-    try {
-      socket.send(JSON.stringify({
-        protocolVersion: 1, type: "SEND_TEXT", clientMessageId: pendingQuick.id, text: pendingQuick.text
-      }));
-    } catch {
-      quickStatus.textContent = "Delivery is unconfirmed. Your message remains here; retry after reconnecting.";
+    if (pendingQuick?.expired) {
+      if (!window.confirm("Delivery is unconfirmed. Sending again will use a new message ID and may create a duplicate. Send again?")) return;
+      beginQuickAttempt(crypto.randomUUID(), value);
+    } else if (!pendingQuick) {
+      beginQuickAttempt(crypto.randomUUID(), value);
     }
+    setStatus(status.textContent);
+    transmitPendingQuick();
   });
 
   if (!speechSupported) {
