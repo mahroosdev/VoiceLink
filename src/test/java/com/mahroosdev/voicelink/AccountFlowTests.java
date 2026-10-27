@@ -203,7 +203,7 @@ class AccountFlowTests {
                 .param("password", PASSWORD))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "An account with this email already exists.")))
+                        "Email already registered.")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sign in instead.")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("href=\"/login\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("value=\"Test User\"")))
@@ -226,7 +226,7 @@ class AccountFlowTests {
                 .andExpect(unauthenticated());
         mvc.perform(get("/login").param("error", ""))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "We couldn't sign you in. Check your email and password, or create an account")));
+                        "Email or password is incorrect.")));
         mvc.perform(post("/login").with(csrf()).param("email", newEmail()).param("password", "wrong"))
                 .andExpect(status().isFound()).andExpect(redirectedUrl("/login?error"))
                 .andExpect(unauthenticated());

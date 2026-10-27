@@ -61,6 +61,18 @@ class UiRenderingTests {
                 "--vl-shell-width: 1120px", ".authenticated-shell {",
                 ".application-sidebar {", ".application-bottom-nav {",
                 ".room-form-grid { grid-template-columns: 1fr; }",
+                "@media (min-width: 1600px)",
+                "--vl-shell-width: min(1480px, calc(100vw - 112px));",
+                ".workspace--dashboard .action-grid { max-width: 1240px; margin-inline: auto; }",
+                ".workspace--dashboard > .workspace-heading",
+                ".workspace--rooms > .room-list-section",
+                ".workspace--rooms .room-form-grid {",
+                "gap: var(--vl-panel-gap);",
+                ".workspace--rooms .room-form-grid > section {",
+                "border: 1px solid var(--vl-hairline);",
+                ".room-main-grid #active-section { width: min(100%, 1280px); max-width: 1280px; }",
+                "@media (max-width: 359px)",
+                ".application-bottom-nav a { font-size: .72rem; letter-spacing: -.01em; }",
                 "flex-wrap: wrap", ".about-grid { grid-template-columns: 1fr; }",
                 ".password-control input { padding-right: 60px; }", "width: 44px;",
                 ".password-toggle__show, .password-toggle[data-visible=\"true\"] .password-toggle__hide { display: none; }",
@@ -82,9 +94,15 @@ class UiRenderingTests {
                 "@media (min-width: 900px) and (max-height: 359px)",
                 ".authenticated-shell--about .application-sidebar { overflow-y: auto; }");
         assertThat(css).contains(".public-shell--home", ".home-hero {",
+                "min-height: auto;", "padding-block: clamp(54px, 6vw, 78px);",
                 ".home-preview {", ".home-benefits__grid {",
+                ".public-shell--home .site-footer { margin-top: auto; padding: 20px 0 28px; }",
+                ".public-shell--home .home-hero {",
+                "min-height: max(760px, calc(100svh - 120px));",
                 "@media (max-width: 799px)", "@media (max-width: 359px)",
                 ".public-shell--home .site-header .header-actions > a:not(.button) { display: inline-flex;",
+                ".public-shell--home .site-header .header-actions > a { flex: none; white-space: nowrap; }",
+                ".public-shell--home .site-header__inner > .brand { flex: 0 0 auto; }",
                 "@media (hover: hover) and (pointer: fine)",
                 ".home-preview-frame { position: relative; min-width: 0; isolation: isolate; }",
                 ".home-preview-frame::before {", "pointer-events: none;",
@@ -129,9 +147,12 @@ class UiRenderingTests {
         assertThat(register).contains("action=\"/register\"", "name=\"displayName\"",
                 "name=\"email\"", "name=\"password\"", "10–128 characters.");
         assertThat(login).contains("Continue your translated conversations.",
-                "src=\"/js/password-visibility.js\"").doesNotContain("English ↔ Tamil", "English and Tamil");
+                "src=\"/js/password-visibility.js\"")
+                .doesNotContain("English ↔ Tamil", "English and Tamil",
+                        "We couldn't sign you in. Check your email and password, or create an account");
         assertThat(register).contains("Create your account for private translated conversations.",
-                "src=\"/js/password-visibility.js\"").doesNotContain("English ↔ Tamil", "English and Tamil");
+                "src=\"/js/password-visibility.js\"")
+                .doesNotContain("English ↔ Tamil", "English and Tamil");
         assertPasswordControl(login, "password", "current-password");
         assertPasswordControl(register, "password", "new-password");
     }
@@ -183,6 +204,13 @@ class UiRenderingTests {
                 "Could you share the project update?",
                 "project update-ஐ share பண்ண முடியுமா?",
                 "Private two-person rooms", "Speak or type", "Read and listen");
+        assertThat(landing).contains(
+                "home-benefit__icon-svg--people",
+                "home-benefit__icon-svg--conversation",
+                "home-benefit__icon-svg--captions",
+                "<svg class=\"home-benefit__icon-svg home-benefit__icon-svg--people\" viewBox=\"0 0 24 24\"",
+                "<svg class=\"home-benefit__icon-svg home-benefit__icon-svg--conversation\" viewBox=\"0 0 24 24\"",
+                "<span class=\"home-benefit__icon\" aria-hidden=\"true\">");
         assertThat(landing).doesNotContain("திட்டத்தின் புதுப்பிப்பைப் பகிர முடியுமா?",
                 "தமிழ் · மொழிபெயர்க்கப்பட்ட உரை");
         assertThat(Pattern.compile("href=\"/login\"[^>]*>Sign in</a>")
@@ -201,8 +229,9 @@ class UiRenderingTests {
                 "Premium is not available on this server.", "name=\"_csrf\"",
                 "href=\"/about#privacy\"", "Recent captions and generated audio are temporary.",
                 "href=\"/about\"", owner.getUsername());
-        assertThat(index).contains("id=\"direction-preview\"", "Conversation Owner")
-                .doesNotContain("Recent History", "Recovery Key");
+        assertThat(index).contains("id=\"direction-preview\"", "Conversation Owner",
+                "data-creator-language", "data-participant-language")
+                .doesNotContain("Recent History", "Recovery Key", "is translated to");
         assertThat(index).doesNotContain("<details class=\"disclosure data-disclosure\"",
                 "Standard uses Gemini Free Tier for translation and voice.",
                 "VOICELINK_PREMIUM_GEMINI_API_KEY");
@@ -325,7 +354,10 @@ class UiRenderingTests {
         assertThat(waiting).contains("class=\"authenticated-shell\"", "id=\"invite-copy\"", "id=\"glossary-section\"",
                 "id=\"room-details\"", "id=\"close-room-form\"", "data-room-id=\"" + roomId + "\"", "Standard",
                 "class=\"waiting-card__code-row\"", "Back to conversations",
+                "room-page--waiting",
                 "id=\"glossary-open\"", "id=\"glossary-add\"", "id=\"glossary-close\"",
+                "id=\"room-details-open\"", "id=\"room-details-close\"",
+                "<dialog id=\"room-details\" class=\"glossary-dialog room-details-dialog\"",
                 "<dialog id=\"glossary-section\"", "id=\"glossary-form\" class=\"glossary-form\" hidden",
                 "Your partner will speak <span>Tamil</span>, and you will receive <span>English</span>.");
         assertThat(waiting).doesNotContain("class=\"room-sidebar\"");
@@ -347,7 +379,11 @@ class UiRenderingTests {
                 "Translate message", "Live translation", "id=\"history-translated\"", "id=\"history-quick\"",
                 "id=\"history-latest\"", "id=\"text-mode-quick\"",
                 "Translate and review your message before sending.",
-                "Record and send the translated turn.")
+                "Record and send the translated turn.",
+                "room-details__summary", "room-details__item", "room-details__label",
+                "romanized-tamil-option__title", "toggle-control", "toggle-control__track",
+                "id=\"romanized-tamil\"", "id=\"romanized-tamil-state\"",
+                "aria-labelledby=\"romanized-tamil-label\"", "Transliteration: Off")
                 .doesNotContain("You hear: ", "Partner hears: ", "Private Live", "Shared Live",
                         "history-all", "All messages", "Live translation draft",
                         "Low latency", "Recent History", "Delete account");
@@ -355,11 +391,13 @@ class UiRenderingTests {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(ownerActive).contains("You speak: </span><span>English",
                 "Partner receives: </span><span>Tamil", "Partner speaks: </span><span>Tamil",
-                "You receive: </span><span>English");
+                "You receive: </span><span>English", "id=\"room-language-form\"",
+                "id=\"owner-speaking-language\"");
+        assertThat(active).doesNotContain("id=\"room-language-form\"");
         var ids = Pattern.compile(" id=\"([^\"]+)\"").matcher(active).results()
                 .map(match -> match.group(1)).toList();
         assertThat(ids).doesNotHaveDuplicates();
-        assertThat(active).containsPattern("(?s)<details id=\"room-details\".*?<form id=\"close-room-form\"");
+        assertThat(active).containsPattern("(?s)<dialog id=\"room-details\".*?<form id=\"close-room-form\"");
         assertThat(active.indexOf("id=\"conversation-events\"")).isLessThan(active.indexOf("id=\"record-start\""));
         String roomScript = mvc.perform(get("/js/room-live.js").with(user(guest)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

@@ -87,7 +87,7 @@ class PostgresIntegrationIT {
     void flywayAndHibernatePersistUuidAccountAndPreferences() {
         Integer version = jdbc.queryForObject(
                 "SELECT max(installed_rank) FROM flyway_schema_history WHERE success = true", Integer.class);
-        assertThat(version).isEqualTo(8);
+        assertThat(version).isEqualTo(9);
         RegistrationForm form = new RegistrationForm();
         form.setDisplayName("Postgres Test");
         form.setEmail("  " + UUID.randomUUID() + "@EXAMPLE.TEST  ");

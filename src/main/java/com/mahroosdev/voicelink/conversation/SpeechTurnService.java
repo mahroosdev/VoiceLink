@@ -150,7 +150,7 @@ public class SpeechTurnService {
             }
             Turn turn = new Turn(roomId, userId, member.participantId(), sessionId, clientRequestId,
                     ++room.nextIndex, member.speaking(), member.listening(), member.profile(),
-                    member.premiumCostSaverEnabled(), workflow, bytes.clone(), clock.instant());
+                    member.premiumCostSaverEnabled(), member.languageVersion(), workflow, bytes.clone(), clock.instant());
             metrics.count(turn.profile, "accepted");
             room.queue.add(new Work(turn, WorkKind.PROCESS));
             room.recent.add(turn);
@@ -165,10 +165,9 @@ public class SpeechTurnService {
                 Iterator<String> ids = room.byRequest.keySet().iterator();
                 ids.next(); ids.remove();
             }
-            if (workflow == Workflow.LIVE_SEND) hub.publishTurnToSender(roomId, userId,
-                    member.participantId(), turn.id, "TURN_ACCEPTED",
+            if (workflow == Workflow.LIVE_SEND) publishTurn(turn, "TURN_ACCEPTED",
                     Map.of("turnIndex", turn.index, "sourceLanguage", turn.source,
-                            "targetLanguage", turn.target));
+                            "targetLanguage", turn.target), true);
             if (!room.processing) {
                 room.processing = true;
                 RoomQueue selected = room;
@@ -185,8 +184,8 @@ public class SpeechTurnService {
                     metrics.count(turn.profile, "failed");
                     metrics.duration(turn.profile, "end_to_end", turn.receivedNanos);
                     if (workflow == Workflow.LIVE_SEND)
-                        hub.publishTurn(roomId, userId, member.participantId(), turn.id, "TURN_FAILED",
-                                failurePayload(turn, "The speech service is busy. Please try again later."));
+                        publishTurn(turn, "TURN_FAILED",
+                                failurePayload(turn, "The speech service is busy. Please try again later."), false);
                 }
             }
             return new Accepted(turn.id, turn.index, false, turn.profile.name());
@@ -285,16 +284,7 @@ public class SpeechTurnService {
             }
             if (!stillActive(turn)) return;
             if (turn.workflow == Workflow.FINISH_AND_SEND) return;
-            sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
-            if (turn.workflow == Workflow.LIVE_SEND) {
-                publishAccepted(turn);
-                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
-                        Map.of("turnIndex", turn.index, "transcript", turn.transcript,
-                                "sourceLanguage", turn.source));
-            }
-            hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
-                    Map.of("turnIndex", turn.index, "translatedText", turn.translation,
-                            "targetLanguage", turn.target));
+            if (!publishFinalResult(turn, true)) return;
             metrics.duration(turn.profile, "caption_event", turn.receivedNanos);
             stage = "TTS";
             synthesize(turn, bundle, deadline);
@@ -315,11 +305,9 @@ public class SpeechTurnService {
         }
         if ((turn.workflow == Workflow.LIVE_SEND || turn.sent) && stillActive(turn)) {
             if ("TRANSLATION".equals(stage) && turn.workflow == Workflow.LIVE_SEND) {
-                hub.publishTurnToSender(turn.roomId, turn.userId, turn.participantId, turn.id,
-                        "TURN_FAILED", failurePayload(turn, message));
+                publishTurn(turn, "TURN_FAILED", failurePayload(turn, message), true);
             } else {
-                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id,
-                        "TURN_FAILED", failurePayload(turn, message));
+                publishTurn(turn, "TURN_FAILED", failurePayload(turn, message), false);
             }
         }
     }
@@ -353,7 +341,7 @@ public class SpeechTurnService {
                     || !clock.instant().isBefore(turn.acceptedAt.plusSeconds(TURN_TTL_SECONDS)))
                 throw conflict("This recognized turn is no longer available for translation retry.");
             if (member.profile() != turn.profile || !member.speaking().equals(turn.source)
-                    || !member.listening().equals(turn.target))
+                    || !member.listening().equals(turn.target) || member.languageVersion() != turn.languageVersion)
                 throw conflict("The room language or service profile changed. Record a new turn.");
             if (room.closed || room.pending >= MAX_PENDING_PER_ROOM) throw unavailable();
             if (!rateLimiter.tryAcquire(userId)) throw rateLimited();
@@ -400,14 +388,7 @@ public class SpeechTurnService {
                 turn.status = "TRANSLATED";
             }
             if (!stillActive(turn)) return;
-            sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
-            publishAccepted(turn);
-            hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
-                    Map.of("turnIndex", turn.index, "transcript", turn.transcript,
-                            "sourceLanguage", turn.source));
-            hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TRANSLATION_READY",
-                    Map.of("turnIndex", turn.index, "translatedText", turn.translation,
-                            "targetLanguage", turn.target));
+            if (!publishFinalResult(turn, true)) return;
             metrics.duration(turn.profile, "caption_event", turn.receivedNanos);
             stage = "TTS";
             synthesize(turn, bundle, deadline);
@@ -444,25 +425,43 @@ public class SpeechTurnService {
         }
         if (!stillActive(turn)) return;
         requireTime(deadline);
-        synchronized (this) {
-            if (spoken.audio() == null || spoken.audio().length == 0
-                    || spoken.audio().length > 2 * 1024 * 1024
-                    || !"audio/wav".equals(spoken.mediaType())
-                    || storedAudioBytes + spoken.audio().length > MAX_AUDIO_BYTES)
-                throw new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
-            turn.generatedAudio = spoken.audio().clone();
-            storedAudioBytes += turn.generatedAudio.length;
-            turn.mediaType = spoken.mediaType();
-            turn.audioExpiresAt = clock.instant().plusSeconds(AUDIO_TTL_SECONDS);
-            turn.status = "READY";
+        boolean current;
+        ProviderFailure[] invalidAudio = new ProviderFailure[1];
+        try {
+            synchronized (this) {
+                // Keep the service monitor before the room-row lock, matching send()
+                // and audio(). The persisted lock fences this storage/publication block
+                // against language changes and room closure across app instances.
+                current = hub.runIfCurrentLanguageVersion(turn.roomId, turn.userId,
+                        turn.participantId, turn.languageVersion, () -> {
+                    if (spoken.audio() == null || spoken.audio().length == 0
+                            || spoken.audio().length > 2 * 1024 * 1024
+                            || !"audio/wav".equals(spoken.mediaType())
+                            || storedAudioBytes + spoken.audio().length > MAX_AUDIO_BYTES) {
+                        invalidAudio[0] = new ProviderFailure(ProviderFailure.Code.INVALID_RESPONSE);
+                        return;
+                    }
+                    turn.generatedAudio = spoken.audio().clone();
+                    storedAudioBytes += turn.generatedAudio.length;
+                    turn.mediaType = spoken.mediaType();
+                    turn.audioExpiresAt = clock.instant().plusSeconds(AUDIO_TTL_SECONDS);
+                    turn.status = "READY";
+                    hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "AUDIO_READY",
+                            Map.of("turnIndex", turn.index, "audioUrl", "/api/rooms/" + turn.roomId
+                                    + "/turns/" + turn.id + "/audio", "mediaType", turn.mediaType));
+                });
+            }
+        } catch (RuntimeException ex) {
+            // Audio is process memory, so explicitly undo it if transaction commit
+            // or event publication fails after the callback has populated the turn.
+            synchronized (this) { discardAudio(turn); }
+            throw ex;
         }
-        if (!stillActive(turn)) {
+        if (!current) {
             synchronized (this) { discardAudio(turn); }
             return;
         }
-        hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "AUDIO_READY",
-                Map.of("turnIndex", turn.index, "audioUrl", "/api/rooms/" + turn.roomId
-                        + "/turns/" + turn.id + "/audio", "mediaType", turn.mediaType));
+        if (invalidAudio[0] != null) throw invalidAudio[0];
         metrics.duration(turn.profile, "audio_event", turn.receivedNanos);
     }
 
@@ -484,7 +483,8 @@ public class SpeechTurnService {
         }
         try {
             RoomLiveAuthorizer.Member member = authorizer.authorize(turn.userId, turn.roomId);
-            return member.status() == RoomStatus.ACTIVE && member.profile() == turn.profile;
+            return member.status() == RoomStatus.ACTIVE && member.profile() == turn.profile
+                    && member.languageVersion() == turn.languageVersion;
         } catch (RuntimeException ex) {
             return false;
         }
@@ -492,7 +492,8 @@ public class SpeechTurnService {
 
     private void requirePaidStage(Turn turn) {
         RoomLiveAuthorizer.Member member = authorizer.authorize(turn.userId, turn.roomId);
-        if (member.status() != RoomStatus.ACTIVE || member.profile() != turn.profile) {
+        if (member.status() != RoomStatus.ACTIVE || member.profile() != turn.profile
+                || member.languageVersion() != turn.languageVersion) {
             throw new ProviderFailure(ProviderFailure.Code.CONFIGURATION);
         }
         providers.requirePaidStage(member.profile());
@@ -507,12 +508,13 @@ public class SpeechTurnService {
     }
 
     public List<Snapshot> recent(UUID userId, UUID roomId) {
-        activeMember(userId, roomId);
+        RoomLiveAuthorizer.Member member = activeMember(userId, roomId);
         synchronized (this) {
             RoomQueue room = states.get(roomId);
             if (room == null) return List.of();
             List<Snapshot> result = new ArrayList<>();
             for (Turn turn : room.recent) {
+                if (turn.languageVersion != member.languageVersion() && !turn.resultPublished) continue;
                 if ((turn.workflow == Workflow.LIVE_SEND || turn.sent)
                         && !(turn.workflow == Workflow.LIVE_SEND && !turn.translationSucceeded
                         && !turn.userId.equals(userId)
@@ -524,11 +526,13 @@ public class SpeechTurnService {
     }
 
     public Review review(UUID userId, String sessionId, UUID roomId, UUID turnId) {
-        activeMember(userId, roomId);
+        RoomLiveAuthorizer.Member member = activeMember(userId, roomId);
         synchronized (this) {
             expireLocked(clock.instant());
             Turn turn = privateTurn(userId, sessionId, roomId, turnId);
             if ("EXPIRED".equals(turn.status) || "CANCELLED".equals(turn.status)) throw reviewGone();
+            if (turn.languageVersion != member.languageVersion())
+                throw conflict("The room direction changed. Record again.");
             return new Review(turn.id, turn.index, turn.status, turn.transcript, turn.translation,
                     turn.source, turn.target, turn.profile.name(), turn.reviewExpiresAt,
                     turn.failedStage, turn.errorCode);
@@ -541,12 +545,17 @@ public class SpeechTurnService {
             expireLocked(clock.instant());
             Turn turn = privateTurn(userId, sessionId, roomId, turnId);
             if (turn.sent) return new Sent(turn.id, turn.index, true, turn.profile.name());
+            Sent[] result = new Sent[1];
+            boolean current = authorizer.runIfActiveLanguageVersion(userId, roomId, member.participantId(),
+                    member.languageVersion(), () -> {
             if (!"READY_FOR_REVIEW".equals(turn.status) || turn.reviewExpiresAt == null
                     || !clock.instant().isBefore(turn.reviewExpiresAt)) throw reviewGone();
             if (!hub.hasCurrentConnection(roomId, userId, sessionId))
                 throw conflict("Reconnect to the live room before sending.");
             if (member.profile() != turn.profile || !member.speaking().equals(turn.source)
-                    || !member.listening().equals(turn.target)) throw conflict("The room changed. Record again.");
+                    || !member.listening().equals(turn.target)
+                    || member.languageVersion() != turn.languageVersion)
+                throw conflict("The room changed. Record again.");
             if (!glossary.list(userId, roomId).equals(turn.glossaryVersion))
                 throw conflict("The glossary changed. Record again.");
             providers.requirePaidStage(member.profile());
@@ -554,18 +563,19 @@ public class SpeechTurnService {
             turn.status = "TRANSLATED";
             sharedContext.finalized(roomId, turn.source, turn.target, turn.transcript);
             publishAccepted(turn);
-            hub.publishTurn(roomId, userId, turn.participantId, turn.id, "TRANSCRIPT_READY",
-                    Map.of("turnIndex", turn.index, "transcript", turn.transcript,
-                            "sourceLanguage", turn.source));
-            hub.publishTurn(roomId, userId, turn.participantId, turn.id, "TRANSLATION_READY",
-                    Map.of("turnIndex", turn.index, "translatedText", turn.translation,
-                            "targetLanguage", turn.target));
+            publishTurn(turn, "TRANSCRIPT_READY", Map.of("turnIndex", turn.index,
+                    "transcript", turn.transcript, "sourceLanguage", turn.source), false);
+            publishTurn(turn, "TRANSLATION_READY", Map.of("turnIndex", turn.index,
+                    "translatedText", turn.translation, "targetLanguage", turn.target), false);
             metrics.duration(turn.profile, "caption_event", turn.receivedNanos);
             RoomQueue room = states.get(roomId);
             room.queue.add(new Work(turn, WorkKind.TTS));
             room.pending++;
             scheduleLocked(room, turn, true);
-            return new Sent(turn.id, turn.index, false, turn.profile.name());
+            result[0] = new Sent(turn.id, turn.index, false, turn.profile.name());
+            });
+            if (!current) throw conflict("The room changed. Record again.");
+            return result[0];
         }
     }
 
@@ -602,18 +612,33 @@ public class SpeechTurnService {
     }
 
     public Audio audio(UUID userId, UUID roomId, UUID turnId) {
-        activeMember(userId, roomId);
+        RoomLiveAuthorizer.Member member = activeMember(userId, roomId);
+        Audio[] result = new Audio[1];
+        boolean current;
         synchronized (this) {
-            RoomQueue room = states.get(roomId);
-            if (room == null) throw notFound();
-            for (Turn turn : room.recent) {
-                if (turn.id.equals(turnId) && turn.generatedAudio != null
-                        && clock.instant().isBefore(turn.audioExpiresAt)) {
-                    return new Audio(turn.generatedAudio.clone(), turn.mediaType);
+            current = authorizer.runIfActiveLanguageVersion(userId, roomId, member.participantId(),
+                    member.languageVersion(), () -> {
+                RoomQueue room = states.get(roomId);
+                if (room == null) return;
+                for (Turn turn : room.recent) {
+                    if (!turn.id.equals(turnId)) continue;
+                    // Both current room participants may listen, but a turn from
+                    // an earlier language generation is never exposed.
+                    if (!turn.roomId.equals(roomId)) return;
+                    if (turn.languageVersion != member.languageVersion()) {
+                        discardAudio(turn);
+                        return;
+                    }
+                    if (turn.generatedAudio != null && clock.instant().isBefore(turn.audioExpiresAt)) {
+                        result[0] = new Audio(turn.generatedAudio.clone(), turn.mediaType);
+                        return;
+                    }
                 }
-            }
-            throw notFound();
+            });
         }
+        if (!current) throw conflict("The room changed. Audio is no longer available.");
+        if (result[0] == null) throw notFound();
+        return result[0];
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -660,9 +685,30 @@ public class SpeechTurnService {
     }
 
     private void publishAccepted(Turn turn) {
-        hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TURN_ACCEPTED",
-                Map.of("turnIndex", turn.index, "sourceLanguage", turn.source,
-                        "targetLanguage", turn.target));
+        publishTurn(turn, "TURN_ACCEPTED", Map.of("turnIndex", turn.index,
+                "sourceLanguage", turn.source, "targetLanguage", turn.target), false);
+    }
+
+    private boolean publishFinalResult(Turn turn, boolean includeTranscript) {
+        return hub.runIfCurrentLanguageVersion(turn.roomId, turn.userId, turn.participantId,
+                turn.languageVersion, () -> {
+                    sharedContext.finalized(turn.roomId, turn.source, turn.target, turn.transcript);
+                    hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TURN_ACCEPTED",
+                            Map.of("turnIndex", turn.index, "sourceLanguage", turn.source,
+                                    "targetLanguage", turn.target));
+                    if (includeTranscript) hub.publishTurn(turn.roomId, turn.userId, turn.participantId,
+                            turn.id, "TRANSCRIPT_READY", Map.of("turnIndex", turn.index,
+                                    "transcript", turn.transcript, "sourceLanguage", turn.source));
+                    hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id,
+                            "TRANSLATION_READY", Map.of("turnIndex", turn.index,
+                                    "translatedText", turn.translation, "targetLanguage", turn.target));
+                    turn.resultPublished = true;
+                });
+    }
+
+    private void publishTurn(Turn turn, String type, Map<String, ?> payload, boolean senderOnly) {
+        hub.publishTurnForLanguageVersion(turn.roomId, turn.userId, turn.participantId,
+                turn.languageVersion, turn.id, type, payload, senderOnly);
     }
 
     private Turn privateTurn(UUID userId, String sessionId, UUID roomId, UUID turnId) {
@@ -706,8 +752,8 @@ public class SpeechTurnService {
             turn.failedStage = tts ? "TTS" : "PIPELINE";
             turn.errorCode = "CAPACITY";
             if (turn.workflow == Workflow.LIVE_SEND || turn.sent)
-                hub.publishTurn(turn.roomId, turn.userId, turn.participantId, turn.id, "TURN_FAILED",
-                        failurePayload(turn, "The speech service is busy. Please try again later."));
+                publishTurn(turn, "TURN_FAILED",
+                        failurePayload(turn, "The speech service is busy. Please try again later."), true);
         }
     }
 
@@ -813,6 +859,7 @@ public class SpeechTurnService {
         final String target;
         final AiServiceProfile profile;
         final boolean premiumCostSaverEnabled;
+        final long languageVersion;
         final Workflow workflow;
         final Instant acceptedAt;
         final long receivedNanos = System.nanoTime();
@@ -829,11 +876,12 @@ public class SpeechTurnService {
         Instant reviewExpiresAt;
         List<RoomGlossaryService.EntryView> glossaryVersion;
         boolean sent;
+        volatile boolean resultPublished;
         boolean cancelled;
 
         Turn(UUID roomId, UUID userId, UUID participantId, String sessionId, UUID clientRequestId,
              long index, String source, String target, AiServiceProfile profile,
-             boolean premiumCostSaverEnabled, Workflow workflow,
+             boolean premiumCostSaverEnabled, long languageVersion, Workflow workflow,
              byte[] rawAudio, Instant acceptedAt) {
             this.roomId = roomId;
             this.userId = userId;
@@ -845,6 +893,7 @@ public class SpeechTurnService {
             this.target = target;
             this.profile = profile;
             this.premiumCostSaverEnabled = premiumCostSaverEnabled;
+            this.languageVersion = languageVersion;
             this.workflow = workflow;
             this.rawAudio = rawAudio;
             this.acceptedAt = acceptedAt;

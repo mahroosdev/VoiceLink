@@ -3,6 +3,9 @@ package com.mahroosdev.voicelink.conversation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -58,6 +61,26 @@ class SpeechTurnResourceTests {
         AiProviderResolver resolver = mock(AiProviderResolver.class);
         when(authorizer.authorize(any(), any())).thenAnswer(call -> new RoomLiveAuthorizer.Member(
                 call.getArgument(0), RoomStatus.ACTIVE, "en", "ta", AiServiceProfile.STANDARD));
+        doAnswer(call -> {
+            RoomLiveAuthorizer.Member current = authorizer.authorize(call.getArgument(0), call.getArgument(1));
+            long expectedVersion = call.getArgument(3);
+            if (current.status() != RoomStatus.ACTIVE
+                    || !current.participantId().equals(call.getArgument(2))
+                    || current.languageVersion() != expectedVersion) return false;
+            call.<Runnable>getArgument(4).run();
+            return true;
+        }).when(authorizer).runIfActiveLanguageVersion(any(), any(), any(), anyLong(), any(Runnable.class));
+        doAnswer(call -> {
+            long expectedVersion = call.getArgument(3);
+            Runnable operation = call.getArgument(4);
+            RoomLiveAuthorizer.Member current = authorizer.authorize(call.getArgument(1), call.getArgument(0));
+            if (current.status() != RoomStatus.ACTIVE || current.languageVersion() != expectedVersion
+                    || !current.participantId().equals(call.getArgument(2))) return false;
+            operation.run();
+            return true;
+        }).when(hub).runIfCurrentLanguageVersion(any(), any(), any(), anyLong(), any(Runnable.class));
+        when(hub.publishTurnForLanguageVersion(any(), any(), any(), anyLong(), any(), any(), any(), anyBoolean()))
+                .thenReturn(true);
         when(resolver.resolve(AiServiceProfile.STANDARD))
                 .thenReturn(new AiProviderBundle(stt, translation, tts));
         when(glossary.applicableForTranslation(any(), any(), any(), any())).thenReturn(List.of());

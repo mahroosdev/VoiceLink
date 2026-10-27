@@ -24,7 +24,7 @@
       <h1 id="register-heading">Create your account</h1>
       <p class="auth-card__intro">Create your account for private translated conversations.</p>
       <p class="notice notice--error" th:if="${registrationError}" th:text="${registrationError}" role="alert"></p>
-      <p class="notice notice--error" th:if="${duplicateRegistration}" role="alert">An account with this email already exists. <a th:href="@{/login}">Sign in instead.</a></p>
+      <p class="notice notice--error" th:if="${duplicateRegistration}" role="alert">Email already registered. <a th:href="@{/login}">Sign in instead.</a></p>
       <form th:action="@{/register}" th:object="${registrationForm}" method="post">
         <div class="field">
           <label for="displayName">Display name</label>

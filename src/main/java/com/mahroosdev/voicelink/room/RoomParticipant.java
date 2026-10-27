@@ -75,6 +75,10 @@ public class RoomParticipant {
     public String getConversationDisplayName() { return conversationDisplayName; }
     public Instant getJoinedAt() { return joinedAt; }
     public Instant getRemovedAt() { return removedAt; }
+    void changeDirection(SupportedRoomLanguages.Direction direction) {
+        this.speakingLanguageTag = direction.speaking();
+        this.listeningLanguageTag = direction.listening();
+    }
     public void removeFromList(Instant now) {
         if (removedAt != null) throw new IllegalStateException("Room already removed");
         removedAt = now;

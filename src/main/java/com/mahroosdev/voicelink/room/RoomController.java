@@ -15,6 +15,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 @Controller
@@ -141,6 +145,23 @@ public class RoomController {
         return "redirect:/rooms/" + id;
     }
 
+    @PostMapping(path = "/api/rooms/{id}/languages", consumes = "application/json")
+    @ResponseBody
+    ResponseEntity<Void> updateLanguages(@AuthenticationPrincipal AccountPrincipal principal,
+                                         @PathVariable UUID id, @RequestBody LanguageUpdateRequest request) {
+        if (request == null || request.ownerSpeaking() == null || request.ownerSpeaking().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Choose English or Tamil.");
+        }
+        try {
+            rooms.updateLanguages(principal.getUserId(), id, request.ownerSpeaking());
+        } catch (IllegalArgumentException ex) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Choose English or Tamil.");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/rooms/{id}/remove")
     String remove(@AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID id,
                   RedirectAttributes redirect) {
@@ -157,4 +178,6 @@ public class RoomController {
             return true;
         }
     }
+
+    public record LanguageUpdateRequest(String ownerSpeaking) {}
 }

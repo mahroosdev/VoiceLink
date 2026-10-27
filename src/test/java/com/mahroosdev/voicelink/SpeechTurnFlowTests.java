@@ -3,7 +3,10 @@ package com.mahroosdev.voicelink;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -20,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.mahroosdev.voicelink.ai.ProviderFailure;
@@ -29,14 +33,17 @@ import com.mahroosdev.voicelink.ai.tts.TextToSpeechProvider;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.conversation.SpeechTurnService;
 import com.mahroosdev.voicelink.conversation.TextTranslationService;
+import com.mahroosdev.voicelink.conversation.SharedConversationContext;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.glossary.RoomGlossaryRepository;
 import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
+import com.mahroosdev.voicelink.room.RoomLiveAuthorizer;
 import com.mahroosdev.voicelink.room.RoomService;
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -56,10 +63,12 @@ import tools.jackson.databind.ObjectMapper;
 class SpeechTurnFlowTests {
     @Autowired MockMvc mvc;
     @Autowired RoomService rooms;
+    @Autowired RoomLiveAuthorizer authorizer;
     @Autowired ConversationRoomRepository roomRepository;
     @Autowired UserAccountRepository accounts;
     @Autowired SpeechTurnService turns;
     @Autowired TextTranslationService textTurns;
+    @Autowired SharedConversationContext sharedContext;
     @Autowired ObjectMapper json;
     @Autowired RoomGlossaryService glossary;
     @Autowired RoomGlossaryRepository glossaryEntries;
@@ -70,6 +79,37 @@ class SpeechTurnFlowTests {
     @MockitoBean(name = "premiumTranslationProvider") TranslationProvider premiumTranslation;
     @MockitoBean(name = "premiumTextToSpeechProvider") TextToSpeechProvider premiumTts;
     @MockitoBean RoomLiveHub hub;
+
+    @BeforeEach
+    void routeCurrentFencedEventsToExistingAssertions() {
+        doAnswer(invocation -> {
+            UUID roomId = invocation.getArgument(0);
+            long version = invocation.getArgument(3);
+            Runnable operation = invocation.getArgument(4);
+            var room = roomRepository.findById(roomId).orElse(null);
+            if (room == null || room.getStatus() != com.mahroosdev.voicelink.room.RoomStatus.ACTIVE
+                    || room.getLanguageVersion() != version) return false;
+            operation.run();
+            return true;
+        }).when(hub).runIfCurrentLanguageVersion(any(), any(), any(), anyLong(), any());
+        doAnswer(invocation -> {
+            UUID roomId = invocation.getArgument(0);
+            UUID userId = invocation.getArgument(1);
+            UUID participantId = invocation.getArgument(2);
+            long version = invocation.getArgument(3);
+            UUID turnId = invocation.getArgument(4);
+            String type = invocation.getArgument(5);
+            java.util.Map<String, ?> payload = invocation.getArgument(6);
+            boolean senderOnly = invocation.getArgument(7);
+            var room = roomRepository.findById(roomId).orElse(null);
+            if (room == null || room.getStatus() != com.mahroosdev.voicelink.room.RoomStatus.ACTIVE
+                    || room.getLanguageVersion() != version) return false;
+            if (senderOnly) hub.publishTurnToSender(roomId, userId, participantId, turnId, type, payload);
+            else hub.publishTurn(roomId, userId, participantId, turnId, type, payload);
+            return true;
+        }).when(hub).publishTurnForLanguageVersion(any(), any(), any(), anyLong(), any(), any(),
+                any(), anyBoolean());
+    }
 
     private UserAccount account(String label) {
         return accounts.save(new UserAccount(label, UUID.randomUUID() + "@example.test", "test-only-hash"));
@@ -167,6 +207,162 @@ class SpeechTurnFlowTests {
                 .extracting(TranslationProvider.ContextTurn::sourceTranscript).containsExactly("Hello Java");
     }
 
+    @Test
+    void speechResultIsRejectedWhenLanguageChangesBetweenEarlyCheckAndFinalPublication() throws Exception {
+        UserAccount owner = account("Race owner"), partner = account("Race partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        CountDownLatch reachedPublicationWindow = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            UUID roomId = invocation.getArgument(0);
+            long version = invocation.getArgument(3);
+            Runnable operation = invocation.getArgument(4);
+            // Force the change after SpeechTurnService's early check and at the
+            // final publication boundary, without timing or sleeps.
+            rooms.updateLanguages(owner.getId(), roomId, "ta");
+            reachedPublicationWindow.countDown();
+            var currentRoom = roomRepository.findById(roomId).orElseThrow();
+            if (currentRoom.getStatus() != com.mahroosdev.voicelink.room.RoomStatus.ACTIVE
+                    || currentRoom.getLanguageVersion() != version) return false;
+            operation.run();
+            return true;
+        }).when(hub).runIfCurrentLanguageVersion(any(), any(), any(), anyLong(), any());
+
+        var accepted = turns.accept(owner.getId(), "race-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.LIVE_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        assertThat(reachedPublicationWindow.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(roomRepository.findById(room).orElseThrow().getLanguageVersion()).isEqualTo(1);
+        assertThat(turns.recent(owner.getId(), room)).isEmpty();
+        assertThat(sharedContext.snapshot(room)).isEmpty();
+        verify(hub, never()).publishTurn(eq(room), eq(owner.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSCRIPT_READY"), any());
+        verify(hub, never()).publishTurn(eq(room), eq(owner.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSLATION_READY"), any());
+    }
+
+    @Test
+    void synthesizedAudioIsDiscardedWhenLanguageChangesAtTheStorageFence() throws Exception {
+        UserAccount owner = account("Audio fence owner"), partner = account("Audio fence partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        CountDownLatch fenceFinished = new CountDownLatch(1);
+        when(tts.synthesize(any())).thenAnswer(invocation -> {
+            return new TextToSpeechProvider.Result(new byte[]{1, 2, 3}, "audio/wav", "GEMINI", "Kore", 1);
+        });
+        doAnswer(invocation -> {
+            // This wrapper is reached only at the final audio storage/publication
+            // boundary, after TTS and the earlier active/version check.
+            rooms.updateLanguages(owner.getId(), room, "ta");
+            fenceFinished.countDown();
+            return false;
+        }).when(hub).runIfCurrentLanguageVersion(eq(room), eq(owner.getId()), any(), anyLong(), any());
+
+        var accepted = turns.accept(owner.getId(), "audio-fence-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(owner.getId(), "audio-fence-session", room, accepted.turnId(), "READY_FOR_REVIEW");
+        when(hub.hasCurrentConnection(room, owner.getId(), "audio-fence-session")).thenReturn(true);
+        turns.send(owner.getId(), "audio-fence-session", room, accepted.turnId());
+
+        assertThat(fenceFinished.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(roomRepository.findById(room).orElseThrow().getLanguageVersion()).isEqualTo(1);
+        assertThatThrownBy(() -> turns.audio(owner.getId(), room, accepted.turnId()))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        verify(hub, never()).publishTurn(eq(room), eq(owner.getId()), any(), any(),
+                eq("AUDIO_READY"), any());
+    }
+
+    @Test
+    void invalidSynthesizedAudioStillFailsTheTurnWithoutPublishingAudio() throws Exception {
+        UserAccount owner = account("Invalid audio owner"), partner = account("Invalid audio partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        when(hub.hasCurrentConnection(room, owner.getId(), "invalid-audio-session")).thenReturn(true);
+        when(tts.synthesize(any())).thenReturn(new TextToSpeechProvider.Result(
+                new byte[]{1, 2, 3}, "audio/mpeg", "GEMINI", "Kore", 1));
+        var accepted = turns.accept(owner.getId(), "invalid-audio-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(owner.getId(), "invalid-audio-session", room, accepted.turnId(), "READY_FOR_REVIEW");
+        turns.send(owner.getId(), "invalid-audio-session", room, accepted.turnId());
+
+        var failed = await(owner.getId(), room, "FAILED");
+
+        assertThat(failed.failedStage()).isEqualTo("TTS");
+        assertThat(failed.audioAvailable()).isFalse();
+        assertThatThrownBy(() -> turns.audio(owner.getId(), room, accepted.turnId()))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        verify(hub, never()).publishTurn(eq(room), eq(owner.getId()), any(), eq(accepted.turnId()),
+                eq("AUDIO_READY"), any());
+    }
+
+    @Test
+    void previouslyStoredAudioIsRejectedAndDiscardedAfterLanguageChange() throws Exception {
+        UserAccount owner = account("Stale audio owner"), partner = account("Stale audio partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        var accepted = turns.accept(owner.getId(), room, UUID.randomUUID(), webm(),
+                "audio/webm;codecs=opus", 1000);
+        await(owner.getId(), room, "READY");
+        assertThat(turns.audio(partner.getId(), room, accepted.turnId()).bytes()).containsExactly(1, 2, 3);
+
+        rooms.updateLanguages(owner.getId(), room, "ta");
+
+        assertThatThrownBy(() -> turns.audio(partner.getId(), room, accepted.turnId()))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        assertThatThrownBy(() -> turns.audio(partner.getId(), room, accepted.turnId()))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void audioReadHoldingRoomFenceCompletesBeforeContendingLanguageChange() throws Exception {
+        UserAccount owner = account("Audio lock owner"), partner = account("Audio lock partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        var accepted = turns.accept(owner.getId(), room, UUID.randomUUID(), webm(),
+                "audio/webm;codecs=opus", 1000);
+        await(owner.getId(), room, "READY");
+        var member = roomRepository.findById(room).orElseThrow();
+        var participant = rooms.getRoomForMember(owner.getId(), room).currentParticipant();
+        CountDownLatch readFenceHeld = new CountDownLatch(1), releaseRead = new CountDownLatch(1);
+        CountDownLatch languageChangeStarting = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var read = executor.submit(() -> {
+                SpeechTurnService.Audio[] bytes = new SpeechTurnService.Audio[1];
+                boolean current = authorizer.runIfActiveLanguageVersion(owner.getId(), room,
+                        participant.participantId(), member.getLanguageVersion(), () -> {
+                    readFenceHeld.countDown();
+                    try {
+                        if (!releaseRead.await(5, TimeUnit.SECONDS)) throw new AssertionError("release timed out");
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(ex);
+                    }
+                    bytes[0] = turns.audio(owner.getId(), room, accepted.turnId());
+                });
+                return new java.util.AbstractMap.SimpleImmutableEntry<>(current, bytes[0]);
+            });
+            assertThat(readFenceHeld.await(5, TimeUnit.SECONDS)).isTrue();
+            var change = executor.submit(() -> {
+                languageChangeStarting.countDown();
+                rooms.updateLanguages(owner.getId(), room, "ta");
+            });
+            assertThat(languageChangeStarting.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseRead.countDown();
+            var completedRead = read.get(5, TimeUnit.SECONDS);
+            change.get(5, TimeUnit.SECONDS);
+            assertThat(completedRead.getKey()).isTrue();
+            assertThat(completedRead.getValue().bytes()).containsExactly(1, 2, 3);
+        } finally {
+            releaseRead.countDown();
+        }
+        assertThatThrownBy(() -> turns.audio(partner.getId(), room, accepted.turnId()))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
     @Test void privateSpeechReviewIsSessionBoundAndCancellationPreventsSend() throws Exception {
         UserAccount a = account("A"), b = account("B");
         UUID room = activeRoom(a, b, "en");
@@ -184,6 +380,27 @@ class SpeechTurnFlowTests {
         assertThat(turns.recent(a.getId(), room)).isEmpty();
         verify(tts, never()).synthesize(any());
         verify(hub, never()).publishTurn(eq(room), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void pendingSpeechReviewCannotBeSentAfterLanguageChangesAwayAndBack() throws Exception {
+        UserAccount owner = account("A-B-A owner"), partner = account("A-B-A partner");
+        UUID room = activeRoom(owner, partner, "en");
+        successProviders("en", "ta");
+        when(hub.hasCurrentConnection(room, owner.getId(), "aba-session")).thenReturn(true);
+        var accepted = turns.accept(owner.getId(), "aba-session", room, UUID.randomUUID(),
+                SpeechTurnService.Workflow.FINISH_AND_SEND, webm(), "audio/webm;codecs=opus", 1000);
+        awaitReview(owner.getId(), "aba-session", room, accepted.turnId(), "READY_FOR_REVIEW");
+
+        rooms.updateLanguages(owner.getId(), room, "ta");
+        rooms.updateLanguages(owner.getId(), room, "en");
+
+        assertThatThrownBy(() -> turns.send(owner.getId(), "aba-session", room, accepted.turnId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(tts, never()).synthesize(any());
+        verify(hub, never()).publishTurn(eq(room), eq(owner.getId()), any(), eq(accepted.turnId()),
+                eq("TRANSLATION_READY"), any());
     }
 
     @Test void changedGlossaryRejectsPrivateSpeechAndPostSendTtsFailureKeepsFinalCaptions() throws Exception {
@@ -586,7 +803,8 @@ class SpeechTurnFlowTests {
         assertThat(requests.get(1).recentContext()).hasSize(1);
         assertThat(requests.get(1).recentContext().getFirst().sourceTranscript())
                 .isEqualTo("The REST API works");
-        assertThat(requests.get(1).recentContext().getFirst().turnIndex()).isEqualTo(1);
+        assertThat(requests.get(1).recentContext().getFirst().turnIndex())
+                .isEqualTo(sharedContext.snapshot(room).getFirst().turnIndex());
         assertThat(requests.get(1).glossary()).extracting(item -> item.sourceTerm()).containsExactly("Java");
         rooms.closeRoom(a.getId(), room);
         assertThatThrownBy(() -> turns.recent(a.getId(), room))

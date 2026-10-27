@@ -48,6 +48,9 @@ public class ConversationRoom {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "language_version", nullable = false)
+    private long languageVersion;
+
     @Column(name = "invite_expires_at", nullable = false)
     private Instant inviteExpiresAt;
 
@@ -89,6 +92,11 @@ public class ConversationRoom {
         updatedAt = now;
     }
 
+    public void changeLanguages(Instant now) {
+        languageVersion++;
+        updatedAt = now;
+    }
+
     public UUID getId() { return id; }
     public String getJoinCode() { return joinCode; }
     public RoomStatus getStatus() { return status; }
@@ -97,6 +105,7 @@ public class ConversationRoom {
     public UserAccount getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public long getLanguageVersion() { return languageVersion; }
     public Instant getInviteExpiresAt() { return inviteExpiresAt; }
     public Instant getClosedAt() { return closedAt; }
 }

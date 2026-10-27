@@ -8,7 +8,7 @@
   const LIVE_DEBOUNCE_MS = configuredDebounce >= 700 && configuredDebounce <= 2000
     ? configuredDebounce : 800;
   const roomStatus = document.getElementById("room-status");
-  const sourceLanguage = page.dataset.sourceLanguage || "en";
+  let sourceLanguage = page.dataset.sourceLanguage || "en";
   const speakButton = document.getElementById("mode-speak");
   const typeButton = document.getElementById("mode-type");
   const liveButton = document.getElementById("text-mode-live");
@@ -24,6 +24,7 @@
   const typeIntro = document.getElementById("type-intro");
   const typeActions = document.getElementById("type-actions");
   const romanizedToggle = document.getElementById("romanized-tamil");
+  const romanizedState = document.getElementById("romanized-tamil-state");
   const sourceLabel = document.getElementById("type-source-label");
   const source = document.getElementById("type-source");
   const translate = document.getElementById("type-translate");
@@ -429,6 +430,18 @@
     if (textMode === "live") scheduleLive();
   });
   window.addEventListener("voicelink-room-state", () => {
+    const current = document.querySelector("#participants-list [data-current=\"true\"]");
+    const speaking = current?.dataset.speaking;
+    if (speaking === "en" || speaking === "ta") {
+      sourceLanguage = speaking;
+      source.lang = romanizedTamil && sourceLanguage === "ta" ? "ta-Latn" : sourceLanguage;
+      if (romanizedToggle && sourceLanguage !== "ta") {
+        romanizedToggle.checked = false;
+        romanizedTamil = false;
+        if (romanizedState) romanizedState.textContent = "Transliteration: Off";
+        sourceLabel.textContent = "Your message";
+      }
+    }
     if (roomStatus.textContent === "CLOSED") {
       invalidate("This room is closed.", "error");
       finalEvents.replaceChildren();
@@ -438,6 +451,7 @@
   });
   romanizedToggle?.addEventListener("change", () => {
     romanizedTamil = romanizedToggle.checked;
+    if (romanizedState) romanizedState.textContent = "Transliteration: " + (romanizedTamil ? "On" : "Off");
     sourceLabel.textContent = romanizedTamil ? "Your message · Romanized Tamil" : "Your message";
     source.lang = romanizedTamil ? "ta-Latn" : sourceLanguage;
     invalidate(romanizedTamil ? "Romanized Tamil input selected. Translate to review it."

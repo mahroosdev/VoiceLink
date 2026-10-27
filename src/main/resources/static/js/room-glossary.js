@@ -233,7 +233,7 @@
   trigger.addEventListener("click", () => {
     if (roomClosed()) return;
     const details = document.getElementById("room-details");
-    if (details) details.open = false;
+    if (details?.open) details.close();
     panel.showModal();
     close.focus();
     refresh();

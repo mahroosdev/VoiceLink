@@ -33,6 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -348,6 +349,6 @@ class PasswordResetFlowTests {
         assertThatThrownBy(() -> new PasswordResetSettings(true, "https://example.test", "offline-only",
                 "", testEnvironment)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> new PasswordResetSettings(true, "https://example.test", "offline-only",
-                "noreply@example.test", new StandardEnvironment())).isInstanceOf(IllegalStateException.class);
+                "noreply@example.test", new MockEnvironment())).isInstanceOf(IllegalStateException.class);
     }
 }
