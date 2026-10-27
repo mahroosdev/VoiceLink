@@ -21,7 +21,12 @@
   const glossarySection = document.getElementById("glossary-section");
   const roomToolBar = document.querySelector(".room-tool-bar");
   const roomDetails = document.getElementById("room-details");
+  const roomDetailsOpen = document.getElementById("room-details-open");
+  const roomDetailsClose = document.getElementById("room-details-close");
   const roomMainGrid = document.querySelector(".room-main-grid");
+  const languageForm = document.getElementById("room-language-form");
+  const languageSelect = document.getElementById("owner-speaking-language");
+  const languageStatus = document.getElementById("room-language-status");
   const recordStart = document.getElementById("record-start");
   const recordStartLabel = recordStart.querySelector("span");
   const recordStop = document.getElementById("record-stop");
@@ -104,6 +109,28 @@
     const token = document.querySelector('meta[name="_csrf"]').content;
     return { [header]: token };
   }
+
+  languageForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!languageSelect || !languageStatus) return;
+    languageStatus.textContent = "Saving language settings…";
+    try {
+      const response = await fetch("/api/rooms/" + roomId + "/languages", {
+        method: "POST", credentials: "same-origin",
+        headers: { ...csrfHeaders(), "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ ownerSpeaking: languageSelect.value })
+      });
+      if (!response.ok) {
+        let body = {};
+        try { body = await response.json(); } catch { /* plain error response */ }
+        languageStatus.textContent = body.message || "Language settings could not be saved. Refresh and try again.";
+        return;
+      }
+      languageStatus.textContent = "Languages updated for both participants.";
+    } catch {
+      languageStatus.textContent = "Language settings could not be saved. Check your connection and try again.";
+    }
+  });
 
   function resetPrivateReview() {
     clearTimeout(reviewPollTimer);
@@ -247,13 +274,14 @@
       || document.getElementById("text-mode-quick")?.getAttribute("aria-pressed") !== "true";
     speechSection.hidden = value !== "ACTIVE" || document.getElementById("mode-type")?.getAttribute("aria-pressed") === "true";
     if (value === "CLOSED" && glossarySection?.open) glossarySection.close();
+    if (value === "CLOSED" && roomDetails?.open) roomDetails.close();
     if (glossarySection) glossarySection.hidden = value === "CLOSED";
     if (roomDetails) roomDetails.hidden = value === "CLOSED";
     if (roomToolBar) roomToolBar.hidden = value === "CLOSED";
     roomMainGrid.classList.toggle("room-main-grid--waiting", value === "WAITING");
     roomMainGrid.classList.toggle("room-main-grid--closed", value === "CLOSED");
     if (value === "CLOSED") {
-      if (roomDetails) roomDetails.open = false;
+      if (roomDetails) roomDetails.hidden = true;
     }
     notice.hidden = value !== "CLOSED";
     if (closeForm) closeForm.hidden = value === "CLOSED";
@@ -283,6 +311,17 @@
       recordingStatus.textContent = "This room is closed.";
     }
   }
+
+  roomDetailsOpen?.addEventListener("click", () => {
+    if (status.textContent === "CLOSED" || !roomDetails) return;
+    if (glossarySection?.open) glossarySection.close();
+    roomDetails.showModal();
+    roomDetailsClose?.focus();
+  });
+  roomDetailsClose?.addEventListener("click", () => roomDetails?.close());
+  roomDetails?.addEventListener("close", () => {
+    if (status.textContent !== "CLOSED") roomDetailsOpen?.focus();
+  });
 
   function rowFor(turnId, turnIndex, senderId) {
     if (turnRows.has(turnId)) {
@@ -462,6 +501,7 @@
   }
 
   async function refreshTurns() {
+    if (status.textContent !== "ACTIVE") return;
     try {
       const knownIdsAtStart = new Set(turnRows.keys());
       const response = await fetch("/api/rooms/" + roomId + "/turns/recent",
@@ -546,6 +586,8 @@
       item.dataset.role = role;
       item.dataset.current = String(person.current === true);
       item.dataset.owner = String(person.owner === true);
+      item.dataset.speaking = person.speaking || "";
+      item.dataset.listening = person.listening || "";
       const avatar = make("span", "participant__avatar", role === "You" ? "Y" : "P");
       avatar.setAttribute("aria-hidden", "true");
       const details = make("span", "participant__details");
@@ -562,6 +604,26 @@
       }
       item.append(avatar, details);
       members.append(item);
+    }
+    const current = people.find(person => person.current === true);
+    const owner = people.find(person => person.owner === true);
+    if (owner) {
+      const ownerLanguage = owner.speaking === "ta" ? "Tamil" : "English";
+      const partnerLanguage = owner.speaking === "ta" ? "English" : "Tamil";
+      const direction = ownerLanguage + " ↔ " + partnerLanguage;
+      const roomDirection = document.getElementById("room-direction");
+      const roomPair = document.getElementById("room-language-pair");
+      if (roomDirection) roomDirection.textContent = direction + " · Two people";
+      if (roomPair) roomPair.textContent = direction;
+      if (languageSelect && document.activeElement !== languageSelect) languageSelect.value = owner.speaking;
+    }
+    if (current) {
+      page.dataset.sourceLanguage = current.speaking || page.dataset.sourceLanguage;
+      const romanizedOption = document.querySelector(".romanized-tamil-option");
+      const romanizedToggle = document.getElementById("romanized-tamil");
+      const available = current.speaking === "ta" && current.listening === "en";
+      if (romanizedOption) romanizedOption.hidden = !available;
+      if (!available && romanizedToggle) romanizedToggle.checked = false;
     }
     for (const parts of turnRows.values()) {
       applySender(parts, parts.row.dataset.senderId);

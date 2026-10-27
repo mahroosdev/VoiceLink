@@ -189,9 +189,30 @@ public class RoomService {
                 && !Instant.now().isBefore(room.getInviteExpiresAt());
         String inviteCode = creator && room.getStatus() == RoomStatus.WAITING && !expired
                 ? RoomCode.display(room.getJoinCode()) : null;
+        String ownerSpeaking = members.stream().filter(ParticipantView::owner)
+                .map(ParticipantView::speaking).findFirst().orElse("en");
         return new RoomView(roomId, room.getStatus(), room.getServiceProfile(),
                 room.isPremiumCostSaverEnabled(), members, currentParticipant, creator, expired,
-                room.getInviteExpiresAt(), inviteCode);
+                room.getInviteExpiresAt(), inviteCode, ownerSpeaking);
+    }
+
+    @Transactional
+    public void updateLanguages(UUID userId, UUID roomId, String ownerSpeaking) {
+        ConversationRoom room = rooms.findLockedById(roomId).orElseThrow(this::notFound);
+        if (!room.getCreatedBy().getId().equals(userId)) throw notFound();
+        if (room.getStatus() == RoomStatus.CLOSED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Closed rooms cannot change languages.");
+        }
+        var ownerDirection = languages.forSpeaker(ownerSpeaking);
+        var people = participants.findByRoom_IdOrderByParticipantSlotAsc(roomId);
+        RoomParticipant owner = people.stream().filter(p -> p.getParticipantSlot() == 1).findFirst()
+                .orElseThrow(this::notFound);
+        RoomParticipant partner = people.stream().filter(p -> p.getParticipantSlot() == 2).findFirst().orElse(null);
+        owner.changeDirection(ownerDirection);
+        if (partner != null) partner.changeDirection(ownerDirection.reverse());
+        room.changeLanguages(Instant.now());
+        participants.saveAll(people);
+        events.publishEvent(new RoomLanguagesChangedEvent(roomId));
     }
 
     @Transactional
@@ -236,5 +257,6 @@ public class RoomService {
                            boolean premiumCostSaverEnabled,
                            List<ParticipantView> participants,
                            ParticipantView currentParticipant,
-                           boolean creator, boolean inviteExpired, Instant inviteExpiresAt, String inviteCode) {}
+                           boolean creator, boolean inviteExpired, Instant inviteExpiresAt, String inviteCode,
+                           String ownerSpeaking) {}
 }

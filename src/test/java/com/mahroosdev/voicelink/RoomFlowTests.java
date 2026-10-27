@@ -21,6 +21,7 @@ import com.mahroosdev.voicelink.room.ConversationRoomRepository;
 import com.mahroosdev.voicelink.room.RoomInviteUnavailableException;
 import com.mahroosdev.voicelink.room.RoomParticipantRepository;
 import com.mahroosdev.voicelink.room.RoomService;
+import com.mahroosdev.voicelink.room.RoomLiveAuthorizer;
 import com.mahroosdev.voicelink.room.RoomStatus;
 import com.mahroosdev.voicelink.user.UserAccount;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
@@ -29,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @ActiveProfiles("test")
 class RoomFlowTests {
     @Autowired RoomService service;
+    @Autowired RoomLiveAuthorizer liveAuthorizer;
     @Autowired ConversationRoomRepository rooms;
     @Autowired RoomParticipantRepository participants;
     @Autowired UserAccountRepository accounts;
@@ -120,6 +123,114 @@ class RoomFlowTests {
         assertThat(members.get(1).getListeningLanguageTag()).isEqualTo("ta");
         assertThat(service.getRoomForMember(joiner.getId(), id).inviteCode()).isNull();
         assertThat(service.getRoomForMember(creator.getId(), id).inviteCode()).isNull();
+    }
+
+    @Test
+    void ownerCanChangeBothParticipantDirectionsAtomicallyAfterJoin() {
+        UserAccount owner = account("Language Owner");
+        UserAccount partner = account("Language Partner");
+        UUID id = service.createRoom(owner.getId(), "en", "ta");
+        service.joinRoom(partner.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+
+        service.updateLanguages(owner.getId(), id, "ta");
+
+        var members = participants.findByRoom_IdOrderByParticipantSlotAsc(id);
+        assertThat(members).extracting("speakingLanguageTag", "listeningLanguageTag")
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("ta", "en"),
+                        org.assertj.core.groups.Tuple.tuple("en", "ta"));
+        assertThat(service.getRoomForMember(partner.getId(), id).ownerSpeaking()).isEqualTo("ta");
+        assertThatThrownBy(() -> service.updateLanguages(partner.getId(), id, "en"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .extracting("statusCode.value").isEqualTo(404);
+    }
+
+    @Test
+    void languageChangeRejectsInvalidDirectionsAndClosedRooms() {
+        UserAccount owner = account("Language Owner");
+        UUID id = service.createRoom(owner.getId(), "en", "ta");
+        assertThatThrownBy(() -> service.updateLanguages(owner.getId(), id, "fr"))
+                .isInstanceOf(IllegalArgumentException.class);
+        service.closeRoom(owner.getId(), id);
+        assertThatThrownBy(() -> service.updateLanguages(owner.getId(), id, "ta"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .extracting("statusCode.value").isEqualTo(409);
+    }
+
+    @Test
+    void persistedLanguageFenceAllowsCurrentWorkAndRejectsStaleOrClosedWork() {
+        UserAccount owner = account("Fenced Owner");
+        UserAccount partner = account("Fenced Partner");
+        UUID id = service.createRoom(owner.getId(), "en", "ta");
+        service.joinRoom(partner.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+        var prior = liveAuthorizer.authorize(owner.getId(), id);
+        var published = new java.util.concurrent.atomic.AtomicBoolean();
+
+        assertThat(liveAuthorizer.runIfActiveLanguageVersion(owner.getId(), id, prior.participantId(),
+                prior.languageVersion(), () -> published.set(true))).isTrue();
+        assertThat(published).isTrue();
+
+        // Simulate A -> B -> A after the operation's early authorization check.
+        service.updateLanguages(owner.getId(), id, "ta");
+        service.updateLanguages(owner.getId(), id, "en");
+        published.set(false);
+        assertThat(liveAuthorizer.runIfActiveLanguageVersion(owner.getId(), id, prior.participantId(),
+                prior.languageVersion(), () -> published.set(true))).isFalse();
+        assertThat(published).isFalse();
+
+        service.closeRoom(owner.getId(), id);
+        var current = liveAuthorizer.authorize(owner.getId(), id);
+        assertThat(liveAuthorizer.runIfActiveLanguageVersion(owner.getId(), id, current.participantId(),
+                current.languageVersion(), () -> published.set(true))).isFalse();
+    }
+
+    @Test
+    void concurrentLanguageChangesSerializeAndKeepDirectionsComplementary() throws Exception {
+        UserAccount owner = account("Concurrent language owner");
+        UserAccount partner = account("Concurrent language partner");
+        UUID id = service.createRoom(owner.getId(), "en", "ta");
+        service.joinRoom(partner.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        try (var workers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var english = workers.submit(() -> {
+                ready.countDown(); start.await(); service.updateLanguages(owner.getId(), id, "en"); return null;
+            });
+            var tamil = workers.submit(() -> {
+                ready.countDown(); start.await(); service.updateLanguages(owner.getId(), id, "ta"); return null;
+            });
+            assertThat(ready.await(3, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            english.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            tamil.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        var members = participants.findByRoom_IdOrderByParticipantSlotAsc(id);
+        assertThat(members.get(0).getSpeakingLanguageTag())
+                .isNotEqualTo(members.get(1).getSpeakingLanguageTag());
+        assertThat(members.get(0).getListeningLanguageTag()).isEqualTo(members.get(1).getSpeakingLanguageTag());
+        assertThat(members.get(1).getListeningLanguageTag()).isEqualTo(members.get(0).getSpeakingLanguageTag());
+        assertThat(rooms.findById(id).orElseThrow().getLanguageVersion()).isEqualTo(2);
+    }
+
+    @Test
+    void languageUpdateEndpointEnforcesOwnerAndCsrf() throws Exception {
+        UserAccount owner = account("Endpoint Owner");
+        UserAccount partner = account("Endpoint Partner");
+        UUID id = service.createRoom(owner.getId(), "en", "ta");
+        service.joinRoom(partner.getId(), rooms.findById(id).orElseThrow().getJoinCode());
+        String body = "{\"ownerSpeaking\":\"ta\"}";
+
+        mvc.perform(post("/api/rooms/" + id + "/languages").with(user(principal(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/rooms/" + id + "/languages").with(user(principal(partner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/rooms/" + id + "/languages").with(user(principal(owner)))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/rooms/" + id + "/languages").with(user(principal(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"ownerSpeaking\":\"fr\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

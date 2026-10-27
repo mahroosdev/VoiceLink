@@ -33,7 +33,7 @@ function node() {
   };
 }
 
-function setup(fetchImpl, microphoneError) {
+function setup(fetchImpl, microphoneError, initialStatus = "ACTIVE") {
   const ids = ["room-page", "room-status", "connection-state", "participants-list",
     "waiting-section", "active-section", "live-text-section", "closed-notice",
     "live-text-form", "live-text-input", "live-send", "quick-status", "conversation-events", "speech-section",
@@ -46,7 +46,7 @@ function setup(fetchImpl, microphoneError) {
     "speech-translation-retry-status", "speech-translation-retry-button"];
   const nodes = Object.fromEntries(ids.map(id => [id, node()]));
   nodes["room-page"].dataset.roomId = "room-1";
-  nodes["room-status"].textContent = "ACTIVE";
+  nodes["room-status"].textContent = initialStatus;
   nodes["mode-type"].attributes["aria-pressed"] = "false";
   nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["record-start"].label = node();
@@ -128,6 +128,14 @@ function setup(fetchImpl, microphoneError) {
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const response = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
   json: async () => body, redirected: false });
+
+test("waiting rooms do not request recent speech turns before activation", () => {
+  let requests = 0;
+  const app = setup(async () => { requests++; return response([]); }, null, "WAITING");
+
+  assert.equal(app.nodes["room-status"].textContent, "WAITING");
+  assert.equal(requests, 0);
+});
 
 test("translation failure keeps recognized text sender-only and retry posts the same turn ID", async () => {
   const calls = [];

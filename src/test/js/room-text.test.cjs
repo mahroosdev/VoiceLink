@@ -30,7 +30,9 @@ test("room keeps stable composer modes and always-private Live translation", () 
   assert.match(html, /id="live-text-section"/);
   assert.doesNotMatch(liveScript, /TEXT_DRAFT_UPDATED|TEXT_DRAFT_CLEARED/);
   assert.match(html, /id="romanized-tamil"[^>]*type="checkbox"/);
-  assert.match(html, /th:if="\$\{room\.currentParticipant\.speaking == 'ta'\}"/);
+  assert.match(html, /id="romanized-tamil-state"[^>]*aria-live="polite">Transliteration: Off/);
+  assert.match(css, /\.romanized-tamil-option__title[^}]*text-transform: uppercase/);
+  assert.match(html, /th:hidden="\$\{room\.currentParticipant\.speaking != 'ta'\}"/);
   assert.match(html, /th:attr="data-room-id=.*data-source-language=/);
   assert.equal((html.match(/id="conversation-events"/g) || []).length, 1);
   assert.match(liveScript, /getElementById\("conversation-events"\)/);
@@ -91,7 +93,7 @@ function setup(fetch, debounce = "800") {
     "text-mode-total", "text-mode-quick", "translation-composer", "live-text-section", "romanized-tamil",
     "live-text-input", "speech-section", "type-section", "type-eyebrow", "type-heading",
     "type-intro", "type-actions", "type-source-label", "type-source",
-    "type-translate", "type-retry", "type-send", "type-status",
+    "type-translate", "type-retry", "type-send", "type-status", "romanized-tamil-state",
     "type-review", "type-review-heading", "type-review-original", "type-review-original-label", "type-review-translation",
     "conversation-events", "turn-empty", "turn-announcement"];
   const nodes = Object.fromEntries(ids.map(id => [id, element()]));
@@ -105,6 +107,7 @@ function setup(fetch, debounce = "800") {
   nodes["text-mode-total"].attributes["aria-pressed"] = "true";
   nodes["text-mode-quick"].attributes["aria-pressed"] = "false";
   nodes["romanized-tamil"].checked = false;
+  nodes["romanized-tamil-state"].textContent = "Transliteration: Off";
   nodes["type-section"].hidden = true;
   const listeners = {};
   const intervals = [];
@@ -269,6 +272,7 @@ test("Romanized Tamil is explicit Tamil-to-English input and keeps source labeli
   nodes["romanized-tamil"].checked = true;
   nodes["mode-type"].callbacks.click();
   nodes["romanized-tamil"].callbacks.change();
+  assert.equal(nodes["romanized-tamil-state"].textContent, "Transliteration: On");
   nodes["type-source"].value = "ungalukku enna project update vivarangal venum";
   nodes["type-translate"].callbacks.click();
   await next();

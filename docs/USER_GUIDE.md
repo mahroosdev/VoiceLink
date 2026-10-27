@@ -57,7 +57,7 @@ Password recovery is configuration-dependent. If **Forgot password?** is not sho
 5. Choose **Create conversation**.
 6. In the waiting room, share the displayed **Private invite code** with one person using a channel you trust. VoiceLink displays when the code expires; VoiceLink does not send the invitation for you.
 
-A room supports two participants. The room's language direction and service profile are fixed for that room after creation.
+A room supports two participants. While the room is open, the conversation owner can change the language pair from **Room details**. The partner's direction updates automatically. Closed rooms cannot be changed. The service profile remains fixed for the room after creation.
 
 ## 5. Join a conversation
 

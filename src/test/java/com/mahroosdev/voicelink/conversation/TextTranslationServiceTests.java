@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -62,6 +64,17 @@ class TextTranslationServiceTests {
     @BeforeEach void setup() {
         when(authorizer.authorize(userId, roomId)).thenReturn(
                 new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "en", "ta", AiServiceProfile.STANDARD));
+        doAnswer(invocation -> {
+            UUID user = invocation.getArgument(0);
+            UUID room = invocation.getArgument(1);
+            UUID participant = invocation.getArgument(2);
+            long version = invocation.getArgument(3);
+            RoomLiveAuthorizer.Member current = authorizer.authorize(user, room);
+            if (current.status() != RoomStatus.ACTIVE || !current.participantId().equals(participant)
+                    || current.languageVersion() != version) return false;
+            invocation.<Runnable>getArgument(4).run();
+            return true;
+        }).when(authorizer).runIfActiveLanguageVersion(any(), any(), any(), anyLong(), any(Runnable.class));
         when(glossary.list(userId, roomId)).thenReturn(List.of());
         when(glossary.applicableForTranslation(eq(roomId), eq("en"), eq("ta"), any())).thenReturn(List.of());
         when(resolver.resolve(AiServiceProfile.STANDARD)).thenReturn(new AiProviderBundle(null, standard, null));
@@ -188,6 +201,22 @@ class TextTranslationServiceTests {
                 .extracting(turn -> turn.sourceTranscript()).containsExactly("Hello");
     }
 
+    @Test void sendRejectsReviewWhenLanguageChangesAfterInitialCheckButBeforeAcceptance() {
+        var review = service.review(userId, "session-a", roomId, "Hello", 1);
+        when(authorizer.authorize(userId, roomId)).thenReturn(
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "en", "ta",
+                        AiServiceProfile.STANDARD, true, 0),
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "ta", "en",
+                        AiServiceProfile.STANDARD, true, 1));
+
+        assertThatThrownBy(() -> service.send(userId, "session-a", roomId,
+                review.reviewId(), review.originalText(), 1))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(hub, never()).publishTurn(any(), any(), any(), any(), any(), any());
+        assertThat(context.snapshot(roomId)).isEmpty();
+    }
+
     @Test void editedSourceWrongSessionOrRoomCannotSend() {
         var review = service.review(userId, "session-a", roomId, "Hello", 1);
         assertThatThrownBy(() -> service.send(userId, "session-a", roomId, review.reviewId(), "Edited", 2))
@@ -264,6 +293,30 @@ class TextTranslationServiceTests {
                     .hasCauseInstanceOf(ResponseStatusException.class);
             assertThat(service.send(userId, "session-a", roomId, newer.reviewId(), "New", 2)
                     .duplicate()).isFalse();
+        }
+    }
+
+    @Test void languageVersionRejectsStaleTranslationAfterDirectionReturnsToOriginal() throws Exception {
+        var version = new AtomicReference<RoomLiveAuthorizer.Member>(
+                new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "en", "ta",
+                        AiServiceProfile.STANDARD, true, 0));
+        when(authorizer.authorize(userId, roomId)).thenAnswer(invocation -> version.get());
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        when(standard.translate(any())).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(3, TimeUnit.SECONDS);
+            return new TranslationProvider.Result("வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1);
+        });
+        try (var worker = Executors.newSingleThreadExecutor()) {
+            var old = worker.submit(() -> service.review(userId, "session-a", roomId, "Old", 1));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            version.set(new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "ta", "en",
+                    AiServiceProfile.STANDARD, true, 1));
+            version.set(new RoomLiveAuthorizer.Member(participantId, RoomStatus.ACTIVE, "en", "ta",
+                    AiServiceProfile.STANDARD, true, 2));
+            release.countDown();
+            assertThatThrownBy(() -> old.get(3, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ResponseStatusException.class);
         }
     }
 

@@ -33,7 +33,25 @@ public class RoomLiveAuthorizer {
                         new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         return new Member(participant.getId(), room.getStatus(), participant.getSpeakingLanguageTag(),
                 participant.getListeningLanguageTag(), room.getServiceProfile(),
-                room.isPremiumCostSaverEnabled());
+                room.isPremiumCostSaverEnabled(), room.getLanguageVersion());
+    }
+
+    /**
+     * Runs a final room operation while holding the same database row lock used by
+     * language changes and closure. The callback must be short and must not call an
+     * external provider. This fences operations across application instances.
+     */
+    @Transactional
+    public boolean runIfActiveLanguageVersion(UUID userId, UUID roomId, UUID participantId,
+                                              long expectedVersion, Runnable operation) {
+        ConversationRoom room = rooms.findLockedById(roomId).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.ACTIVE
+                || room.getLanguageVersion() != expectedVersion) return false;
+        RoomParticipant participant = participants.findByRoom_IdAndUser_IdAndRemovedAtIsNull(roomId, userId)
+                .orElse(null);
+        if (participant == null || !participant.getId().equals(participantId)) return false;
+        operation.run();
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -51,10 +69,14 @@ public class RoomLiveAuthorizer {
     }
 
     public record Member(UUID participantId, RoomStatus status, String speaking, String listening,
-                         AiServiceProfile profile, boolean premiumCostSaverEnabled) {
+                         AiServiceProfile profile, boolean premiumCostSaverEnabled, long languageVersion) {
         public Member(UUID participantId, RoomStatus status, String speaking, String listening,
                       AiServiceProfile profile) {
-            this(participantId, status, speaking, listening, profile, true);
+            this(participantId, status, speaking, listening, profile, true, 0);
+        }
+        public Member(UUID participantId, RoomStatus status, String speaking, String listening,
+                      AiServiceProfile profile, boolean premiumCostSaverEnabled) {
+            this(participantId, status, speaking, listening, profile, premiumCostSaverEnabled, 0);
         }
     }
     public record Participant(UUID participantId, String displayName, short slot,

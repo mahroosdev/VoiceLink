@@ -11,15 +11,16 @@
 <body class="authenticated-shell">
   <a class="skip-link" href="#main">Skip to content</a>
   <div th:replace="~{fragments/app-shell :: chrome(${room.status.name() == 'CLOSED' ? 'rooms' : 'conversations'}, 'Conversation', ${email})}"></div>
-  <main id="main" class="workspace workspace--conversation room-page">
-    <div id="room-page" th:attr="data-room-id=${room.id},data-source-language=${room.currentParticipant.speaking},data-live-text-debounce-ms=${room.profile.name() == 'PREMIUM' && room.premiumCostSaverEnabled ? 1500 : 800}">
+  <main id="main" class="workspace workspace--conversation room-page"
+        th:classappend="${room.status.name() == 'WAITING' ? ' room-page--waiting' : ''}">
+    <div id="room-page" th:attr="data-room-id=${room.id},data-source-language=${room.currentParticipant.speaking},data-owner-speaking=${room.ownerSpeaking},data-live-text-debounce-ms=${room.profile.name() == 'PREMIUM' && room.premiumCostSaverEnabled ? 1500 : 800}">
       <a class="room-back" th:if="${room.status.name() != 'CLOSED'}" th:href="@{/app}">← Back to conversations</a>
       <a class="room-back" th:if="${room.status.name() == 'CLOSED'}" th:href="@{/rooms}">← Back to rooms</a>
       <section class="room-header" aria-labelledby="room-heading">
         <div class="room-header__top">
           <div>
             <h1 id="room-heading">Conversation room</h1>
-            <p class="room-direction">English ↔ Tamil · Two people</p>
+            <p id="room-direction" class="room-direction" th:text="|${room.ownerSpeaking == 'en' ? 'English' : 'Tamil'} ↔ ${room.ownerSpeaking == 'en' ? 'Tamil' : 'English'} · Two people|">English ↔ Tamil · Two people</p>
           </div>
           <div class="row">
             <span id="room-status" class="badge" th:classappend="${room.status.name() == 'ACTIVE' ? 'badge--active' : (room.status.name() == 'WAITING' ? 'badge--waiting' : 'badge--closed')}"
@@ -52,24 +53,48 @@
 
       <div class="room-tool-bar" th:if="${room.status.name() != 'CLOSED'}" aria-label="Room tools">
         <button id="glossary-open" class="room-tool-button" type="button" aria-haspopup="dialog" aria-controls="glossary-section">Technical glossary</button>
-        <details id="room-details" class="room-details">
-          <summary>Room details</summary>
-          <div class="room-details__body">
-            <p><strong>Language pair:</strong> English ↔ Tamil</p>
-            <p><strong>Service profile:</strong> <span th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></span></p>
-            <p th:if="${room.profile.name() == 'PREMIUM'}"><strong>API Cost Saver:</strong>
-              <span th:text="${room.premiumCostSaverEnabled ? 'ON' : 'OFF'}"></span>
-              <span> · This setting is fixed for this room.</span></p>
-            <p>Groq processes speech. Gemini translates and generates voice. Recent captions and audio here are temporary.</p>
-            <p>During development, use non-sensitive conversation content. Relevant room terms may be sent to Gemini.</p>
+        <button id="room-details-open" class="room-tool-button" type="button" aria-haspopup="dialog" aria-controls="room-details">Room details</button>
+      </div>
+      <dialog id="room-details" class="glossary-dialog room-details-dialog" th:if="${room.status.name() != 'CLOSED'}"
+              aria-labelledby="room-details-heading">
+          <div class="glossary-dialog__header">
+            <div><h2 id="room-details-heading">Room details</h2>
+              <p class="glossary-dialog__capacity">Room settings and controls</p></div>
+            <button id="room-details-close" class="glossary-dialog__close" type="button" aria-label="Close room details">Close</button>
+          </div>
+          <div class="glossary-dialog__content room-details__body">
+            <div class="room-details__summary" aria-label="Room summary">
+              <p class="room-details__item"><span class="room-details__label">Language pair</span><strong id="room-language-pair" th:text="|${room.ownerSpeaking == 'en' ? 'English' : 'Tamil'} ↔ ${room.ownerSpeaking == 'en' ? 'Tamil' : 'English'}|">English ↔ Tamil</strong></p>
+              <p class="room-details__item"><span class="room-details__label">Service profile</span><strong th:text="${room.profile.name() == 'PREMIUM' ? 'Premium' : 'Standard'}"></strong></p>
+              <p class="room-details__item" th:if="${room.profile.name() == 'PREMIUM'}"><span class="room-details__label">API Cost Saver</span><strong th:text="${room.premiumCostSaverEnabled ? 'ON' : 'OFF'}"></strong><span class="room-details__note">Fixed for this room</span></p>
+            </div>
+            <div class="room-details__notes">
+              <h3 class="room-details__section-heading">Service &amp; privacy</h3>
+              <p>Groq processes speech. Gemini translates and generates voice. Recent captions and audio here are temporary.</p>
+              <p>During development, use non-sensitive conversation content. Relevant room terms may be sent to Gemini.</p>
+            </div>
+            <div class="room-language-editor" th:if="${room.creator}">
+              <div class="room-language-editor__heading">
+                <span class="room-details__label">Conversation languages</span>
+                <p class="field-help">Choose the owner’s speaking language. The partner’s direction updates automatically.</p>
+              </div>
+              <form id="room-language-form" class="room-language-editor__form">
+                <label for="owner-speaking-language">Owner speaks</label>
+                <select id="owner-speaking-language" name="ownerSpeaking">
+                  <option value="en" th:selected="${room.ownerSpeaking == 'en'}">English</option>
+                  <option value="ta" th:selected="${room.ownerSpeaking == 'ta'}">Tamil</option>
+                </select>
+                <button class="button button--secondary" type="submit">Save languages</button>
+                <p id="room-language-status" class="field-help" role="status" aria-live="polite"></p>
+              </form>
+            </div>
             <form id="close-room-form" class="room-close" th:action="@{/rooms/{id}/close(id=${room.id})}" method="post">
               <p>Closing ends this room for both people and deletes its saved glossary.</p>
               <button class="button button--danger" type="submit"
                       th:text="${room.status.name() == 'WAITING' ? 'Cancel room' : 'Leave and close room'}"></button>
             </form>
           </div>
-        </details>
-      </div>
+      </dialog>
       <dialog id="glossary-section" class="glossary-dialog" th:if="${room.status.name() != 'CLOSED'}"
               aria-labelledby="glossary-heading" aria-describedby="glossary-intro">
         <div class="glossary-dialog__header">
@@ -174,12 +199,15 @@
                 <p id="type-intro" class="type-card__intro">Translate and review your message before sending. Your partner sees it only after you select Send.</p>
               </div>
               <p class="type-direction" th:text="|Your direction: ${room.currentParticipant.speaking == 'en' ? 'English → Tamil' : 'Tamil → English'}|">English → Tamil</p>
-              <div class="field romanized-tamil-option" th:if="${room.currentParticipant.speaking == 'ta'}">
-                <label class="checkbox-label" for="romanized-tamil">
-                  <input id="romanized-tamil" type="checkbox" aria-describedby="romanized-tamil-help">
-                  <span>Type Tamil using English letters</span>
+              <div class="field romanized-tamil-option" th:hidden="${room.currentParticipant.speaking != 'ta'}">
+                <div class="romanized-tamil-option__copy">
+                  <span id="romanized-tamil-label" class="romanized-tamil-option__title">Enable Transliteration</span>
+                  <span id="romanized-tamil-state" class="romanized-tamil-option__state" aria-live="polite">Transliteration: Off</span>
+                </div>
+                <label class="toggle-control" for="romanized-tamil">
+                  <input id="romanized-tamil" type="checkbox" aria-labelledby="romanized-tamil-label" aria-describedby="romanized-tamil-state">
+                  <span class="toggle-control__track" aria-hidden="true"><span class="toggle-control__thumb"></span></span>
                 </label>
-                <p id="romanized-tamil-help" class="field-help">Optional. Live and message translation will interpret your input as Romanized Tamil. Quick chat remains unchanged.</p>
               </div>
               <div class="field">
                 <label for="type-source"><span id="type-source-label">Your message</span></label>
@@ -282,32 +310,5 @@
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-live.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-text.js}" defer></script>
   <script th:if="${room.status.name() != 'CLOSED'}" th:src="@{/js/room-glossary.js}" defer></script>
-  <script th:if="${room.status.name() != 'CLOSED'}">
-    (() => {
-      "use strict";
-
-      const tools = [...document.querySelectorAll(".room-tool-bar > details")];
-      tools.forEach((tool) => {
-        const trigger = tool.querySelector("summary");
-        tool.addEventListener("toggle", () => {
-          if (tool.open) tools.forEach((other) => {
-            if (other !== tool) other.open = false;
-          });
-        });
-        tool.addEventListener("keydown", (event) => {
-          if (event.key === "Escape" && tool.open) {
-            tool.open = false;
-            trigger.focus();
-            event.stopPropagation();
-          }
-        });
-      });
-      document.addEventListener("pointerdown", (event) => {
-        tools.forEach((tool) => {
-          if (tool.open && !tool.contains(event.target)) tool.open = false;
-        });
-      });
-    })();
-  </script>
 </body>
 </html>

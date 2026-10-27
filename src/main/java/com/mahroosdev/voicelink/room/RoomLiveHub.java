@@ -189,6 +189,25 @@ public class RoomLiveHub {
         publishTurn(roomId, userId, participantId, turnId, type, payload, true);
     }
 
+    /** Publish only while the database-fenced room configuration is still current. */
+    public boolean publishTurnForLanguageVersion(UUID roomId, UUID userId, UUID participantId,
+                                                  long expectedVersion, UUID turnId, String type,
+                                                  Map<String, ?> payload, boolean senderOnly) {
+        return runIfCurrentLanguageVersion(roomId, userId, participantId, expectedVersion,
+                () -> publishAuthorizedTurn(roomId, userId, participantId, turnId, type, payload, senderOnly));
+    }
+
+    /** Run a short finalization block under the persisted room-language/closure fence. */
+    public boolean runIfCurrentLanguageVersion(UUID roomId, UUID userId, UUID participantId,
+                                               long expectedVersion, Runnable operation) {
+        try {
+            return authorizer.runIfActiveLanguageVersion(userId, roomId, participantId,
+                    expectedVersion, operation);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
     private void publishTurn(UUID roomId, UUID userId, UUID participantId, UUID turnId,
                              String type, Map<String, ?> payload, boolean senderOnly) {
         RoomLiveAuthorizer.Member member;
@@ -198,6 +217,11 @@ public class RoomLiveHub {
             return;
         }
         if (member.status() != RoomStatus.ACTIVE || !member.participantId().equals(participantId)) return;
+        publishAuthorizedTurn(roomId, userId, participantId, turnId, type, payload, senderOnly);
+    }
+
+    private void publishAuthorizedTurn(UUID roomId, UUID userId, UUID participantId, UUID turnId,
+                                       String type, Map<String, ?> payload, boolean senderOnly) {
         Stream stream = streams.get(roomId);
         if (stream == null) return;
         synchronized (stream) {
@@ -246,6 +270,30 @@ public class RoomLiveHub {
                     send(stream, connection, event(stream, activated.roomId(), "ROOM_STATE", null, null,
                             Map.of("status", snapshot.status().name(),
                                     "participants", snapshot.participants())));
+                } catch (RuntimeException ex) {
+                    removeMemberLocked(stream, connection);
+                    close(connection, CloseStatus.POLICY_VIOLATION);
+                }
+            }
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onLanguagesChanged(RoomLanguagesChangedEvent changed) {
+        Stream stream = streams.get(changed.roomId());
+        if (stream == null) return;
+        synchronized (stream) {
+            if (stream.closed) return;
+            for (Connection connection : List.copyOf(stream.members.values())) {
+                if (!connection.valid()) {
+                    removeMemberLocked(stream, connection);
+                    close(connection, CloseStatus.POLICY_VIOLATION);
+                    continue;
+                }
+                try {
+                    var snapshot = authorizer.snapshot(connection.userId, changed.roomId());
+                    send(stream, connection, event(stream, changed.roomId(), "ROOM_STATE", null, null,
+                            Map.of("status", snapshot.status().name(), "participants", snapshot.participants())));
                 } catch (RuntimeException ex) {
                     removeMemberLocked(stream, connection);
                     close(connection, CloseStatus.POLICY_VIOLATION);
