@@ -33,6 +33,15 @@ public class TextTranslationController {
                         body.sourceText(), body.revision(), body.sharingEpoch(), body.romanizedTamil()));
     }
 
+    @PostMapping("/api/rooms/{roomId}/text/shares/{epoch}/invalidate")
+    ResponseEntity<Void> invalidateSharedDraft(@AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable UUID roomId, @PathVariable UUID epoch, @RequestBody InvalidateRequest body,
+            HttpServletRequest request) {
+        if (body == null || body.revision() == null || body.revision() < 0) throw badRequest();
+        service.invalidateSharedDraft(principal.getUserId(), sessionId(request), roomId, epoch, body.revision());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
     @PostMapping("/api/rooms/{roomId}/text/shares")
     ResponseEntity<TextSharingState.SharingView> startSharing(
             @AuthenticationPrincipal AccountPrincipal principal, @PathVariable UUID roomId,
@@ -80,4 +89,5 @@ public class TextTranslationController {
     public record ReviewRequest(String sourceText, Long revision, boolean romanizedTamil,
                                 UUID sharingEpoch) {}
     public record SendRequest(UUID reviewId, String sourceText, Long revision) {}
+    public record InvalidateRequest(Long revision) {}
 }

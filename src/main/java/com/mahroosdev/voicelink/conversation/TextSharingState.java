@@ -90,6 +90,7 @@ public class TextSharingState {
         pruneLocked(clear);
         Share share = require(roomId, userId, participantId, sessionId, epoch);
         if (revision <= share.latestRevision) return false;
+        clearPublished(share, "REVISION_UPDATED", clear);
         share.latestRevision = revision;
         share.expiresAt = clock.instant().plusSeconds(SHARE_SECONDS);
         return true;

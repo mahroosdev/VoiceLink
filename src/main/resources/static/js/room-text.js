@@ -124,6 +124,12 @@
 
   function invalidate(message, state = "idle") {
     revision++;
+    if (textMode === "live" && sharingEpoch && current("live")) {
+      const epoch = sharingEpoch;
+      const invalidatedRevision = revision;
+      post("shares/" + epoch + "/invalidate", { revision: invalidatedRevision })
+        .catch(() => {});
+    }
     activeController?.abort();
     cancelPending();
     lastAutomaticKey = null;
@@ -284,6 +290,7 @@
       clearReview();
       clearRetry();
     } else invalidate();
+    if (!savedRequest && requestMode === "live") revision++;
     const requestRevision = savedRequest?.revision ?? revision;
     const request = { mode: requestMode, text, revision: requestRevision,
       romanizedTamil: requestRomanized };

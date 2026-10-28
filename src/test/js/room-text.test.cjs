@@ -125,7 +125,7 @@ function setup(fetch, debounce = "800") {
     createElement() { return element(); }
   };
   const dispatched = [];
-  const counts = { shareStarts: 0 };
+  const counts = { shareStarts: 0, invalidations: [] };
   class FakeEvent { constructor(type) { this.type = type; } }
   class FakeCustomEvent extends FakeEvent { constructor(type, options) { super(type); this.detail = options?.detail; } }
   const window = {
@@ -150,6 +150,10 @@ function setup(fetch, debounce = "800") {
     }
   };
   const routedFetch = (url, request = {}) => {
+    if (url.includes("/invalidate")) {
+      counts.invalidations.push({ url, request });
+      return Promise.resolve(response({}, true, 204));
+    }
     if (url.endsWith("/shares")) {
       counts.shareStarts++;
       return Promise.resolve(response({ sharingEpoch: "epoch-live-" + counts.shareStarts }, true, 201));
@@ -555,7 +559,7 @@ test("Live retry can be retried again after a second failure with another revisi
 test("stale Live response after a newer input cannot replace the newer review", async () => {
   let resolveOld;
   const requests = [];
-  const { nodes, runTimeouts } = setup((url, request) => {
+  const { nodes, runTimeouts, counts } = setup((url, request) => {
     if (url.endsWith("/shares")) return Promise.resolve(response({ sharingEpoch: "epoch-stale" }, true, 201));
     const body = JSON.parse(request.body);
     requests.push(body);
@@ -570,6 +574,9 @@ test("stale Live response after a newer input cannot replace the newer review", 
   await flush();
   nodes["type-source"].value = "Newer draft";
   nodes["type-source"].callbacks.input();
+  await flush();
+  assert.equal(counts.invalidations.length, 1);
+  assert.match(counts.invalidations[0].url, /shares\/epoch-live-1\/invalidate$/);
   runTimeouts(800);
   await flush();
   assert.equal(requests.length, 1, "newer input waits for the active provider request to settle");
