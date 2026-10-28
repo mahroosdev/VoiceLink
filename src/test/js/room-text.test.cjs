@@ -125,7 +125,7 @@ function setup(fetch, debounce = "800") {
     createElement() { return element(); }
   };
   const dispatched = [];
-  const counts = { shareStarts: 0, invalidations: [] };
+  const counts = { shareStarts: 0, invalidations: [], stops: [] };
   class FakeEvent { constructor(type) { this.type = type; } }
   class FakeCustomEvent extends FakeEvent { constructor(type, options) { super(type); this.detail = options?.detail; } }
   const window = {
@@ -159,7 +159,11 @@ function setup(fetch, debounce = "800") {
       counts.shareStarts++;
       return Promise.resolve(response({ sharingEpoch: "epoch-live-" + counts.shareStarts }, true, 201));
     }
-    if (request.method === "DELETE") return Promise.resolve(response({}, true, 204));
+    if (request.method === "DELETE") {
+      counts.stops.push({ url, request });
+      if (counts.stopHandler) return counts.stopHandler(url, request);
+      return Promise.resolve(response({}, true, 204));
+    }
     return fetch(url, request);
   };
   vm.runInNewContext(script, { document, window, fetch: routedFetch, setInterval(fn) { intervals.push(fn); },
@@ -639,6 +643,57 @@ test("invalidation failure from a replaced sharing epoch cannot overwrite the ne
   failOld(response({ error: "old epoch" }, false, 409));
   await flush();
   assert.doesNotMatch(nodes["type-status"].textContent, /may remain visible/);
+});
+
+test("clearing Live input warns when both draft invalidation and sharing stop fail", async () => {
+  const { nodes, runTimeouts, counts } = setup(async (url, request) => {
+    if (url.endsWith("/shares")) return response({ sharingEpoch: "epoch-clear" }, true, 201);
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision, "review-clear"));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Draft to clear";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+
+  counts.invalidationHandler = async () => response({ error: "unavailable" }, false, 503);
+  counts.stopHandler = async () => response({ error: "unavailable" }, false, 503);
+  nodes["type-source"].value = "";
+  nodes["type-source"].callbacks.input();
+  await flush();
+
+  assert.equal(nodes["type-source"].value, "", "clearing remains available despite cleanup failures");
+  assert.equal(counts.invalidations.length, 1);
+  assert.equal(counts.stops.length, 1);
+  assert.match(counts.stops[0].url, /shares\/epoch-live-1$/);
+  assert.match(nodes["type-status"].textContent, /could not confirm.*cleared.*may remain visible/i);
+});
+
+test("failed stop from an old sharing epoch cannot warn over a replacement share", async () => {
+  let failOldStop;
+  const { nodes, listeners, runTimeouts, counts } = setup(async (url, request) => {
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision, "review-replacement"));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Original share";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+
+  counts.stopHandler = () => new Promise(resolve => { failOldStop = resolve; });
+  nodes["room-page"].dataset.sourceLanguage = "ta";
+  listeners["voicelink-room-state"]({});
+  await flush();
+  assert.equal(counts.shareStarts, 2);
+  assert.equal(counts.stops.length, 1);
+
+  failOldStop(response({ error: "old epoch stop failed" }, false, 409));
+  await flush();
+  assert.doesNotMatch(nodes["type-status"].textContent, /previous live draft was cleared/i);
 });
 
 test("glossary changes invalidate a ready review and request a fresh Live preview", async () => {

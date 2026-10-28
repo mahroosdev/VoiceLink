@@ -238,6 +238,7 @@
           return null;
         }
         sharingEpoch = result.sharingEpoch;
+        shareGeneration++;
         return sharingEpoch;
       } catch {
         setStatus("Live translation could not start. Reconnect and try again.", "error");
@@ -249,22 +250,28 @@
     return shareStartPromise;
   }
 
-  function stopShareEpoch(epoch) {
+  function stopShareEpoch(epoch, generation) {
     if (!epoch) return;
+    const reportFailure = () => {
+      if (generation === shareGeneration && !sharingEpoch && current("live")) {
+        setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until sharing is restored.", "error");
+      }
+    };
     fetch("/api/rooms/" + roomId + "/text/shares/" + epoch, {
       method: "DELETE", credentials: "same-origin",
       headers: csrfHeader && csrfToken ? { [csrfHeader]: csrfToken } : {}
-    }).catch(() => {});
+    }).then(response => { if (!response.ok) reportFailure(); }).catch(reportFailure);
   }
 
   function stopSharing() {
     const epoch = sharingEpoch;
     shareGeneration++;
+    const stoppedGeneration = shareGeneration;
     shareStartPromise = null;
     sharingEpoch = null;
     if (!epoch) return;
     window.dispatchEvent(new CustomEvent("voicelink-remove-live-draft", { detail: { draftId: review?.draftId } }));
-    stopShareEpoch(epoch);
+    stopShareEpoch(epoch, stoppedGeneration);
   }
 
   function retryAllowed(response, result) {
