@@ -65,6 +65,7 @@
   let requestSequence = 0;
   let activeRequest = 0;
   let retryRequest = null;
+  let invalidationSequence = 0;
 
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
@@ -122,13 +123,23 @@
     }
   }
 
-  function invalidate(message, state = "idle") {
+  function invalidate(message, state = "idle", notifySharedDraft = true) {
     revision++;
-    if (textMode === "live" && sharingEpoch && current("live")) {
+    if (notifySharedDraft && textMode === "live" && sharingEpoch && current("live")) {
       const epoch = sharingEpoch;
       const invalidatedRevision = revision;
+      const sequence = ++invalidationSequence;
       post("shares/" + epoch + "/invalidate", { revision: invalidatedRevision })
-        .catch(() => {});
+        .then(({ response }) => {
+          if (!response.ok && sequence === invalidationSequence && sharingEpoch === epoch
+              && current("live")) {
+            setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until a newer translation succeeds.", "error");
+          }
+        }).catch(() => {
+          if (sequence === invalidationSequence && sharingEpoch === epoch && current("live")) {
+            setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until a newer translation succeeds.", "error");
+          }
+        });
     }
     activeController?.abort();
     cancelPending();
@@ -289,7 +300,7 @@
       }
       clearReview();
       clearRetry();
-    } else invalidate();
+    } else invalidate(undefined, "idle", false);
     if (!savedRequest && requestMode === "live") revision++;
     const requestRevision = savedRequest?.revision ?? revision;
     const request = { mode: requestMode, text, revision: requestRevision,

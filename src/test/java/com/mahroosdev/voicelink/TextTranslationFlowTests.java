@@ -135,6 +135,40 @@ class TextTranslationFlowTests {
         verify(hub, org.mockito.Mockito.never()).publishDraft(any());
     }
 
+    @Test void liveInvalidationRequiresAuthenticationCsrfMembershipSessionAndValidEpoch() throws Exception {
+        UserAccount creator = account(), joiner = account(), outsider = account();
+        UUID roomId = active(creator, joiner);
+        MockHttpSession session = new MockHttpSession();
+        when(hub.hasCurrentConnection(roomId, creator.getId(), session.getId())).thenReturn(true);
+        String share = mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID epoch = UUID.fromString(json.readTree(share).get("sharingEpoch").asText());
+        String body = json.writeValueAsString(new Invalidate(2));
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .redirectedUrlPattern("/login*"));
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(outsider))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, UUID.randomUUID())
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
+    }
+
     @Test void oversizedReviewBodyIsRejectedBeforeProviderWork() throws Exception {
         UserAccount creator = account(), joiner = account();
         UUID roomId = active(creator, joiner);
@@ -159,4 +193,5 @@ class TextTranslationFlowTests {
 
     private record Input(String sourceText, long revision, boolean romanizedTamil, UUID sharingEpoch) {}
     private record Send(UUID reviewId, String sourceText, long revision) {}
+    private record Invalidate(long revision) {}
 }

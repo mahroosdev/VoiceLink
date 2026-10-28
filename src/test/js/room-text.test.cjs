@@ -152,6 +152,7 @@ function setup(fetch, debounce = "800") {
   const routedFetch = (url, request = {}) => {
     if (url.includes("/invalidate")) {
       counts.invalidations.push({ url, request });
+      if (counts.invalidationHandler) return counts.invalidationHandler(url, request);
       return Promise.resolve(response({}, true, 204));
     }
     if (url.endsWith("/shares")) {
@@ -588,6 +589,56 @@ test("stale Live response after a newer input cannot replace the newer review", 
   assert.equal(requests.length, 2);
   assert.equal(nodes["type-review-original"].textContent, "Newer draft");
   assert.equal(nodes["type-send"].disabled, false);
+});
+
+test("Live invalidation HTTP and network failures are surfaced without blocking editing", async () => {
+  const { nodes, runTimeouts, counts } = setup(async (url, request) => {
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "First draft";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+  counts.invalidationHandler = async () => response({ error: "unavailable" }, false, 503);
+  nodes["type-source"].value = "Edited draft";
+  nodes["type-source"].callbacks.input();
+  await flush();
+  assert.equal(nodes["type-source"].disabled, false);
+  assert.match(nodes["type-status"].textContent, /may remain visible/);
+  assert.equal(counts.invalidations.length, 1);
+  counts.invalidationHandler = () => Promise.reject(new Error("offline"));
+  nodes["type-source"].value = "Another edit";
+  nodes["type-source"].callbacks.input();
+  await flush();
+  assert.match(nodes["type-status"].textContent, /may remain visible/);
+  assert.equal(counts.invalidations.length, 2);
+});
+
+test("invalidation failure from a replaced sharing epoch cannot overwrite the new share status", async () => {
+  let failOld;
+  const { nodes, listeners, runTimeouts, counts } = setup(async (url, request) => {
+    const body = JSON.parse(request.body);
+    return response(privateReview(body.sourceText, body.revision));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Draft";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+  counts.invalidationHandler = () => new Promise(resolve => { failOld = resolve; });
+  nodes["type-source"].value = "Changed";
+  nodes["type-source"].callbacks.input();
+  await flush();
+  nodes["room-page"].dataset.sourceLanguage = "ta";
+  listeners["voicelink-room-state"]({});
+  await flush();
+  failOld(response({ error: "old epoch" }, false, 409));
+  await flush();
+  assert.doesNotMatch(nodes["type-status"].textContent, /may remain visible/);
 });
 
 test("glossary changes invalidate a ready review and request a fresh Live preview", async () => {
