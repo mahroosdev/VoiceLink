@@ -251,7 +251,55 @@ class RoomLiveWebSocketTests {
     }
 
     @Test
-    void livePreviewDraftIsNeverBroadcastToRoomPeers() throws Exception {
+    void authenticatedTextReviewLiveDraftAndFinalSendReachBothRoomBrowsersExactlyOnce() throws Exception {
+        var a = account("Typed sender");
+        var b = account("Typed receiver");
+        UUID roomId = rooms.createRoom(a.getId(), "en", "ta");
+        rooms.joinRoom(b.getId(), roomRepository.findById(roomId).orElseThrow().getJoinCode());
+        Browser sender = browser(a), receiver = browser(b);
+        LiveSocket senderSocket = sender.connect(roomId, sender.base);
+        LiveSocket receiverSocket = receiver.connect(roomId, receiver.base);
+        senderSocket.await("ROOM_STATE");
+        receiverSocket.await("ROOM_STATE");
+        when(translation.translate(any())).thenReturn(new TranslationProvider.Result(
+                "வணக்கம்", "GEMINI", "gemini-3.1-flash-lite", 1));
+
+        var start = sender.postJson("/api/rooms/" + roomId + "/text/shares",
+                "/rooms/" + roomId, "{}");
+        assertThat(start.statusCode()).isEqualTo(201);
+        String epoch = json.readTree(start.body()).path("sharingEpoch").asText();
+        var reviewResponse = sender.postJson("/api/rooms/" + roomId + "/text/reviews",
+                "/rooms/" + roomId, json.writeValueAsString(Map.of(
+                        "sourceText", "Hello", "revision", 1, "romanizedTamil", false,
+                        "sharingEpoch", epoch)));
+        assertThat(reviewResponse.statusCode()).isEqualTo(201);
+        JsonNode review = json.readTree(reviewResponse.body());
+        JsonNode senderDraft = senderSocket.await("TEXT_DRAFT_UPDATE");
+        JsonNode receiverDraft = receiverSocket.await("TEXT_DRAFT_UPDATE");
+        assertThat(receiverDraft.path("payload").path("translatedText").asText()).isEqualTo("வணக்கம்");
+        assertThat(receiverDraft.path("payload").path("draftId").asText())
+                .isEqualTo(senderDraft.path("payload").path("draftId").asText());
+
+        var sentResponse = sender.postJson("/api/rooms/" + roomId + "/text/send",
+                "/rooms/" + roomId, json.writeValueAsString(Map.of(
+                        "reviewId", review.path("reviewId").asText(),
+                        "sourceText", "Hello", "revision", 1)));
+        assertThat(sentResponse.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(sentResponse.body()).path("draftId").asText())
+                .isEqualTo(receiverDraft.path("payload").path("draftId").asText());
+        senderSocket.await("TEXT_DRAFT_CLEAR");
+        receiverSocket.await("TEXT_DRAFT_CLEAR");
+        JsonNode senderFinal = senderSocket.await("TEXT_TRANSLATION_SENT");
+        JsonNode receiverFinal = receiverSocket.await("TEXT_TRANSLATION_SENT");
+        assertThat(receiverFinal.path("turnId").asText()).isEqualTo(senderFinal.path("turnId").asText());
+        assertThat(receiverFinal.path("payload").path("originalText").asText()).isEqualTo("Hello");
+        assertThat(receiverFinal.path("payload").path("translatedText").asText()).isEqualTo("வணக்கம்");
+        assertThat(senderSocket.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(receiverSocket.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
+    }
+
+    @Test
+    void livePreviewDraftIsSharedOnlyWithAuthenticatedRoomPeersAndClearedOnDisconnect() throws Exception {
         var a = account("Draft sender");
         var b = account("Draft receiver");
         var other = account("Separate receiver");
@@ -272,13 +320,16 @@ class RoomLiveWebSocketTests {
         var lease = textSharing.begin(roomId, a.getId(), participant, sender.sessionId(),
                 sharing.sharingEpoch(), 1, liveHub::publishDraftClear);
         assertThat(textSharing.publish(lease, "வணக்கம்", "en", "ta",
-                liveHub::publishDraft)).isFalse();
-        assertThat(senderSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
-        assertThat(receiverSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
+                liveHub::publishDraft)).isTrue();
+        assertThat(senderSocket.await("TEXT_DRAFT_UPDATE").path("payload").path("translatedText").asText())
+                .isEqualTo("வணக்கம்");
+        assertThat(receiverSocket.await("TEXT_DRAFT_UPDATE").path("payload").path("translatedText").asText())
+                .isEqualTo("வணக்கம்");
         assertThat(separateSocket.messages.poll(200, TimeUnit.MILLISECONDS)).isNull();
 
         senderSocket.socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
-        assertThat(receiverSocket.messages.poll(300, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(receiverSocket.await("TEXT_DRAFT_CLEAR").path("payload").path("reason").asText())
+                .isEqualTo("DISCONNECTED");
 
         LiveSocket reconnected = sender.connect(roomId, sender.base);
         reconnected.await("ROOM_STATE");
@@ -633,6 +684,14 @@ class RoomLiveWebSocketTests {
             return http.send(HttpRequest.newBuilder(URI.create(base + path))
                     .header("X-CSRF-TOKEN", csrf(csrfPath))
                     .POST(HttpRequest.BodyPublishers.noBody()).build(),
+                    HttpResponse.BodyHandlers.ofString());
+        }
+
+        HttpResponse<String> postJson(String path, String csrfPath, String body) throws Exception {
+            return http.send(HttpRequest.newBuilder(URI.create(base + path))
+                    .header("Content-Type", "application/json")
+                    .header("X-CSRF-TOKEN", csrf(csrfPath))
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
                     HttpResponse.BodyHandlers.ofString());
         }
 

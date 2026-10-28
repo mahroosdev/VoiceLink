@@ -63,7 +63,7 @@ class TextTranslationFlowTests {
             UserAccount user, MockHttpSession session) throws Exception {
         return post("/api/rooms/{roomId}/text/reviews", roomId).session(session)
                 .with(user(principal(user))).contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(new Input(text, revision, false)));
+                .content(json.writeValueAsString(new Input(text, revision, false, null)));
     }
 
     @Test void reviewRequiresAuthenticationCsrfAndMembership() throws Exception {
@@ -117,16 +117,21 @@ class TextTranslationFlowTests {
                 .andExpect(status().isConflict());
     }
 
-    @Test void livePreviewSharingEndpointsAreUnavailable() throws Exception {
+    @Test void liveSharingRequiresTheCurrentAuthenticatedRoomSocketAndCanBeStopped() throws Exception {
         UserAccount creator = account(), joiner = account();
         UUID roomId = active(creator, joiner);
         MockHttpSession session = new MockHttpSession();
-        mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+        mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
                         .with(user(principal(creator))).with(csrf()))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/rooms/{roomId}/text/sharing/{epoch}/draft", roomId, UUID.randomUUID())
-                        .session(session).with(user(principal(creator))).with(csrf()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isConflict());
+        when(hub.hasCurrentConnection(roomId, creator.getId(), session.getId())).thenReturn(true);
+        String body = mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID epoch = UUID.fromString(json.readTree(body).get("sharingEpoch").asText());
+        mvc.perform(delete("/api/rooms/{roomId}/text/shares/{epoch}", roomId, epoch).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isNoContent());
         verify(hub, org.mockito.Mockito.never()).publishDraft(any());
     }
 
@@ -152,6 +157,6 @@ class TextTranslationFlowTests {
                         .doesNotContain("SENSITIVE_CANARY_MESSAGE"));
     }
 
-    private record Input(String sourceText, long revision, boolean romanizedTamil) {}
+    private record Input(String sourceText, long revision, boolean romanizedTamil, UUID sharingEpoch) {}
     private record Send(UUID reviewId, String sourceText, long revision) {}
 }

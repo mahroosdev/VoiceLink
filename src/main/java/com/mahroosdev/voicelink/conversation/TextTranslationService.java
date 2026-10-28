@@ -16,6 +16,7 @@ import com.mahroosdev.voicelink.glossary.RoomGlossaryService;
 import com.mahroosdev.voicelink.room.RoomClosedEvent;
 import com.mahroosdev.voicelink.room.RoomLiveAuthorizer;
 import com.mahroosdev.voicelink.room.RoomLiveHub;
+import com.mahroosdev.voicelink.room.RoomLanguagesChangedEvent;
 import com.mahroosdev.voicelink.room.RoomStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -25,7 +26,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Bounded reviews; sharing requires an explicit session-bound lease and Send finalizes a turn. */
+/** Bounded reviews and authenticated, session-bound live text drafts. */
 @Service
 public class TextTranslationService {
     private static final int MAX_TEXT_CODE_POINTS = 1000;
@@ -90,7 +91,7 @@ public class TextTranslationService {
     public ReviewView review(UUID userId, String sessionId, UUID roomId, String sourceText,
                              long revision, UUID sharingEpoch, boolean romanizedTamil) {
         validText(sourceText);
-        if (revision < 0 || sessionId == null || sessionId.isBlank() || sharingEpoch != null) throw badRequest();
+        if (revision < 0 || sessionId == null || sessionId.isBlank()) throw badRequest();
         RoomLiveAuthorizer.Member member = active(userId, roomId);
         if (romanizedTamil && !("ta".equals(member.speaking()) && "en".equals(member.listening())))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -148,6 +149,10 @@ public class TextTranslationService {
             user.inFlight++;
             inFlight++;
         }
+        RoomReviews expectedRoom = room;
+        UserReviews expectedUser = user;
+        long expectedGeneration = generation;
+        TextSharingState.Lease expectedSharingLease = sharingLease;
         try {
             List<TranslationProvider.GlossaryTerm> terms = glossary.applicableForTranslation(
                     roomId, member.speaking(), member.listening(), sourceText);
@@ -169,21 +174,29 @@ public class TextTranslationService {
             RoomLiveAuthorizer.Member current = active(userId, roomId);
             if (!current.equals(member) || !glossary.list(userId, roomId).equals(glossaryVersion))
                 throw conflict("The room or glossary changed. Translate again.");
-            synchronized (this) {
-                if (rooms.get(roomId) != room || room.users.get(userId) != user
-                        || user.generation != generation) throw conflict("A newer translation is available. Review that result.");
-                Instant now = clock.instant();
-                Review review = new Review(UUID.randomUUID(), UUID.randomUUID(), sessionId, sourceText,
-                        translated, member.speaking(), member.listening(), member.profile(),
-                        member.languageVersion(), revision, glossaryVersion, now, now.plusSeconds(REVIEW_SECONDS),
-                        sharingLease == null ? null : sharingLease.epoch(),
-                        sharingLease == null ? null : sharingLease.draftId(), romanizedTamil);
-                if (sharingLease != null && !sharing.publish(sharingLease, translated,
-                        member.speaking(), member.listening(), hub::publishDraft))
-                    throw conflict("Shared Live authorization changed. Enable sharing again.");
-                user.review = review;
-                return view(review);
-            }
+            ReviewView[] completed = new ReviewView[1];
+            boolean versionCurrent = authorizer.runIfActiveLanguageVersion(userId, roomId,
+                    member.participantId(), member.languageVersion(), () -> {
+                        synchronized (this) {
+                            if (rooms.get(roomId) != expectedRoom
+                                    || expectedRoom.users.get(userId) != expectedUser
+                                    || expectedUser.generation != expectedGeneration)
+                                throw conflict("A newer translation is available. Review that result.");
+                            Instant now = clock.instant();
+                            Review review = new Review(UUID.randomUUID(), UUID.randomUUID(), sessionId, sourceText,
+                                    translated, member.speaking(), member.listening(), member.profile(),
+                                    member.languageVersion(), revision, glossaryVersion, now,
+                                    now.plusSeconds(REVIEW_SECONDS), expectedSharingLease == null ? null : expectedSharingLease.epoch(),
+                                    expectedSharingLease == null ? null : expectedSharingLease.draftId(), romanizedTamil);
+                            if (expectedSharingLease != null && !sharing.publish(expectedSharingLease, translated,
+                                    member.speaking(), member.listening(), hub::publishDraft))
+                                throw conflict("Shared Live authorization changed. Enable sharing again.");
+                            user.review = review;
+                            completed[0] = view(review);
+                        }
+                    });
+            if (!versionCurrent) throw conflict("The room direction changed. Translate again.");
+            return completed[0];
         } catch (ProviderFailure failure) {
             HttpStatus status = failure.code() == ProviderFailure.Code.RATE_LIMIT
                     || failure.code() == ProviderFailure.Code.QUOTA ? HttpStatus.TOO_MANY_REQUESTS
@@ -217,7 +230,7 @@ public class TextTranslationService {
             synchronized (this) {
                 user.inFlight--;
                 inFlight--;
-                if (user.pending != null && user.pending.generation == generation) user.pending = null;
+                if (user.pending != null && user.pending.generation == expectedGeneration) user.pending = null;
             }
         }
     }
@@ -264,11 +277,16 @@ public class TextTranslationService {
                 throw conflict("Shared Live authorization changed. Translate again.");
             }
             context.finalized(roomId, review.sourceLanguage, review.targetLanguage, review.source);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("originalText", review.source);
+            payload.put("translatedText", review.translation);
+            payload.put("sourceLanguage", review.sourceLanguage);
+            payload.put("targetLanguage", review.targetLanguage);
+            payload.put("profile", review.profile.name());
+            payload.put("romanizedTamil", review.romanizedTamil);
+            if (review.draftId != null) payload.put("draftId", review.draftId);
             hub.publishTurn(roomId, userId, member.participantId(), review.finalId,
-                    "TEXT_TRANSLATION_SENT", Map.of("originalText", review.source,
-                            "translatedText", review.translation, "sourceLanguage", review.sourceLanguage,
-                            "targetLanguage", review.targetLanguage, "profile", review.profile.name(),
-                            "romanizedTamil", review.romanizedTamil));
+                    "TEXT_TRANSLATION_SENT", payload);
             result[0] = sent(review, false);
           }
         });
@@ -345,7 +363,8 @@ public class TextTranslationService {
 
     private static SentView sent(Review review, boolean duplicate) {
         return new SentView(review.finalId, review.source, review.translation, review.sourceLanguage,
-                review.targetLanguage, review.profile.name(), duplicate, review.romanizedTamil);
+                review.targetLanguage, review.profile.name(), duplicate, review.romanizedTamil,
+                review.draftId);
     }
 
     private static ReviewView view(Review review) {
@@ -389,6 +408,12 @@ public class TextTranslationService {
         sharing.close(event.roomId());
     }
 
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public synchronized void onLanguagesChanged(RoomLanguagesChangedEvent event) {
+        rooms.remove(event.roomId());
+        sharing.clearRoom(event.roomId(), hub::publishDraftClear);
+    }
+
     @Scheduled(fixedDelay = 60_000)
     public synchronized void prune() { pruneLocked(); }
 
@@ -419,7 +444,7 @@ public class TextTranslationService {
                              long revision, Instant expiresAt, boolean romanizedTamil) {}
     public record SentView(UUID finalId, String originalText, String translatedText,
                            String sourceLanguage, String targetLanguage, String profile, boolean duplicate,
-                           boolean romanizedTamil) {}
+                           boolean romanizedTamil, UUID draftId) {}
     private static final class RoomReviews { final Map<UUID, UserReviews> users = new HashMap<>(); }
     private static final class UserReviews { long generation; int inFlight; Review review; PendingReview pending; }
     private record PendingReview(long generation, String sessionId, String source,

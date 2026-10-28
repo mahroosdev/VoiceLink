@@ -17,6 +17,7 @@
   const send = document.getElementById("live-send");
   const quickStatus = document.getElementById("quick-status");
   const events = document.getElementById("conversation-events");
+  const liveDrafts = document.getElementById("live-drafts");
   const speechSection = document.getElementById("speech-section");
   const glossarySection = document.getElementById("glossary-section");
   const roomToolBar = document.querySelector(".room-tool-bar");
@@ -78,6 +79,7 @@
   let lastSequence = 0;
   const seen = new Set();
   const seenQuickIds = new Set();
+  const draftRows = new Map();
   const QUICK_RETRY_WINDOW_MS = 30 * 60 * 1000;
   let pendingQuick = null;
   let pendingQuickExpiryTimer;
@@ -472,7 +474,8 @@
     if (event.type === "TRANSLATION_READY") {
       const wasNearBottom = window.voicelinkHistory?.beforeAppend();
       showCaption(parts, "target", payload.targetLanguage, payload.translatedText);
-      window.voicelinkHistory?.changed(wasNearBottom, "translated");
+      const sender = participantRoles.get(event.senderParticipantId) || "Participant";
+      window.voicelinkHistory?.changed(wasNearBottom, "translated", sender === "You");
       parts.progress.textContent = "Creating voice";
       parts.row.dataset.phase = "voice";
     }
@@ -663,7 +666,44 @@
     while (textRows.length > 16) textRows.shift().remove();
     turnEmpty.hidden = true;
     turnAnnouncement.textContent = role + " sent a quick chat message.";
-    window.voicelinkHistory?.changed(wasNearBottom, "quick");
+    window.voicelinkHistory?.changed(wasNearBottom, "quick", role === "You");
+  }
+
+  function updateLiveDraft(event) {
+    const payload = event.payload || {};
+    if (!liveDrafts || typeof payload.draftId !== "string"
+        || typeof payload.translatedText !== "string"
+        || !Number.isSafeInteger(payload.revision)) return;
+    let row = draftRows.get(payload.draftId);
+    if (row && Number(row.dataset.revision) >= payload.revision) return;
+    const role = participantRoles.get(event.senderParticipantId) || "Participant";
+    if (!row) {
+      row = make("article", "live-draft");
+      row.dataset.draftId = payload.draftId;
+      row.dataset.senderId = event.senderParticipantId || "";
+      const label = make("strong", "live-draft__label");
+      const text = make("p", "live-draft__text");
+      row.append(label, text);
+      draftRows.set(payload.draftId, row);
+      liveDrafts.append(row);
+    }
+    row.dataset.revision = String(payload.revision);
+    row.querySelector(".live-draft__label").textContent = role + " · Live translation · Updating";
+    const text = row.querySelector(".live-draft__text");
+    text.textContent = payload.translatedText;
+    text.lang = payload.targetLanguage;
+  }
+
+  function clearLiveDraft(event) {
+    const draftId = event.payload?.draftId;
+    const row = typeof draftId === "string" ? draftRows.get(draftId) : null;
+    if (row) row.remove();
+    if (typeof draftId === "string") draftRows.delete(draftId);
+  }
+
+  function clearAllLiveDrafts() {
+    draftRows.clear();
+    liveDrafts?.replaceChildren();
   }
 
   function receive(raw) {
@@ -688,8 +728,14 @@
     } else if (event.type === "TEXT_MESSAGE") {
       addText(event);
     } else if (event.type === "TEXT_TRANSLATION_SENT") {
+      if (event.payload?.draftId) clearLiveDraft(event);
       window.dispatchEvent(new CustomEvent("voicelink-final-text", { detail: event }));
+    } else if (event.type === "TEXT_DRAFT_UPDATE") {
+      updateLiveDraft(event);
+    } else if (event.type === "TEXT_DRAFT_CLEAR") {
+      clearLiveDraft(event);
     } else if (event.type === "ROOM_CLOSED") {
+      clearAllLiveDrafts();
       setStatus("CLOSED");
       window.dispatchEvent(new Event("voicelink-room-state"));
       updateConnection("Live connection closed", "closed");
@@ -757,10 +803,12 @@
       refreshTurns();
       window.dispatchEvent(new Event("voicelink-room-state"));
       window.dispatchEvent(new Event("voicelink-live-connected"));
+      window.dispatchEvent(new CustomEvent("voicelink-connection-state", { detail: { connected: true } }));
     };
     socket.onmessage = message => receive(message.data);
     socket.onclose = async event => {
       connected = false;
+      window.dispatchEvent(new CustomEvent("voicelink-connection-state", { detail: { connected: false } }));
       input.disabled = true;
       send.disabled = true;
       refreshQuickRetryState();
@@ -791,6 +839,10 @@
 
   window.addEventListener("voicelink-force-live-disconnect", () => {
     if (socketOpen()) socket.close(1000, "Sharing state reset");
+  });
+  window.addEventListener("voicelink-remove-live-draft", event => {
+    const draftId = event.detail?.draftId;
+    if (typeof draftId === "string") clearLiveDraft({ payload: { draftId } });
   });
   window.addEventListener("voicelink-speech-cancel-private", cancelPrivateReview);
 
