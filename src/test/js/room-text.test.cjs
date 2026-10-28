@@ -485,13 +485,14 @@ test("rate-limit and provider failures leave Live editable but unsendable", asyn
   assert.equal(nodes["type-send"].disabled, true);
 });
 
-test("Retry preserves unchanged failed text and revision while repeated clicks stay single-flight", async () => {
+test("Live retry advances revision, preserves input settings, and repeated clicks stay single-flight", async () => {
   const calls = [];
   let finishRetry;
   const { nodes, runTimeouts } = setup(async (url, request) => {
     calls.push({ url, request });
     const body = JSON.parse(request.body);
-    if (calls.length === 1) return response({
+    if (url.endsWith("/shares")) return response({ sharingEpoch: "epoch-retry" }, true, 201);
+    if (calls.filter(call => call.url.endsWith("/reviews")).length === 1) return response({
       code: "TIMED_OUT",
       error: "Translation took too long. Your message remains here; try again."
     }, false, 504);
@@ -512,13 +513,74 @@ test("Retry preserves unchanged failed text and revision while repeated clicks s
   nodes["type-retry"].callbacks.click();
   await flush();
   assert.equal(calls.length, 2);
-  assert.deepEqual(JSON.parse(calls[1].request.body), first);
+  const retried = JSON.parse(calls[1].request.body);
+  assert.equal(retried.sourceText, first.sourceText);
+  assert.equal(retried.romanizedTamil, first.romanizedTamil);
+  assert.equal(retried.revision, first.revision + 1);
+  assert.equal(retried.sharingEpoch, "epoch-live-1");
   assert.equal(nodes["type-retry"].disabled, true);
   finishRetry();
   await flush();
   assert.equal(nodes["type-review-original"].textContent, "Keep this message");
   assert.equal(nodes["type-send"].disabled, false);
   assert.equal(nodes["type-retry"].hidden, true);
+});
+
+test("Live retry can be retried again after a second failure with another revision", async () => {
+  const revisions = [];
+  const { nodes, runTimeouts } = setup(async (url, request) => {
+    if (url.endsWith("/shares")) return response({ sharingEpoch: "epoch-again" }, true, 201);
+    const body = JSON.parse(request.body);
+    revisions.push(body.revision);
+    return revisions.length < 3
+      ? response({ code: "TEMPORARILY_UNAVAILABLE", error: "Unavailable" }, false, 503)
+      : response(privateReview(body.sourceText, body.revision, "review-again"));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Preserve this";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+  nodes["type-retry"].callbacks.click();
+  await flush();
+  assert.equal(nodes["type-retry"].hidden, false);
+  nodes["type-retry"].callbacks.click();
+  await flush();
+  assert.equal(revisions.length, 3);
+  assert.ok(revisions[0] < revisions[1] && revisions[1] < revisions[2]);
+  assert.equal(nodes["type-finish"].disabled, false);
+});
+
+test("stale Live response after a newer input cannot replace the newer review", async () => {
+  let resolveOld;
+  const requests = [];
+  const { nodes, runTimeouts } = setup((url, request) => {
+    if (url.endsWith("/shares")) return Promise.resolve(response({ sharingEpoch: "epoch-stale" }, true, 201));
+    const body = JSON.parse(request.body);
+    requests.push(body);
+    if (requests.length === 1) return new Promise(resolve => { resolveOld = resolve; });
+    return Promise.resolve(response(privateReview(body.sourceText, body.revision, "new-review")));
+  });
+  nodes["mode-type"].callbacks.click();
+  nodes["text-mode-live"].callbacks.click();
+  nodes["type-source"].value = "Older draft";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+  nodes["type-source"].value = "Newer draft";
+  nodes["type-source"].callbacks.input();
+  runTimeouts(800);
+  await flush();
+  assert.equal(requests.length, 1, "newer input waits for the active provider request to settle");
+  resolveOld(response(privateReview("Older draft", requests[0].revision, "old-review")));
+  await flush();
+  assert.equal(nodes["type-review"].hidden, true, "the stale result is not shown as a review");
+  runTimeouts(800);
+  await flush();
+  assert.equal(requests.length, 2);
+  assert.equal(nodes["type-review-original"].textContent, "Newer draft");
+  assert.equal(nodes["type-send"].disabled, false);
 });
 
 test("glossary changes invalidate a ready review and request a fresh Live preview", async () => {

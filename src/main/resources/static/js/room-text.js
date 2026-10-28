@@ -453,7 +453,11 @@
   translate.addEventListener("click", () => translateCurrent("total"));
   retry.addEventListener("click", () => {
     if (!retryRequest || translating || sending) return;
-    const request = retryRequest;
+    const request = { ...retryRequest };
+    if (request.mode === "live") {
+      revision++;
+      request.revision = revision;
+    }
     translateCurrent(request.mode, request);
   });
 
