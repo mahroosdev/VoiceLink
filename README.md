@@ -11,7 +11,7 @@ The homepage translation example is illustrative and makes no provider requests.
 - Session-authenticated accounts, room membership, invitation codes, and a two-participant limit.
 - English↔Tamil speaking directions assigned and checked by the server.
 - Short WebM/Opus speech turns: Groq `whisper-large-v3` transcription, Gemini `gemini-3.1-flash-lite` translation, and Gemini `gemini-3.8-flash-lite-tts` speech using Kore.
-- Text translation with explicit send and private live previews; previews remain sender-only until explicit Send.
+- Text translation offers private Translate Message reviews that are shared only after explicit Send. In Live Translation, one provisional draft is shared with the other participant, replaced as the text changes, and cleared when the draft is edited or sharing stops; Finish explicitly finalizes the message.
 - Temporary captions and audio, with a single live conversation timeline. Conversation history is not stored in PostgreSQL or generally restored after reconnect; a bounded in-memory message-deduplication cache can echo a retried message.
 - Room-scoped glossary entries and bounded, memory-only recent context.
 - Premium provider routing is present in source but disabled by default; it is not activated or live-validated. Standard never automatically falls back to Premium.
