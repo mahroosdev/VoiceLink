@@ -87,9 +87,16 @@ public class TextSharingState {
     public synchronized boolean invalidate(UUID roomId, UUID userId, UUID participantId,
                                            String sessionId, UUID epoch, long revision,
                                            Consumer<DraftClear> clear) {
+        return invalidate(roomId, userId, participantId, sessionId, epoch, revision, () -> {}, clear);
+    }
+
+    public synchronized boolean invalidate(UUID roomId, UUID userId, UUID participantId,
+                                           String sessionId, UUID epoch, long revision,
+                                           Runnable beforeAccept, Consumer<DraftClear> clear) {
         pruneLocked(clear);
         Share share = require(roomId, userId, participantId, sessionId, epoch);
         if (revision <= share.latestRevision) return false;
+        beforeAccept.run();
         clearPublished(share, "REVISION_UPDATED", clear);
         share.latestRevision = revision;
         share.expiresAt = clock.instant().plusSeconds(SHARE_SECONDS);

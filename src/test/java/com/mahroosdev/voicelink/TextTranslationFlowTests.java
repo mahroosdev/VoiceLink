@@ -33,7 +33,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "voicelink.text.max-invalidations-per-user-per-minute=2",
+        "voicelink.text.max-invalidations-per-instance-per-minute=3"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class TextTranslationFlowTests {
@@ -155,6 +158,14 @@ class TextTranslationFlowTests {
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(new MockHttpSession()).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
                         .session(session).with(user(principal(outsider))).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isNotFound());
@@ -166,6 +177,16 @@ class TextTranslationFlowTests {
                         .session(session).with(user(principal(creator))).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isNoContent());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new Invalidate(3))))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new Invalidate(4))))
+                .andExpect(status().isTooManyRequests());
         org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
     }
 
@@ -175,6 +196,17 @@ class TextTranslationFlowTests {
         mvc.perform(review(roomId, "x".repeat(9_000), 1, creator, new MockHttpSession()).with(csrf()))
                 .andExpect(status().is(413));
         org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
+    }
+
+    @Test void oversizedInvalidationBodyIsRejected() throws Exception {
+        UserAccount creator = account(), joiner = account();
+        UUID roomId = active(creator, joiner);
+        MockHttpSession session = new MockHttpSession();
+        String oversized = "{\"revision\":1}" + " ".repeat(9_000);
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, UUID.randomUUID())
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(oversized))
+                .andExpect(status().is(413));
     }
 
     @Test void timeoutReturnsOnlySafeClassificationAndKeepsPrivateContentOutOfTheError() throws Exception {

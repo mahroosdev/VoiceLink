@@ -119,15 +119,27 @@ class TextSharingStateTests {
         var view = state.start(room, user, participant, "session-a", ignored -> {});
         var lease = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 1, ignored -> {});
         var updates = new ArrayList<TextSharingState.DraftUpdate>();
+        var quotaAttempts = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable acquireQuota = quotaAttempts::incrementAndGet;
         assertThatThrownBy(() -> state.invalidate(room, user, participant, "session-b",
-                view.sharingEpoch(), 2, ignored -> {})).isInstanceOf(ResponseStatusException.class);
+                view.sharingEpoch(), 2, acquireQuota, ignored -> {})).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> state.invalidate(room, user, participant, "session-a",
-                UUID.randomUUID(), 2, ignored -> {})).isInstanceOf(ResponseStatusException.class);
+                UUID.randomUUID(), 2, acquireQuota, ignored -> {})).isInstanceOf(ResponseStatusException.class);
+        assertThat(state.invalidate(room, user, participant, "session-a",
+                view.sharingEpoch(), 1, acquireQuota, ignored -> {})).isFalse();
+        assertThat(quotaAttempts).hasValue(0);
+        assertThat(state.invalidate(room, user, participant, "session-a",
+                view.sharingEpoch(), 2, acquireQuota, ignored -> {})).isTrue();
+        assertThat(quotaAttempts).hasValue(1);
+        var next = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 3, ignored -> {});
         assertThat(state.publish(lease, "still current", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isFalse();
+        assertThat(state.publish(next, "current", "en", "ta", update -> {
             updates.add(update); return true;
         })).isTrue();
         assertThat(updates).singleElement().extracting(TextSharingState.DraftUpdate::translatedText)
-                .isEqualTo("still current");
+                .isEqualTo("current");
     }
 
     @Test void disconnectAndExpiryFailClosedAndClearPublishedDrafts() {

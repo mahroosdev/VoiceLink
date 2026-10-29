@@ -5,6 +5,9 @@ import com.password4j.types.Argon2;
 import com.mahroosdev.voicelink.auth.CurrentCredentialFilter;
 import com.mahroosdev.voicelink.auth.AccountPrincipal;
 import com.mahroosdev.voicelink.auth.AccountSessionRegistry;
+import com.mahroosdev.voicelink.auth.PasswordResetSettings;
+import com.mahroosdev.voicelink.security.EndpointAbuseFilter;
+import com.mahroosdev.voicelink.security.EndpointAbuseRateLimiter;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +17,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.crypto.password4j.Argon2Password4jPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 
 @Configuration
@@ -27,7 +31,9 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts,
-                                            AccountSessionRegistry sessions) throws Exception {
+                                            AccountSessionRegistry sessions,
+                                            EndpointAbuseRateLimiter abuseRateLimiter,
+                                            PasswordResetSettings passwordResetSettings) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/", "/about", "/login", "/register", "/forgot-password",
                         "/reset-password", "/actuator/health").permitAll()
@@ -67,7 +73,8 @@ public class SecurityConfig {
                     .invalidateHttpSession(true)
                     .deleteCookies("JSESSIONID"))
             .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
-            .addFilterAfter(new CurrentCredentialFilter(accounts, sessions), SecurityContextHolderFilter.class);
+            .addFilterAfter(new CurrentCredentialFilter(accounts, sessions), SecurityContextHolderFilter.class)
+            .addFilterAfter(new EndpointAbuseFilter(abuseRateLimiter, passwordResetSettings), CsrfFilter.class);
         return http.build();
     }
 }

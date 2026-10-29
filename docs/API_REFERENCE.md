@@ -16,6 +16,20 @@ This describes the current VoiceLink HTTP and WebSocket behavior; it is a mainta
 | `GET /account`, `GET/POST /account/delete` | Account settings and protected account deletion. |
 | `GET /actuator/health` | Status-only health check; it does not prove provider quality or browser operation. |
 
+## Endpoint abuse limits
+
+The application applies rolling one-minute limits after CSRF validation. A rejected request receives HTTP 429, a generic text response, `Retry-After: 60`, and `Cache-Control: no-store`. Rejected requests do not consume quota. Login, registration, and enabled password-reset requests are limited by the servlet connection address (not by account, avoiding account-lockout denial of service); the forgot-password and reset-password actions share one address bucket. Room creation is limited by authenticated account. Invitation preview/join/setup attempts are limited by both authenticated account and servlet connection address. Anonymous requests to protected room routes are left to normal authentication handling and do not consume the authenticated quota.
+
+| Action | Default per identity per minute | Default per app instance per minute | Environment variables |
+| --- | ---: | ---: | --- |
+| Login by address | 120 | 1,200 | `VOICELINK_ABUSE_LOGIN_PER_ADDRESS_PER_MINUTE`, `VOICELINK_ABUSE_LOGIN_PER_INSTANCE_PER_MINUTE` |
+| Registration by address | 20 | 400 | `VOICELINK_ABUSE_REGISTRATION_PER_ADDRESS_PER_MINUTE`, `VOICELINK_ABUSE_REGISTRATION_PER_INSTANCE_PER_MINUTE` |
+| Password recovery by address | 10 | 200 | `VOICELINK_ABUSE_PASSWORD_RESET_PER_ADDRESS_PER_MINUTE`, `VOICELINK_ABUSE_PASSWORD_RESET_PER_INSTANCE_PER_MINUTE` |
+| Room creation by account | 30 | 600 | `VOICELINK_ABUSE_ROOM_CREATION_PER_ACCOUNT_PER_MINUTE`, `VOICELINK_ABUSE_ROOM_CREATION_PER_INSTANCE_PER_MINUTE` |
+| Invitation attempts by address and account | 60 / 120 | 1,800 | `VOICELINK_ABUSE_INVITATION_PER_ADDRESS_PER_MINUTE`, `VOICELINK_ABUSE_INVITATION_PER_ACCOUNT_PER_MINUTE`, `VOICELINK_ABUSE_INVITATION_PER_INSTANCE_PER_MINUTE` |
+
+The counters are bounded and process-local, not distributed across replicas. The filter uses `HttpServletRequest.getRemoteAddr()` and does not parse `X-Forwarded-For` itself. A servlet container or framework may apply trusted forwarded-header configuration before exposing that address; the production proxy trust/forwarding behavior must be verified in the deployment environment. These limits are application safeguards, not a substitute for verified ingress-level controls or globally shared quotas.
+
 ## Authenticated JSON and audio endpoints
 
 | Method and path | Purpose and important input |
@@ -26,7 +40,7 @@ This describes the current VoiceLink HTTP and WebSocket behavior; it is a mainta
 | `PUT/DELETE /api/rooms/{roomId}/glossary/{entryId}` | Edit/delete a term with `expectedVersion` for stale-write protection. Closed-room entries are deleted. |
 | `POST /api/rooms/{roomId}/text/reviews` | Translate current `sourceText` at a client `revision`; optional `romanizedTamil` marks Tamil-to-English input typed with Latin characters. Without `sharingEpoch`, returns a short-lived private Translate Message review. With the caller's valid active `sharingEpoch`, publishes or replaces that participant's provisional Shared Live draft. |
 | `POST /api/rooms/{roomId}/text/shares` | Start an authenticated participant-owned Shared Live session; returns its `sharingEpoch`. |
-| `POST /api/rooms/{roomId}/text/shares/{epoch}/invalidate` | JSON `{"revision": n}` advances the active share's revision when `n` is newer, clears any previously published draft, and fences older in-flight reviews. Requires the same authenticated participant/session and active room share epoch; a stale/invalid epoch returns 409, while an out-of-order lower/equal revision is ignored. This does not call a provider. |
+| `POST /api/rooms/{roomId}/text/shares/{epoch}/invalidate` | JSON `{"revision": n}` advances the active share's revision when `n` is newer, clears any previously published draft, and fences older in-flight reviews. Requires the same authenticated participant/session and active room share epoch; a stale/invalid epoch returns 409, while an out-of-order lower/equal revision is ignored. Requests are limited to 8 KiB and 1,200 per account per minute / 10,000 per app instance per minute by default (`VOICELINK_TEXT_MAX_INVALIDATIONS_PER_USER_PER_MINUTE`, `VOICELINK_TEXT_MAX_INVALIDATIONS_PER_INSTANCE_PER_MINUTE`). These counters are process-local, not a distributed limit. This does not call a provider. |
 | `DELETE /api/rooms/{roomId}/text/shares/{epoch}` | Stop the caller's active Shared Live session and clear its provisional draft. |
 | `POST /api/rooms/{roomId}/text/send` | Explicitly send a valid stored review with `reviewId`, original `sourceText`, and `revision`; in Shared Live mode this finalizes the current provisional draft into a conversation message. Duplicate retry returns the same final ID. |
 | `POST /api/rooms/{roomId}/turns/{turnId}/retry-translation` | Sender-only retry from a recognized speech turn's temporary transcript; checks room membership, turn ownership, session, current room direction and language-version, queue capacity, and rate limits. |

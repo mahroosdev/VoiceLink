@@ -347,7 +347,9 @@ public class TextTranslationService {
         RoomLiveAuthorizer.Member member = active(userId, roomId);
         synchronized (this) {
             if (sharing.invalidate(roomId, userId, member.participantId(), sessionId,
-                    epoch, revision, hub::publishDraftClear))
+                    epoch, revision, () -> {
+                        if (!limiter.tryAcquireInvalidation(userId)) throw invalidationLimited();
+                    }, hub::publishDraftClear))
                 invalidateReviewLocked(roomId, userId);
         }
     }
@@ -434,6 +436,11 @@ public class TextTranslationService {
         return new TextTranslationFailureException(HttpStatus.TOO_MANY_REQUESTS,
                 TextTranslationFailureException.SafeCode.RATE_LIMITED,
                 "Too many translation requests. Your message remains here; wait and try again.");
+    }
+    private static ResponseStatusException invalidationLimited() {
+        return new TextTranslationFailureException(HttpStatus.TOO_MANY_REQUESTS,
+                TextTranslationFailureException.SafeCode.RATE_LIMITED,
+                "Too many live draft updates. Wait briefly before editing again.");
     }
     private static ResponseStatusException conflict(String message) {
         return new ResponseStatusException(HttpStatus.CONFLICT, message);
