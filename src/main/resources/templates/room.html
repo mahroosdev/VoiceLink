@@ -174,9 +174,10 @@
               <h3 id="turns-heading">Conversation</h3>
               <p class="turns-card__intro">Recent captions, messages, and audio are temporary and may disappear after expiry or restart.</p>
               <div class="history-filters" role="group" aria-label="Conversation messages">
-                <button id="history-translated" class="history-filters__button" type="button" aria-pressed="true" aria-controls="conversation-events">Translated</button>
-                <button id="history-quick" class="history-filters__button" type="button" aria-pressed="false" aria-controls="conversation-events">Quick chat</button>
+                <button id="history-translated" class="history-filters__button" type="button" aria-pressed="true" aria-label="Translated messages" aria-controls="conversation-events">Translated <span id="history-translated-unread" class="history-unread" aria-hidden="true" hidden></span></button>
+                <button id="history-quick" class="history-filters__button" type="button" aria-pressed="false" aria-label="Quick chat messages" aria-controls="conversation-events">Quick chat <span id="history-quick-unread" class="history-unread" aria-hidden="true" hidden></span></button>
               </div>
+              <div id="live-drafts" class="live-drafts" aria-label="Live translation drafts" aria-live="polite"></div>
               <p id="history-filter-status" class="sr-only" role="status" aria-live="polite"></p>
               <p id="turn-empty" class="empty-state" role="status">No conversation activity yet.</p>
               <ol id="conversation-events" class="turn-list live-events" aria-label="Recent conversation activity"></ol>
@@ -220,6 +221,7 @@
               <p id="type-status" class="small" role="status" aria-live="polite">Ready to translate.</p>
               <div class="type-recovery">
                 <button id="type-retry" class="button button--secondary" type="button" hidden>Retry translation</button>
+                <button id="type-finish" class="button button--primary" type="button" hidden disabled>Finish live message</button>
               </div>
               <section id="type-review" class="type-review" aria-labelledby="type-review-heading" hidden>
                 <h4 id="type-review-heading">Translated — Not sent</h4>

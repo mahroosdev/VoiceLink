@@ -56,6 +56,7 @@ function setup(fetchImpl, microphoneError, initialStatus = "ACTIVE") {
   nodes["speech-review"].hidden = true;
   const toolBar = node(), mainGrid = node();
   const listeners = {};
+  const historyChanges = [];
   const timers = new Map();
   let timerId = 1, now = 1000, uuid = 0;
   let confirmResult = true;
@@ -102,6 +103,8 @@ function setup(fetchImpl, microphoneError, initialStatus = "ACTIVE") {
     MediaRecorder: FakeRecorder,
     addEventListener(type, fn) { listeners[type] = fn; },
     dispatchEvent(event) { listeners[event.type]?.(event); },
+    voicelinkHistory: { beforeAppend: () => true,
+      changed: (...args) => historyChanges.push(args) },
     confirm(message) { confirmationMessages.push(message); return confirmResult; }
   };
   const setTimeout = (fn, delay) => { const id = timerId++; timers.set(id, { fn, delay }); return id; };
@@ -119,6 +122,7 @@ function setup(fetchImpl, microphoneError, initialStatus = "ACTIVE") {
     clearInterval: () => {} });
   FakeSocket.latest.onopen();
   return { nodes, listeners, timers, runTimer, confirmationMessages,
+    historyChanges,
     setConfirm(value) { confirmResult = value; }, socket: FakeSocket.latest,
     currentSocket() { return FakeSocket.latest; },
     recorder: () => FakeRecorder.instances.at(-1),
@@ -260,10 +264,19 @@ test("server current marker keeps identical names distinct and attributes untran
   assert.equal(h.nodes["conversation-events"].children.length, 2);
   assert.equal(h.nodes["conversation-events"].children[1].dataset.senderRole, "Partner");
   assert.equal(h.nodes["conversation-events"].children[1].dataset.messageKind, "translated");
+  assert.deepEqual(h.historyChanges.at(-1), [true, "translated", false]);
   receive({ protocolVersion: 1, streamId: "stream-1", sequence: 5, eventId: "event-5",
     roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-1", turnId: "turn-1",
     payload: { turnIndex: 1, targetLanguage: "ta", translatedText: "duplicate" } });
   assert.equal(h.nodes["conversation-events"].children.length, 2);
+
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 6, eventId: "event-own-turn",
+    roomId: "room-1", type: "TURN_ACCEPTED", senderParticipantId: "person-2", turnId: "turn-own",
+    payload: { turnIndex: 2, sourceLanguage: "ta", targetLanguage: "en" } });
+  receive({ protocolVersion: 1, streamId: "stream-1", sequence: 7, eventId: "event-own-translation",
+    roomId: "room-1", type: "TRANSLATION_READY", senderParticipantId: "person-2", turnId: "turn-own",
+    payload: { turnIndex: 2, targetLanguage: "en", translatedText: "Own translation" } });
+  assert.deepEqual(h.historyChanges.at(-1), [true, "translated", true]);
 });
 
 test("Quick chat waits for the server echo, stays open, and deduplicates retry echoes", async () => {

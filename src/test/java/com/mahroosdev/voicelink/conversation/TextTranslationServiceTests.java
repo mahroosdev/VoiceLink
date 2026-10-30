@@ -113,10 +113,10 @@ class TextTranslationServiceTests {
         verify(standard, times(2)).translate(any());
     }
 
-    @Test void sharedPreviewAuthorizationIsRejectedAndCannotReachAProvider() {
+    @Test void invalidLiveSharingEpochIsRejectedAndCannotReachAProvider() {
         assertThatThrownBy(() -> service.review(userId, "session-a", roomId, "Hello", 1, UUID.randomUUID()))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
-                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
+                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
         verify(standard, never()).translate(any());
         verify(hub, never()).publishDraft(any());
     }

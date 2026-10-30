@@ -89,6 +89,59 @@ class TextSharingStateTests {
                 view.sharingEpoch(), 2)).isTrue();
     }
 
+    @Test void invalidationClearsPublishedDraftAndFencesOlderLeaseAndLowerInvalidation() {
+        TextSharingState state = new TextSharingState(clock);
+        var view = state.start(room, user, participant, "session-a", ignored -> {});
+        var old = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 1, ignored -> {});
+        var updates = new ArrayList<TextSharingState.DraftUpdate>();
+        var clears = new ArrayList<TextSharingState.DraftClear>();
+        assertThat(state.publish(old, "obsolete", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isTrue();
+        assertThat(state.invalidate(room, user, participant, "session-a", view.sharingEpoch(), 2, clears::add)).isTrue();
+        assertThat(clears).singleElement().extracting(TextSharingState.DraftClear::reason)
+                .isEqualTo("REVISION_UPDATED");
+        assertThat(state.publish(old, "late", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isFalse();
+        assertThat(state.invalidate(room, user, participant, "session-a", view.sharingEpoch(), 1, clears::add)).isFalse();
+        var next = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 3, clears::add);
+        assertThat(state.publish(next, "current", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isTrue();
+        assertThat(updates).extracting(TextSharingState.DraftUpdate::translatedText)
+                .containsExactly("obsolete", "current");
+        assertThat(clears).hasSize(1);
+    }
+
+    @Test void invalidEpochAndSessionCannotInvalidateAnotherShare() {
+        TextSharingState state = new TextSharingState(clock);
+        var view = state.start(room, user, participant, "session-a", ignored -> {});
+        var lease = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 1, ignored -> {});
+        var updates = new ArrayList<TextSharingState.DraftUpdate>();
+        var quotaAttempts = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable acquireQuota = quotaAttempts::incrementAndGet;
+        assertThatThrownBy(() -> state.invalidate(room, user, participant, "session-b",
+                view.sharingEpoch(), 2, acquireQuota, ignored -> {})).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> state.invalidate(room, user, participant, "session-a",
+                UUID.randomUUID(), 2, acquireQuota, ignored -> {})).isInstanceOf(ResponseStatusException.class);
+        assertThat(state.invalidate(room, user, participant, "session-a",
+                view.sharingEpoch(), 1, acquireQuota, ignored -> {})).isFalse();
+        assertThat(quotaAttempts).hasValue(0);
+        assertThat(state.invalidate(room, user, participant, "session-a",
+                view.sharingEpoch(), 2, acquireQuota, ignored -> {})).isTrue();
+        assertThat(quotaAttempts).hasValue(1);
+        var next = state.begin(room, user, participant, "session-a", view.sharingEpoch(), 3, ignored -> {});
+        assertThat(state.publish(lease, "still current", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isFalse();
+        assertThat(state.publish(next, "current", "en", "ta", update -> {
+            updates.add(update); return true;
+        })).isTrue();
+        assertThat(updates).singleElement().extracting(TextSharingState.DraftUpdate::translatedText)
+                .isEqualTo("current");
+    }
+
     @Test void disconnectAndExpiryFailClosedAndClearPublishedDrafts() {
         TextSharingState state = new TextSharingState(clock);
         var view = state.start(room, user, participant, "session-a", ignored -> {});

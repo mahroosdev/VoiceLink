@@ -383,9 +383,10 @@ class UiRenderingTests {
                 "room-details__summary", "room-details__item", "room-details__label",
                 "romanized-tamil-option__title", "toggle-control", "toggle-control__track",
                 "id=\"romanized-tamil\"", "id=\"romanized-tamil-state\"",
-                "aria-labelledby=\"romanized-tamil-label\"", "Transliteration: Off")
+                "aria-labelledby=\"romanized-tamil-label\"", "Transliteration: Off",
+                "id=\"live-drafts\" class=\"live-drafts\" aria-label=\"Live translation drafts\" aria-live=\"polite\"")
                 .doesNotContain("You hear: ", "Partner hears: ", "Private Live", "Shared Live",
-                        "history-all", "All messages", "Live translation draft",
+                        "history-all", "All messages",
                         "Low latency", "Recent History", "Delete account");
         String ownerActive = mvc.perform(get(path).with(user(owner)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

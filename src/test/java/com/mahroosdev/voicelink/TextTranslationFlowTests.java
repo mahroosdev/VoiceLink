@@ -33,7 +33,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "voicelink.text.max-invalidations-per-user-per-minute=2",
+        "voicelink.text.max-invalidations-per-instance-per-minute=3"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class TextTranslationFlowTests {
@@ -63,7 +66,7 @@ class TextTranslationFlowTests {
             UserAccount user, MockHttpSession session) throws Exception {
         return post("/api/rooms/{roomId}/text/reviews", roomId).session(session)
                 .with(user(principal(user))).contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(new Input(text, revision, false)));
+                .content(json.writeValueAsString(new Input(text, revision, false, null)));
     }
 
     @Test void reviewRequiresAuthenticationCsrfAndMembership() throws Exception {
@@ -117,17 +120,74 @@ class TextTranslationFlowTests {
                 .andExpect(status().isConflict());
     }
 
-    @Test void livePreviewSharingEndpointsAreUnavailable() throws Exception {
+    @Test void liveSharingRequiresTheCurrentAuthenticatedRoomSocketAndCanBeStopped() throws Exception {
         UserAccount creator = account(), joiner = account();
         UUID roomId = active(creator, joiner);
         MockHttpSession session = new MockHttpSession();
-        mvc.perform(post("/api/rooms/{roomId}/text/sharing", roomId).session(session)
+        mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
                         .with(user(principal(creator))).with(csrf()))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/rooms/{roomId}/text/sharing/{epoch}/draft", roomId, UUID.randomUUID())
-                        .session(session).with(user(principal(creator))).with(csrf()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isConflict());
+        when(hub.hasCurrentConnection(roomId, creator.getId(), session.getId())).thenReturn(true);
+        String body = mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID epoch = UUID.fromString(json.readTree(body).get("sharingEpoch").asText());
+        mvc.perform(delete("/api/rooms/{roomId}/text/shares/{epoch}", roomId, epoch).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isNoContent());
         verify(hub, org.mockito.Mockito.never()).publishDraft(any());
+    }
+
+    @Test void liveInvalidationRequiresAuthenticationCsrfMembershipSessionAndValidEpoch() throws Exception {
+        UserAccount creator = account(), joiner = account(), outsider = account();
+        UUID roomId = active(creator, joiner);
+        MockHttpSession session = new MockHttpSession();
+        when(hub.hasCurrentConnection(roomId, creator.getId(), session.getId())).thenReturn(true);
+        String share = mvc.perform(post("/api/rooms/{roomId}/text/shares", roomId).session(session)
+                        .with(user(principal(creator))).with(csrf()))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID epoch = UUID.fromString(json.readTree(share).get("sharingEpoch").asText());
+        String body = json.writeValueAsString(new Invalidate(2));
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .redirectedUrlPattern("/login*"));
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(new MockHttpSession()).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(outsider))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, UUID.randomUUID())
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new Invalidate(3))))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, epoch)
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new Invalidate(4))))
+                .andExpect(status().isTooManyRequests());
+        org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
     }
 
     @Test void oversizedReviewBodyIsRejectedBeforeProviderWork() throws Exception {
@@ -136,6 +196,17 @@ class TextTranslationFlowTests {
         mvc.perform(review(roomId, "x".repeat(9_000), 1, creator, new MockHttpSession()).with(csrf()))
                 .andExpect(status().is(413));
         org.mockito.Mockito.verify(standard, org.mockito.Mockito.never()).translate(any());
+    }
+
+    @Test void oversizedInvalidationBodyIsRejected() throws Exception {
+        UserAccount creator = account(), joiner = account();
+        UUID roomId = active(creator, joiner);
+        MockHttpSession session = new MockHttpSession();
+        String oversized = "{\"revision\":1}" + " ".repeat(9_000);
+        mvc.perform(post("/api/rooms/{roomId}/text/shares/{epoch}/invalidate", roomId, UUID.randomUUID())
+                        .session(session).with(user(principal(creator))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(oversized))
+                .andExpect(status().is(413));
     }
 
     @Test void timeoutReturnsOnlySafeClassificationAndKeepsPrivateContentOutOfTheError() throws Exception {
@@ -152,6 +223,7 @@ class TextTranslationFlowTests {
                         .doesNotContain("SENSITIVE_CANARY_MESSAGE"));
     }
 
-    private record Input(String sourceText, long revision, boolean romanizedTamil) {}
+    private record Input(String sourceText, long revision, boolean romanizedTamil, UUID sharingEpoch) {}
     private record Send(UUID reviewId, String sourceText, long revision) {}
+    private record Invalidate(long revision) {}
 }

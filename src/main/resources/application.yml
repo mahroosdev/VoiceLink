@@ -33,8 +33,28 @@ management:
       show-details: never
 
 voicelink:
+  abuse:
+    password-hash-max-concurrent: ${VOICELINK_ABUSE_PASSWORD_HASH_MAX_CONCURRENT:1}
+    login-per-address-per-minute: ${VOICELINK_ABUSE_LOGIN_PER_ADDRESS_PER_MINUTE:120}
+    login-per-instance-per-minute: ${VOICELINK_ABUSE_LOGIN_PER_INSTANCE_PER_MINUTE:1200}
+    registration-per-address-per-minute: ${VOICELINK_ABUSE_REGISTRATION_PER_ADDRESS_PER_MINUTE:20}
+    registration-per-instance-per-minute: ${VOICELINK_ABUSE_REGISTRATION_PER_INSTANCE_PER_MINUTE:400}
+    password-reset-per-address-per-minute: ${VOICELINK_ABUSE_PASSWORD_RESET_PER_ADDRESS_PER_MINUTE:10}
+    password-reset-per-instance-per-minute: ${VOICELINK_ABUSE_PASSWORD_RESET_PER_INSTANCE_PER_MINUTE:200}
+    room-creation-per-account-per-minute: ${VOICELINK_ABUSE_ROOM_CREATION_PER_ACCOUNT_PER_MINUTE:30}
+    room-creation-per-instance-per-minute: ${VOICELINK_ABUSE_ROOM_CREATION_PER_INSTANCE_PER_MINUTE:600}
+    invitation-per-address-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_ADDRESS_PER_MINUTE:60}
+    invitation-per-account-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_ACCOUNT_PER_MINUTE:120}
+    invitation-per-instance-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_INSTANCE_PER_MINUTE:1800}
+    live-invalidation-per-account-per-minute: ${VOICELINK_ABUSE_LIVE_INVALIDATION_PER_ACCOUNT_PER_MINUTE:300}
+    live-invalidation-per-instance-per-minute: ${VOICELINK_ABUSE_LIVE_INVALIDATION_PER_INSTANCE_PER_MINUTE:1200}
   translation:
     timeout: ${VOICELINK_TRANSLATION_TIMEOUT:15s}
+  text:
+    max-reviews-per-user-per-minute: ${VOICELINK_TEXT_MAX_REVIEWS_PER_USER_PER_MINUTE:8}
+    max-reviews-per-instance-per-minute: ${VOICELINK_TEXT_MAX_REVIEWS_PER_INSTANCE_PER_MINUTE:40}
+    max-invalidations-per-user-per-minute: ${VOICELINK_TEXT_MAX_INVALIDATIONS_PER_USER_PER_MINUTE:1200}
+    max-invalidations-per-instance-per-minute: ${VOICELINK_TEXT_MAX_INVALIDATIONS_PER_INSTANCE_PER_MINUTE:10000}
   speech:
     max-turns-per-user-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_USER_PER_MINUTE:12}
     max-turns-per-instance-per-minute: ${VOICELINK_SPEECH_MAX_TURNS_PER_INSTANCE_PER_MINUTE:60}

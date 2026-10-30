@@ -24,7 +24,7 @@ public class GlossaryRequestSizeFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         return !("POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method))
                 || !request.getRequestURI().matches(
-                        "/api/rooms/[^/]+/(?:glossary(?:/[^/]+)?|text/(?:reviews|send))");
+                        "/api/rooms/[^/]+/(?:glossary(?:/[^/]+)?|text/(?:reviews|send|shares/[^/]+/invalidate))");
     }
 
     @Override

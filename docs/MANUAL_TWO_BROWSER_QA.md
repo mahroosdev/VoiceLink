@@ -16,10 +16,12 @@ Follow the [local setup](../README.md#local-setup), then start the application w
 ## Text and timeline
 
 1. Send a Quick chat message in each direction. Check sender attribution, safe text rendering, and the Translated/Quick chat filters (Translated is the default).
-2. With providers disabled, verify translation failures are clear and do not create a false completed translation.
-3. Type in Live translation and verify that the preview is visible only to its sender. Confirm the partner sees no text until explicit Send, and that the finalized message appears once for both participants.
-4. Use explicit Send, Retry after a simulated recoverable failure, and confirm no duplicate final message. Check composer mode and selected history filter remain independent.
-5. Reload/reconnect and confirm the interface does not promise durable message history. Close the room and check access is denied and glossary data follows the documented lifecycle.
+2. With providers disabled, verify translation failures are clear and do not create a false completed translation. This checks the failure path only; it cannot produce a successful Live draft.
+3. To verify successful Shared Live behavior in browsers, use synthetic, non-sensitive text and a functioning Standard provider only after checking account tier, quota, and data-use terms. Type in browser A and confirm browser B sees the provisional draft. Edit the text and confirm B sees the replacement; clear the input or stop sharing and confirm the stale draft is cleared. Select Finish and confirm the intended text is finalized once for both participants.
+4. Use explicit Send in Translate Message mode. Check Retry after a simulated recoverable failure only when a local mock or failure-injection setup is available; confirm it does not create a duplicate final message. Check composer mode and selected history filter remain independent.
+5. Refresh/reconnect and confirm a stale live draft is not restored and the interface does not promise durable message history. Close the room and check access is denied and glossary data follows the documented lifecycle.
+
+The automated client and service tests use mocks for successful translation, revision replacement/clearing, retry, and cleanup-failure behavior. They can verify those flows without provider calls, but they do not replace observing two authenticated browser sessions. Do not use provider credentials or enable Premium for routine browser checks.
 
 ## Speech and responsive/accessibility review
 

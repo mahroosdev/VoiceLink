@@ -44,7 +44,9 @@ import org.springframework.test.web.servlet.MockMvc;
         "voicelink.password-reset.enabled=true",
         "voicelink.password-reset.public-base-url=https://voicelink.example.test",
         "voicelink.password-reset.mail-api-key=offline-only",
-        "voicelink.password-reset.mail-from-address=noreply@example.test"
+        "voicelink.password-reset.mail-from-address=noreply@example.test",
+        "voicelink.abuse.password-reset-per-address-per-minute=100",
+        "voicelink.abuse.password-reset-per-instance-per-minute=1000"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

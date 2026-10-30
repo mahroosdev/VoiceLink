@@ -11,7 +11,7 @@ The homepage translation example is illustrative and makes no provider requests.
 - Session-authenticated accounts, room membership, invitation codes, and a two-participant limit.
 - English↔Tamil speaking directions assigned and checked by the server.
 - Short WebM/Opus speech turns: Groq `whisper-large-v3` transcription, Gemini `gemini-3.1-flash-lite` translation, and Gemini `gemini-3.8-flash-lite-tts` speech using Kore.
-- Text translation with explicit send and private live previews; previews remain sender-only until explicit Send.
+- Text translation offers private Translate Message reviews that are shared only after explicit Send. In Live Translation, one provisional draft is shared with the other participant, replaced as the text changes, and cleared when the draft is edited or sharing stops; Finish explicitly finalizes the message.
 - Temporary captions and audio, with a single live conversation timeline. Conversation history is not stored in PostgreSQL or generally restored after reconnect; a bounded in-memory message-deduplication cache can echo a retried message.
 - Room-scoped glossary entries and bounded, memory-only recent context.
 - Premium provider routing is present in source but disabled by default; it is not activated or live-validated. Standard never automatically falls back to Premium.
@@ -71,7 +71,7 @@ Room access is checked server-side. Audio is sent to Groq for transcription; the
 ## Limitations
 
 - English↔Tamil is the only supported pair. Live recognition, naturalness, pronunciation, latency, and end-to-end browser behavior require human testing.
-- Public signup and invitation endpoints need additional abuse controls before unrestricted public use.
+- Public signup, login, password recovery (when enabled), room creation, invitation attempts, Live draft invalidations, and concurrent memory-hard password operations have configurable process-local safeguards. Before unrestricted public use, verify trusted proxy address handling and configure external ingress controls; these in-process limits are not shared across replicas.
 - WebSocket state, rate limits, temporary captions, and generated audio are process-local; the current deployment design is single-instance.
 - Premium activation, billing behavior, quality, and paid-provider operation are deferred and unverified.
 

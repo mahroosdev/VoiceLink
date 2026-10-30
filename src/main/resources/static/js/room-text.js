@@ -30,6 +30,7 @@
   const translate = document.getElementById("type-translate");
   const retry = document.getElementById("type-retry");
   const send = document.getElementById("type-send");
+  const finish = document.getElementById("type-finish");
   const status = document.getElementById("type-status");
   const reviewSection = document.getElementById("type-review");
   const reviewHeading = document.getElementById("type-review-heading");
@@ -57,9 +58,14 @@
   let lastInputValue = source.value;
   let lastAutomaticKey = null;
   let pendingLive = false;
+  let sharingEpoch = null;
+  let shareStartPromise = null;
+  let shareGeneration = 0;
+  let activeController = null;
   let requestSequence = 0;
   let activeRequest = 0;
   let retryRequest = null;
+  let invalidationSequence = 0;
 
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
@@ -109,10 +115,33 @@
     retry.disabled = !available || translating || sending || !retryRequest;
     send.disabled = !available || sending || translating || !review || review.revision !== revision
       || review.originalText !== source.value || Date.now() >= Date.parse(review.expiresAt);
+    send.hidden = textMode !== "total";
+    if (finish) {
+      finish.hidden = textMode !== "live";
+      finish.disabled = !available || sending || translating || !review || review.revision !== revision
+        || review.originalText !== source.value || Date.now() >= Date.parse(review.expiresAt);
+    }
   }
 
-  function invalidate(message, state = "idle") {
+  function invalidate(message, state = "idle", notifySharedDraft = true) {
     revision++;
+    if (notifySharedDraft && textMode === "live" && sharingEpoch && current("live")) {
+      const epoch = sharingEpoch;
+      const invalidatedRevision = revision;
+      const sequence = ++invalidationSequence;
+      post("shares/" + epoch + "/invalidate", { revision: invalidatedRevision })
+        .then(({ response }) => {
+          if (!response.ok && sequence === invalidationSequence && sharingEpoch === epoch
+              && current("live")) {
+            setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until a newer translation succeeds.", "error");
+          }
+        }).catch(() => {
+          if (sequence === invalidationSequence && sharingEpoch === epoch && current("live")) {
+            setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until a newer translation succeeds.", "error");
+          }
+        });
+    }
+    activeController?.abort();
     cancelPending();
     lastAutomaticKey = null;
     clearRetry();
@@ -122,10 +151,10 @@
   }
 
   function liveCopy() {
-    typeEyebrow.textContent = "Live private translation";
-    typeHeading.textContent = "Type and pause to preview";
-    typeIntro.textContent = "Only you can see this preview until you select Send. Gemini processes text after a short typing pause.";
-    reviewHeading.textContent = "Private preview — Not sent";
+    typeEyebrow.textContent = "Live translation";
+    typeHeading.textContent = "Type and pause to translate";
+    typeIntro.textContent = "Your partner sees one live draft as it updates. Finish the message to finalize it.";
+    reviewHeading.textContent = "Live translation ready to finish";
   }
 
   function totalCopy() {
@@ -144,29 +173,33 @@
     speakSection.hidden = mode !== "speak";
     typeSection.hidden = mode !== "type";
     invalidate(mode === "type" ? (textMode === "live"
-      ? "Live private preview is ready for input." : textMode === "quick"
+      ? "Live translation is ready for input." : textMode === "quick"
         ? "Quick chat is ready." : "Ready to translate.")
       : "Text translation paused while Speak is selected.", "idle");
     update();
     if (mode === "type") {
       (textMode === "quick" ? quickInput : source).focus();
-      if (textMode === "live") scheduleLive();
+      if (textMode === "live") scheduleAutomatic();
+    } else if (textMode === "live") {
+      stopSharing();
     } else speakButton.focus();
   }
 
   function selectTextMode(next) {
     if (next === textMode) return;
+    const wasLive = textMode === "live";
     textMode = next;
     typeSection.dataset.textMode = next;
     liveButton.setAttribute("aria-pressed", String(next === "live"));
     totalButton.setAttribute("aria-pressed", String(next === "total"));
     quickButton.setAttribute("aria-pressed", String(next === "quick"));
     if (next === "live") liveCopy(); else if (next === "total") totalCopy();
-    invalidate(next === "live" ? "Live private preview is ready for input."
+    invalidate(next === "live" ? "Live translation is ready for input."
       : next === "quick" ? "Quick chat is ready. Messages are sent as written."
-        : "Translate message selected. Select Translate when your message is complete.", "idle");
+        : "Type your message. A translation will appear after a short pause.", "idle");
+    if (wasLive && next !== "live") stopSharing();
     (next === "quick" ? quickInput : source).focus();
-    if (next === "live") scheduleLive();
+    if (next === "live") scheduleAutomatic();
   }
 
   function messageFor(response, body, fallback) {
@@ -187,6 +220,58 @@
     let result;
     try { result = await response.json(); } catch { result = {}; }
     return { response, result };
+  }
+
+  async function ensureSharing() {
+    if (sharingEpoch) return sharingEpoch;
+    if (shareStartPromise) return shareStartPromise;
+    const generation = shareGeneration;
+    shareStartPromise = (async () => {
+      try {
+        const { response, result } = await post("shares", {});
+        if (!response.ok || typeof result.sharingEpoch !== "string") {
+          setStatus(messageFor(response, result, "Live translation could not start. Reconnect and try again."), "error");
+          return null;
+        }
+        if (generation !== shareGeneration) {
+          stopShareEpoch(result.sharingEpoch);
+          return null;
+        }
+        sharingEpoch = result.sharingEpoch;
+        shareGeneration++;
+        return sharingEpoch;
+      } catch {
+        setStatus("Live translation could not start. Reconnect and try again.", "error");
+        return null;
+      } finally {
+        shareStartPromise = null;
+      }
+    })();
+    return shareStartPromise;
+  }
+
+  function stopShareEpoch(epoch, generation) {
+    if (!epoch) return;
+    const reportFailure = () => {
+      if (generation === shareGeneration && !sharingEpoch && current("live")) {
+        setStatus("Could not confirm that the previous live draft was cleared. It may remain visible until sharing is restored.", "error");
+      }
+    };
+    fetch("/api/rooms/" + roomId + "/text/shares/" + epoch, {
+      method: "DELETE", credentials: "same-origin",
+      headers: csrfHeader && csrfToken ? { [csrfHeader]: csrfToken } : {}
+    }).then(response => { if (!response.ok) reportFailure(); }).catch(reportFailure);
+  }
+
+  function stopSharing() {
+    const epoch = sharingEpoch;
+    shareGeneration++;
+    const stoppedGeneration = shareGeneration;
+    shareStartPromise = null;
+    sharingEpoch = null;
+    if (!epoch) return;
+    window.dispatchEvent(new CustomEvent("voicelink-remove-live-draft", { detail: { draftId: review?.draftId } }));
+    stopShareEpoch(epoch, stoppedGeneration);
   }
 
   function retryAllowed(response, result) {
@@ -222,21 +307,30 @@
       }
       clearReview();
       clearRetry();
-    } else invalidate();
+    } else invalidate(undefined, "idle", false);
+    if (!savedRequest && requestMode === "live") revision++;
     const requestRevision = savedRequest?.revision ?? revision;
     const request = { mode: requestMode, text, revision: requestRevision,
       romanizedTamil: requestRomanized };
     translating = true;
     pendingLive = false;
-    if (requestMode === "live") lastAutomaticKey = requestRevision + "\n" + text;
+    lastAutomaticKey = requestRevision + "\n" + text;
     const requestId = ++requestSequence;
     activeRequest = requestId;
-    setStatus(requestMode === "live" ? "Creating your private live preview…"
-      : "Translating for private review…", "translating");
+    activeController = new AbortController();
+    setStatus(requestMode === "live" ? "Translating and updating your partner…"
+      : "Translating your message…", "translating");
     update();
     try {
+      let epoch = null;
+      if (requestMode === "live") {
+        epoch = await ensureSharing();
+        if (!epoch) return;
+        if (requestRevision !== revision || !current(requestMode) || source.value !== text) return;
+      }
       const { response, result } = await post("reviews",
-        { sourceText: text, revision: requestRevision, romanizedTamil: requestRomanized });
+        { sourceText: text, revision: requestRevision, romanizedTamil: requestRomanized,
+          ...(epoch ? { sharingEpoch: epoch } : {}) }, activeController.signal);
       if (requestRevision !== revision || !current(requestMode) || source.value !== text
           || requestRomanized !== !!romanizedToggle?.checked) return;
       if (!response.ok) {
@@ -257,11 +351,11 @@
       original.lang = result.romanizedTamil ? "ta-Latn" : result.sourceLanguage;
       translated.lang = result.targetLanguage;
       reviewSection.hidden = false;
-      setStatus(requestMode === "live" ? "Private preview ready — Not sent."
-        : "Translated — Not sent. Review before sending.", "ready");
+      setStatus(requestMode === "live" ? "Your live translation is visible to your partner. Finish it when ready."
+        : "Translation ready. Review it before sending.", "ready");
       if (requestMode === "total") send.focus();
     } catch (error) {
-      if (requestRevision === revision && current(requestMode)) {
+      if (error?.name !== "AbortError" && requestRevision === revision && current(requestMode)) {
         setStatus("Connection problem. Your message remains here; check your internet connection and try again.", "error");
         offerRetry(request, null, {});
       }
@@ -269,24 +363,28 @@
       if (activeRequest === requestId) {
         activeRequest = 0;
         translating = false;
+        activeController = null;
       }
       update();
-      if (current("live") && !composing && !sending
+      if ((current("live") || current("total")) && !composing && !sending
           && (pendingLive || (source.value.trim()
             && lastAutomaticKey !== revision + "\n" + source.value))) {
         pendingLive = false;
-        scheduleLive();
+        scheduleAutomatic();
       }
     }
   }
 
-  function scheduleLive() {
-    if (!current("live") || composing || sending) return;
+  function scheduleAutomatic() {
+    const requestMode = textMode;
+    if (!(requestMode === "live" || requestMode === "total")
+        || !current(requestMode) || composing || sending) return;
     const text = source.value;
     if (debounceTimer !== null) clearTimeout(debounceTimer);
     debounceTimer = null;
     if (!text.trim()) {
       setStatus("Waiting for input.", "idle");
+      if (requestMode === "live") stopSharing();
       return;
     }
     if ([...text].length > 1000) {
@@ -297,12 +395,12 @@
     setStatus("Waiting for typing to pause…", "waiting");
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      if (current("live") && !composing && source.value === text
+      if (current(requestMode) && !composing && source.value === text
           && revision + "\n" + text !== lastAutomaticKey) {
         if (translating) {
           pendingLive = true;
-          setStatus("Latest message queued. Translation will update after the current request finishes.", "waiting");
-        } else translateCurrent("live");
+          setStatus("Latest text queued. It will update after the current translation finishes.", "waiting");
+        } else translateCurrent(requestMode);
       }
     }, LIVE_DEBOUNCE_MS);
   }
@@ -310,14 +408,16 @@
   function sourceChanged() {
     if (source.value === lastInputValue && !composing) return;
     lastInputValue = source.value;
-    invalidate(composing ? "Composing text…" : (textMode === "live"
-      ? "Waiting for typing to pause…" : "Message changed. Select Translate to review it."),
-    composing ? "typing" : (textMode === "live" ? "waiting" : "idle"));
-    if (textMode === "live" && !composing) scheduleLive();
+    invalidate(composing ? "Composing text…" : (textMode === "quick"
+      ? "Quick chat is ready." : "Waiting for typing to pause…"),
+    composing ? "typing" : (textMode === "quick" ? "idle" : "waiting"));
+    if (textMode !== "quick" && !composing) scheduleAutomatic();
   }
 
   function appendFinal(message, sender) {
     if (!message?.finalId || seen.has(message.finalId)) return;
+    if (message.draftId) window.dispatchEvent(new CustomEvent("voicelink-remove-live-draft",
+      { detail: { draftId: message.draftId } }));
     const wasNearBottom = window.voicelinkHistory?.beforeAppend();
     seen.add(message.finalId);
     if (seen.size > 256) seen.delete(seen.values().next().value);
@@ -355,7 +455,7 @@
     const textRows = [...finalEvents.children].filter(item => item.dataset.timelineKind === "text");
     while (textRows.length > 16) textRows.shift().remove();
     if (announcement) announcement.textContent = sender + " sent translated text.";
-    window.voicelinkHistory?.changed(wasNearBottom, "translated");
+    window.voicelinkHistory?.changed(wasNearBottom, "translated", sender === "You");
   }
 
   speakButton.addEventListener("click", () => selectMode("speak"));
@@ -370,19 +470,23 @@
   source.addEventListener("compositionend", () => {
     composing = false;
     lastInputValue = source.value;
-    invalidate(textMode === "live" ? "Waiting for typing to pause…"
-      : "Message changed. Select Translate to review it.", textMode === "live" ? "waiting" : "idle");
-    if (textMode === "live") scheduleLive();
+    invalidate(textMode === "quick" ? "Quick chat is ready." : "Waiting for typing to pause…",
+      textMode === "quick" ? "idle" : "waiting");
+    if (textMode !== "quick") scheduleAutomatic();
   });
   source.addEventListener("input", sourceChanged);
   translate.addEventListener("click", () => translateCurrent("total"));
   retry.addEventListener("click", () => {
     if (!retryRequest || translating || sending) return;
-    const request = retryRequest;
+    const request = { ...retryRequest };
+    if (request.mode === "live") {
+      revision++;
+      request.revision = revision;
+    }
     translateCurrent(request.mode, request);
   });
 
-  send.addEventListener("click", async () => {
+  async function sendCurrent() {
     if (!current() || sending || translating || !review || review.revision !== revision
         || review.originalText !== source.value || Date.now() >= Date.parse(review.expiresAt)) {
       setStatus("Translation changed or expired. Translate again.", "error");
@@ -405,6 +509,7 @@
         return;
       }
       appendFinal(result, "You");
+      if (selectedMode === "live") stopSharing();
       source.value = "";
       lastInputValue = "";
       invalidate("Sent. Both connected participants can see the translated message.", "sent");
@@ -415,7 +520,10 @@
       sending = false;
       update();
     }
-  });
+  }
+
+  send.addEventListener("click", sendCurrent);
+  finish?.addEventListener("click", sendCurrent);
 
   window.addEventListener("voicelink-final-text", ({ detail: event }) => {
     const payload = event?.payload;
@@ -427,11 +535,12 @@
   window.addEventListener("voicelink-glossary-changed", () => {
     if (mode !== "type") return;
     invalidate("The glossary changed. A fresh translation is required.", "waiting");
-    if (textMode === "live") scheduleLive();
+    if (textMode !== "quick") scheduleAutomatic();
   });
   window.addEventListener("voicelink-room-state", () => {
     const current = document.querySelector("#participants-list [data-current=\"true\"]");
     const speaking = current?.dataset.speaking;
+    const directionChanged = (speaking === "en" || speaking === "ta") && speaking !== sourceLanguage;
     if (speaking === "en" || speaking === "ta") {
       sourceLanguage = speaking;
       source.lang = romanizedTamil && sourceLanguage === "ta" ? "ta-Latn" : sourceLanguage;
@@ -442,7 +551,14 @@
         sourceLabel.textContent = "Your message";
       }
     }
+    if (directionChanged && mode === "type" && textMode === "live"
+        && source.value.trim() && roomStatus.textContent !== "CLOSED") {
+      invalidate("Room languages changed. Updating the live translation direction…", "waiting");
+      stopSharing();
+      ensureSharing().then(epoch => { if (epoch) scheduleAutomatic(); });
+    }
     if (roomStatus.textContent === "CLOSED") {
+      stopSharing();
       invalidate("This room is closed.", "error");
       finalEvents.replaceChildren();
       seen.clear();
@@ -456,13 +572,26 @@
     source.lang = romanizedTamil ? "ta-Latn" : sourceLanguage;
     invalidate(romanizedTamil ? "Romanized Tamil input selected. Translate to review it."
       : "Tamil input selected. Translate to review it.", "idle");
-    if (textMode === "live") scheduleLive();
+    if (textMode !== "quick") scheduleAutomatic();
+  });
+  window.addEventListener("voicelink-connection-state", event => {
+    if (!event.detail?.connected) {
+      shareGeneration++;
+      shareStartPromise = null;
+      sharingEpoch = null;
+      activeController?.abort();
+      if (textMode === "live") setStatus("Live connection lost. Reconnecting; your draft will be cleared.", "waiting");
+      return;
+    }
+    if (mode === "type" && textMode === "live" && source.value.trim()) {
+      ensureSharing().then(epoch => { if (epoch) scheduleAutomatic(); });
+    }
   });
   setInterval(() => {
     if (review && Date.now() >= Date.parse(review.expiresAt))
       invalidate("Private review expired. Translate again.", "error");
   }, 1000);
   totalCopy();
-  setStatus("Ready to translate.", "idle");
+  setStatus("Type your message. A translation will appear after a short pause.", "idle");
   update();
 })();

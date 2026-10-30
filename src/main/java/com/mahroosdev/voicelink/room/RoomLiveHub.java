@@ -240,11 +240,61 @@ public class RoomLiveHub {
     }
 
     public boolean publishDraft(TextSharingState.DraftUpdate draft) {
-        return false;
+        if (draft == null) return false;
+        Stream stream = streams.get(draft.roomId());
+        if (stream == null) return false;
+        RoomLiveAuthorizer.Member member;
+        try {
+            member = authorizer.authorize(draft.userId(), draft.roomId());
+        } catch (RuntimeException ex) {
+            return false;
+        }
+        if (member.status() != RoomStatus.ACTIVE
+                || !member.participantId().equals(draft.participantId())) return false;
+        synchronized (stream) {
+            if (stream.closed) return false;
+            Connection owner = stream.members.get(draft.userId());
+            if (owner == null || !owner.valid() || !owner.httpSessionId.equals(draft.sessionId())) return false;
+            Map<String, Object> payload = Map.of("draftId", draft.draftId(),
+                    "revision", draft.revision(), "translatedText", draft.translatedText(),
+                    "sourceLanguage", draft.sourceLanguage(), "targetLanguage", draft.targetLanguage(),
+                    "expiresAt", draft.expiresAt().toString());
+            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_UPDATE",
+                    draft.participantId(), draft.draftId(), payload);
+            for (Connection receiver : List.copyOf(stream.members.values())) {
+                if (!receiver.valid()) {
+                    removeMemberLocked(stream, receiver);
+                    close(receiver, CloseStatus.POLICY_VIOLATION);
+                } else send(stream, receiver, event);
+            }
+            return stream.members.containsKey(draft.userId());
+        }
     }
 
     public void publishDraftClear(TextSharingState.DraftClear draft) {
-        // Live previews are private and are never emitted as WebSocket events.
+        if (draft == null) return;
+        Stream stream = streams.get(draft.roomId());
+        if (stream == null) return;
+        RoomLiveAuthorizer.Member member;
+        try {
+            member = authorizer.authorize(draft.userId(), draft.roomId());
+        } catch (RuntimeException ex) {
+            return;
+        }
+        if (!member.participantId().equals(draft.participantId())) return;
+        synchronized (stream) {
+            if (stream.closed) return;
+            LiveRoomEvent event = event(stream, draft.roomId(), "TEXT_DRAFT_CLEAR",
+                    draft.participantId(), draft.draftId(),
+                    Map.of("draftId", draft.draftId(), "revision", draft.revision(),
+                            "reason", draft.reason()));
+            for (Connection receiver : List.copyOf(stream.members.values())) {
+                if (!receiver.valid()) {
+                    removeMemberLocked(stream, receiver);
+                    close(receiver, CloseStatus.POLICY_VIOLATION);
+                } else send(stream, receiver, event);
+            }
+        }
     }
 
     private void errorLocked(Connection connection, String code, String message) {

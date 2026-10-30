@@ -49,6 +49,7 @@ public class TextSharingState {
         Share share = require(roomId, userId, participantId, sessionId, epoch);
         if (revision <= share.latestRevision)
             throw conflict("A newer Shared Live revision already exists.");
+        clearPublished(share, "REVISION_UPDATED", clear);
         share.latestRevision = revision;
         share.expiresAt = clock.instant().plusSeconds(SHARE_SECONDS);
         return new Lease(roomId, userId, participantId, sessionId, epoch,
@@ -86,9 +87,17 @@ public class TextSharingState {
     public synchronized boolean invalidate(UUID roomId, UUID userId, UUID participantId,
                                            String sessionId, UUID epoch, long revision,
                                            Consumer<DraftClear> clear) {
+        return invalidate(roomId, userId, participantId, sessionId, epoch, revision, () -> {}, clear);
+    }
+
+    public synchronized boolean invalidate(UUID roomId, UUID userId, UUID participantId,
+                                           String sessionId, UUID epoch, long revision,
+                                           Runnable beforeAccept, Consumer<DraftClear> clear) {
         pruneLocked(clear);
         Share share = require(roomId, userId, participantId, sessionId, epoch);
         if (revision <= share.latestRevision) return false;
+        beforeAccept.run();
+        clearPublished(share, "REVISION_UPDATED", clear);
         share.latestRevision = revision;
         share.expiresAt = clock.instant().plusSeconds(SHARE_SECONDS);
         return true;
@@ -140,6 +149,17 @@ public class TextSharingState {
 
     public synchronized void close(UUID roomId) {
         shares.keySet().removeIf(key -> key.roomId.equals(roomId));
+    }
+
+    public synchronized void clearRoom(UUID roomId, Consumer<DraftClear> clear) {
+        Iterator<Map.Entry<Key, Share>> iterator = shares.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Share share = iterator.next().getValue();
+            if (share.roomId.equals(roomId)) {
+                iterator.remove();
+                clear(share, "LANGUAGES_CHANGED", clear);
+            }
+        }
     }
 
     public synchronized void prune(Consumer<DraftClear> clear) { pruneLocked(clear); }
