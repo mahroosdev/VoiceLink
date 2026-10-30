@@ -34,6 +34,7 @@ management:
 
 voicelink:
   abuse:
+    password-hash-max-concurrent: ${VOICELINK_ABUSE_PASSWORD_HASH_MAX_CONCURRENT:1}
     login-per-address-per-minute: ${VOICELINK_ABUSE_LOGIN_PER_ADDRESS_PER_MINUTE:120}
     login-per-instance-per-minute: ${VOICELINK_ABUSE_LOGIN_PER_INSTANCE_PER_MINUTE:1200}
     registration-per-address-per-minute: ${VOICELINK_ABUSE_REGISTRATION_PER_ADDRESS_PER_MINUTE:20}
@@ -45,6 +46,8 @@ voicelink:
     invitation-per-address-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_ADDRESS_PER_MINUTE:60}
     invitation-per-account-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_ACCOUNT_PER_MINUTE:120}
     invitation-per-instance-per-minute: ${VOICELINK_ABUSE_INVITATION_PER_INSTANCE_PER_MINUTE:1800}
+    live-invalidation-per-account-per-minute: ${VOICELINK_ABUSE_LIVE_INVALIDATION_PER_ACCOUNT_PER_MINUTE:300}
+    live-invalidation-per-instance-per-minute: ${VOICELINK_ABUSE_LIVE_INVALIDATION_PER_INSTANCE_PER_MINUTE:1200}
   translation:
     timeout: ${VOICELINK_TRANSLATION_TIMEOUT:15s}
   text:

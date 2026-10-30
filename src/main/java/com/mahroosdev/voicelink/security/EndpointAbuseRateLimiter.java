@@ -19,7 +19,7 @@ public class EndpointAbuseRateLimiter {
     private static final long WINDOW_NANOS = TimeUnit.MINUTES.toNanos(1);
     private static final int MAX_LIMIT = 10_000;
 
-    public enum Route { LOGIN, REGISTRATION, PASSWORD_RESET, ROOM_CREATION, INVITATION }
+    public enum Route { LOGIN, REGISTRATION, PASSWORD_RESET, ROOM_CREATION, INVITATION, LIVE_INVALIDATION }
 
     private final Map<Route, Window> windows = new EnumMap<>(Route.class);
     private final LongSupplier ticker;
@@ -36,10 +36,13 @@ public class EndpointAbuseRateLimiter {
             @Value("${voicelink.abuse.room-creation-per-instance-per-minute:600}") int roomInstance,
             @Value("${voicelink.abuse.invitation-per-address-per-minute:60}") int invitationAddress,
             @Value("${voicelink.abuse.invitation-per-account-per-minute:120}") int invitationAccount,
-            @Value("${voicelink.abuse.invitation-per-instance-per-minute:1800}") int invitationInstance) {
+            @Value("${voicelink.abuse.invitation-per-instance-per-minute:1800}") int invitationInstance,
+            @Value("${voicelink.abuse.live-invalidation-per-account-per-minute:300}") int liveInvalidationAccount,
+            @Value("${voicelink.abuse.live-invalidation-per-instance-per-minute:1200}") int liveInvalidationInstance) {
         this(new Limits(loginAddress, loginInstance, registrationAddress, registrationInstance,
                 resetAddress, resetInstance, roomAccount, roomInstance,
-                invitationAddress, invitationAccount, invitationInstance), System::nanoTime);
+                invitationAddress, invitationAccount, invitationInstance,
+                liveInvalidationAccount, liveInvalidationInstance), System::nanoTime);
     }
 
     EndpointAbuseRateLimiter(Limits limits, LongSupplier ticker) {
@@ -49,6 +52,7 @@ public class EndpointAbuseRateLimiter {
         add(Route.PASSWORD_RESET, limits.resetAddress, 0, limits.resetInstance);
         add(Route.ROOM_CREATION, 0, limits.roomAccount, limits.roomInstance);
         add(Route.INVITATION, limits.invitationAddress, limits.invitationAccount, limits.invitationInstance);
+        add(Route.LIVE_INVALIDATION, 0, limits.liveInvalidationAccount, limits.liveInvalidationInstance);
     }
 
     public synchronized boolean tryAcquire(Route route, String remoteAddress, UUID accountId) {
@@ -64,6 +68,8 @@ public class EndpointAbuseRateLimiter {
             case INVITATION -> accountId == null ? List.of()
                     : List.of(new Identity(Scope.ADDRESS, normalize(remoteAddress), window.addressLimit),
                               new Identity(Scope.ACCOUNT, accountId.toString(), window.accountLimit));
+            case LIVE_INVALIDATION -> accountId == null ? List.of()
+                    : List.of(new Identity(Scope.ACCOUNT, accountId.toString(), window.accountLimit));
         };
         if (identities.isEmpty() || window.accepted.size() >= window.instanceLimit) return false;
         for (Identity identity : identities) {
@@ -92,7 +98,8 @@ public class EndpointAbuseRateLimiter {
     private void add(Route route, int addressLimit, int accountLimit, int instanceLimit) {
         if (addressLimit < 0 || accountLimit < 0 || instanceLimit < 1 || instanceLimit > MAX_LIMIT
                 || addressLimit > instanceLimit || accountLimit > instanceLimit
-                || addressLimit == 0 && accountLimit == 0) {
+                || addressLimit == 0 && accountLimit == 0
+                || route == Route.INVITATION && (addressLimit == 0 || accountLimit == 0)) {
             throw new IllegalArgumentException("Invalid endpoint abuse limits for " + route);
         }
         windows.put(route, new Window(addressLimit, accountLimit, instanceLimit));
@@ -119,7 +126,8 @@ public class EndpointAbuseRateLimiter {
     record Limits(int loginAddress, int loginInstance, int registrationAddress,
                   int registrationInstance, int resetAddress, int resetInstance,
                   int roomAccount, int roomInstance, int invitationAddress,
-                  int invitationAccount, int invitationInstance) {}
+                  int invitationAccount, int invitationInstance,
+                  int liveInvalidationAccount, int liveInvalidationInstance) {}
 
     private static final class Window {
         private final int addressLimit;

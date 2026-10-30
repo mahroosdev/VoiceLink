@@ -20,10 +20,13 @@ public final class EndpointAbuseFilter extends OncePerRequestFilter {
 
     private final EndpointAbuseRateLimiter limiter;
     private final PasswordResetSettings passwordResetSettings;
+    private final PasswordHashConcurrencyGate passwordHashGate;
 
-    public EndpointAbuseFilter(EndpointAbuseRateLimiter limiter, PasswordResetSettings passwordResetSettings) {
+    public EndpointAbuseFilter(EndpointAbuseRateLimiter limiter, PasswordResetSettings passwordResetSettings,
+                               PasswordHashConcurrencyGate passwordHashGate) {
         this.limiter = limiter;
         this.passwordResetSettings = passwordResetSettings;
+        this.passwordHashGate = passwordHashGate;
     }
 
     @Override
@@ -35,30 +38,54 @@ public final class EndpointAbuseFilter extends OncePerRequestFilter {
             path = requestUri.substring(Math.min(request.getContextPath().length(), requestUri.length()));
         }
         EndpointAbuseRateLimiter.Route route = route(request.getMethod(), path);
-        if (route == null || route == EndpointAbuseRateLimiter.Route.PASSWORD_RESET
+        boolean hashRequest = passwordHashRequest(request, path);
+        if (route == null && !hashRequest || route == EndpointAbuseRateLimiter.Route.PASSWORD_RESET
                 && !passwordResetSettings.enabled()) {
             chain.doFilter(request, response);
             return;
         }
 
         UUID accountId = authenticatedAccountId();
-        if ((route == EndpointAbuseRateLimiter.Route.ROOM_CREATION
-                || route == EndpointAbuseRateLimiter.Route.INVITATION) && accountId == null) {
+        if (route != null && (route == EndpointAbuseRateLimiter.Route.ROOM_CREATION
+                || route == EndpointAbuseRateLimiter.Route.INVITATION
+                || route == EndpointAbuseRateLimiter.Route.LIVE_INVALIDATION) && accountId == null) {
             chain.doFilter(request, response);
             return;
         }
 
         // Use the servlet connection address only; never parse forwarded-address headers here.
-        if (!limiter.tryAcquire(route, request.getRemoteAddr(), accountId)) {
-            response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-            response.setHeader("Retry-After", "60");
-            response.setHeader("Cache-Control", "no-store");
-            response.setContentType("text/plain");
-            response.setCharacterEncoding("UTF-8");
-            response.getWriter().write(TOO_MANY_REQUESTS);
+        if (route != null && !limiter.tryAcquire(route, request.getRemoteAddr(), accountId)) {
+            writeTooManyRequests(response);
             return;
         }
-        chain.doFilter(request, response);
+        boolean hashPermit = hashRequest && passwordHashGate.tryAcquire();
+        if (hashRequest && !hashPermit) {
+            writeTooManyRequests(response);
+            return;
+        }
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            if (hashPermit) passwordHashGate.release();
+        }
+    }
+
+    private static void writeTooManyRequests(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        response.setHeader("Retry-After", "60");
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentType("text/plain");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(TOO_MANY_REQUESTS);
+    }
+
+    private boolean passwordHashRequest(HttpServletRequest request, String path) {
+        if (!"POST".equals(request.getMethod())) return false;
+        return switch (path) {
+            case "/login", "/register", "/account/delete" -> true;
+            case "/reset-password" -> passwordResetSettings.enabled();
+            default -> false;
+        };
     }
 
     private static EndpointAbuseRateLimiter.Route route(String method, String path) {
@@ -70,8 +97,19 @@ public final class EndpointAbuseFilter extends OncePerRequestFilter {
             case "/rooms" -> EndpointAbuseRateLimiter.Route.ROOM_CREATION;
             case "/rooms/join", "/rooms/join/preview", "/rooms/join/setup" ->
                     EndpointAbuseRateLimiter.Route.INVITATION;
-            default -> null;
+            default -> liveInvalidationRoute(method, path);
         };
+    }
+
+    private static EndpointAbuseRateLimiter.Route liveInvalidationRoute(String method, String path) {
+        if (!"POST".equals(method)) return null;
+        String[] segments = path.split("/", -1);
+        return segments.length == 8 && segments[0].isEmpty()
+                && "api".equals(segments[1]) && "rooms".equals(segments[2])
+                && !segments[3].isEmpty() && "text".equals(segments[4])
+                && "shares".equals(segments[5]) && !segments[6].isEmpty()
+                && "invalidate".equals(segments[7])
+                ? EndpointAbuseRateLimiter.Route.LIVE_INVALIDATION : null;
     }
 
     private static UUID authenticatedAccountId() {

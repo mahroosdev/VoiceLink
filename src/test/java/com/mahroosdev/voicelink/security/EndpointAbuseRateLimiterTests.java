@@ -107,6 +107,24 @@ class EndpointAbuseRateLimiterTests {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> limiter(1, 10_001, 1, 2, 1, 2, 1, 2, 1, 2, 2, new AtomicLong()))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> limiter(1, 2, 1, 2, 1, 2, 1, 2, 0, 2, 2, new AtomicLong()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> limiter(1, 2, 1, 2, 1, 2, 1, 2, 1, 0, 2, new AtomicLong()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PasswordHashConcurrencyGate(0))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test void invalidationRequestsAreBoundedByAccountEvenWhenEachRevisionIsRejectedLater() {
+        var limiter = limiter(2, 4, 2, 4, 2, 4, 1, 3, 2, 2, 4, new AtomicLong());
+        UUID user = UUID.randomUUID();
+        var route = EndpointAbuseRateLimiter.Route.LIVE_INVALIDATION;
+
+        assertThat(limiter.tryAcquire(route, "198.51.100.1", user)).isTrue();
+        assertThat(limiter.tryAcquire(route, "198.51.100.2", user)).isTrue();
+        assertThat(limiter.tryAcquire(route, "198.51.100.3", user)).isTrue();
+        assertThat(limiter.tryAcquire(route, "198.51.100.4", user)).isFalse();
+        assertThat(limiter.tryAcquire(route, "198.51.100.4", UUID.randomUUID())).isTrue();
     }
 
     private static EndpointAbuseRateLimiter limiter(int loginAddress, int loginInstance,
@@ -115,6 +133,7 @@ class EndpointAbuseRateLimiterTests {
             int invitationInstance, AtomicLong ticker) {
         return new EndpointAbuseRateLimiter(new EndpointAbuseRateLimiter.Limits(loginAddress, loginInstance,
                 registrationAddress, registrationInstance, resetAddress, resetInstance,
-                roomAccount, roomInstance, invitationAddress, invitationAccount, invitationInstance), ticker::get);
+                roomAccount, roomInstance, invitationAddress, invitationAccount, invitationInstance,
+                3, 10), ticker::get);
     }
 }

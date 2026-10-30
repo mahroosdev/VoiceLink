@@ -8,6 +8,7 @@ import com.mahroosdev.voicelink.auth.AccountSessionRegistry;
 import com.mahroosdev.voicelink.auth.PasswordResetSettings;
 import com.mahroosdev.voicelink.security.EndpointAbuseFilter;
 import com.mahroosdev.voicelink.security.EndpointAbuseRateLimiter;
+import com.mahroosdev.voicelink.security.PasswordHashConcurrencyGate;
 import com.mahroosdev.voicelink.user.UserAccountRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,6 +34,7 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountRepository accounts,
                                             AccountSessionRegistry sessions,
                                             EndpointAbuseRateLimiter abuseRateLimiter,
+                                            PasswordHashConcurrencyGate passwordHashGate,
                                             PasswordResetSettings passwordResetSettings) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/", "/about", "/login", "/register", "/forgot-password",
@@ -74,7 +76,8 @@ public class SecurityConfig {
                     .deleteCookies("JSESSIONID"))
             .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
             .addFilterAfter(new CurrentCredentialFilter(accounts, sessions), SecurityContextHolderFilter.class)
-            .addFilterAfter(new EndpointAbuseFilter(abuseRateLimiter, passwordResetSettings), CsrfFilter.class);
+            .addFilterAfter(new EndpointAbuseFilter(abuseRateLimiter, passwordResetSettings, passwordHashGate),
+                    CsrfFilter.class);
         return http.build();
     }
 }

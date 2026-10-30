@@ -71,7 +71,7 @@ Room access is checked server-side. Audio is sent to Groq for transcription; the
 ## Limitations
 
 - English↔Tamil is the only supported pair. Live recognition, naturalness, pronunciation, latency, and end-to-end browser behavior require human testing.
-- Public signup and invitation endpoints need additional abuse controls before unrestricted public use.
+- Public signup, login, password recovery (when enabled), room creation, invitation attempts, Live draft invalidations, and concurrent memory-hard password operations have configurable process-local safeguards. Before unrestricted public use, verify trusted proxy address handling and configure external ingress controls; these in-process limits are not shared across replicas.
 - WebSocket state, rate limits, temporary captions, and generated audio are process-local; the current deployment design is single-instance.
 - Premium activation, billing behavior, quality, and paid-provider operation are deferred and unverified.
 
